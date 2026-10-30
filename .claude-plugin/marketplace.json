@@ -1,0 +1,19 @@
+{
+  "name": "nng-kit",
+  "owner": { "name": "nigelng" },
+  "metadata": { "description": "Lifecycle skills and Claude Code mods from the nng kit" },
+  "plugins": [
+    {
+      "name": "lifecycle",
+      "source": "./plugins/lifecycle",
+      "description": "Idea-to-shipped skill chain: brainstorm, make-plan, critique, execute-plan, commit, gh-create-pr, gh-draft-release, gh-tag-release",
+      "version": "0.1.0"
+    },
+    {
+      "name": "evc-observe",
+      "source": "./plugins/evc-observe",
+      "description": "Live status for /execute-via-cursor runs in a pane and status line, never in model context",
+      "version": "0.2.0"
+    }
+  ]
+}
