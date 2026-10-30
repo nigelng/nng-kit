@@ -1,0 +1,7 @@
+{
+  "name": "evc-observe",
+  "version": "0.2.0",
+  "author": { "name": "nigelng" },
+  "description": "Live status for /execute-via-cursor runs: tails .claude/tmp/evc-run-<n>.ndjson into a pane and status line, never into model context",
+  "types": "./types/index.d.ts"
+}
