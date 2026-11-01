@@ -1,8 +1,8 @@
 # nng-kit
 
-A Claude Code plugin marketplace with the `lifecycle` skill chain and the
-`evc-observe` mod. The same skill directories also work in Cursor, Devin and
-Windsurf as plain `SKILL.md` skills.
+A Claude Code plugin marketplace with the `lifecycle` skill chain, the
+`evc-observe` mod, and `relay` cross-surface handoff. The same lifecycle skill
+directories also work in Cursor, Devin and Windsurf as plain `SKILL.md` skills.
 
 Source of truth is the `nng-kit/` folder of
 the private source repo. This repo is
@@ -18,6 +18,10 @@ claude plugin marketplace add nigelng/nng-kit
 claude plugin install lifecycle@nng-kit
 ```
 
+```bash
+claude plugin install relay@nng-kit
+```
+
 Optional, local only (needs the Cursor `agent` CLI for the runs it watches):
 
 ```bash
@@ -31,11 +35,21 @@ Per-repo alternative, in `.claude/settings.json`:
   "extraKnownMarketplaces": {
     "nng-kit": { "source": { "source": "github", "repo": "nigelng/nng-kit" } }
   },
-  "enabledPlugins": { "lifecycle@nng-kit": true }
+  "enabledPlugins": {
+    "lifecycle@nng-kit": true,
+    "relay@nng-kit": true
+  }
 }
 ```
 
-Plugin skills are namespaced: `/lifecycle:make-plan`, `/lifecycle:commit`, …
+Plugin skills are namespaced: `/lifecycle:make-plan`, `/relay:save`, …
+
+### Optional Dropbox root for `relay`
+
+Code-side Dropbox mirroring reads `$RELAY_DROPBOX_ROOT` from the environment
+(set in the host `settings.json` `env` block). If unset, `relay` is repo-only
+(`docs/handoffs/<branch-slug>.md`). Spaces are listed at runtime in
+`<root>/README.md` (`## Spaces`). See [plugins/relay/README.md](plugins/relay/README.md).
 
 ## Install (Cursor, Devin, Windsurf)
 
@@ -50,6 +64,7 @@ Invoke as `/<name>`.
 | --- | --- | --- |
 | `lifecycle` | 0.1.0 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
 | `evc-observe` | 0.2.0 | Pane + status line for `/execute-via-cursor` runs. See [README](plugins/evc-observe/README.md). |
+| `relay` | 0.1.0 | Cross-surface handoff (save / pickup / check / discard + SessionStart). See [README](plugins/relay/README.md). |
 
 ### `lifecycle` skills
 
