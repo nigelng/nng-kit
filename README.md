@@ -6,7 +6,8 @@ directories also work in Cursor, Devin and Windsurf as plain `SKILL.md` skills.
 
 Source of truth is the `nng-kit/` folder of
 the private source repo. This repo is
-a `git subtree split` of that folder, so open changes there, not here.
+snapshot-synced from that folder by CI on each merge, so open changes there,
+not here.
 
 ## Install (Claude Code)
 

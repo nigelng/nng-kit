@@ -241,3 +241,22 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"commits-past-saved-at: unknown"* ]]
 }
+
+@test "detached HEAD + 'branch: detached' → branch-changed: no" {
+  git -C "$FIXTURE" checkout -q --detach
+  slug="detached-$(git -C "$FIXTURE" rev-parse --short HEAD)"
+  write_handoff "$slug" "2026-10-15T12:00:00Z"
+  sed -i.bak 's/^branch: .*/branch: "detached"/' "$FIXTURE/docs/handoffs/${slug}.md"
+  run run_hook
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"branch-changed: no"* ]]
+}
+
+@test "quoted branch in frontmatter → branch-changed: no" {
+  branch="$(git -C "$FIXTURE" branch --show-current)"
+  write_handoff "$branch" "2026-10-15T12:00:00Z"
+  sed -i.bak "s/^branch: .*/branch: \"${branch}\"/" "$FIXTURE/docs/handoffs/${branch}.md"
+  run run_hook
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"branch-changed: no"* ]]
+}

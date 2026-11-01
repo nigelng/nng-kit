@@ -58,6 +58,7 @@ Compute with inline Bash (adapt as needed; do not source plugin scripts):
 saved_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 sha="$(git rev-parse HEAD 2>/dev/null || true)"
 branch="$(git branch --show-current 2>/dev/null || true)"
+branch_yaml="$(printf '%s' "${branch:-detached}" | tr -d '"\\')"
 origin_url="$(git remote get-url origin 2>/dev/null || true)"
 # owner/name from SSH or HTTPS origin; strip .git
 repo="$(printf '%s\n' "$origin_url" | sed -E 's#^(git@|https://|ssh://git@)([^/:]+)[:/]##' | sed -E 's#\.git$##')"
@@ -93,7 +94,7 @@ Required fields for a repo save:
 | `origin` | `code-repo` |
 | `saved-at` | `$saved_at` |
 | `repo` | `owner/name` |
-| `branch` | current branch (or note detached) |
+| `branch` | current branch (or `detached`), written double-quoted as `branch: "$branch_yaml"` (`"` and `\` already deleted) |
 | `sha` | commit SHA |
 | `rev` | `1` |
 

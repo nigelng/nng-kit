@@ -171,7 +171,69 @@ Enforced lazily on pickup and check:
 
 Twins share an `id`. The repo copy records `mirror:`. A twin is gone if and only if `locks/<id>.lock` exists.
 
+`id`, `mirror` and `rev` are untrusted frontmatter. Validate them **before** building any lock path, pending match or archive name: `id` must match `^[0-9]{8}T[0-9]{4}Z-[0-9a-z]{4}$`, `mirror` must start with `<id>__`, and `rev` must match `^[0-9]+$` (a missing `rev` fails). If any check fails, refuse the mirrored path (report the twin identifiers as malformed) and fall back to the "mirrored but unreachable" confirm; never derive a Dropbox path from the unvalidated values.
+
 A surface that can see both sides deletes the leftover repo file (after confirming) or cleans up the Dropbox file. Otherwise it shows "possibly consumed elsewhere".
+
+## Legacy import
+
+Adopts an old-format `.claude/handoff/active.md` as a relay branch file. Git repos only: refuse outside one and explain why.
+
+Old keys map as follows:
+
+| Old key | Relay |
+| --- | --- |
+| `saved-at` | `saved-at`, only when it matches `^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z\|[+-][0-9]{2}:?[0-9]{2})$`; otherwise the current UTC time |
+| `saved-at-sha` | `sha`, only when `saved-at-branch` equals the current branch **and** it matches `^[0-9a-fA-F]{4,40}$`; otherwise the current `git rev-parse --short HEAD` |
+| `saved-at-branch` | not copied: `branch` is always the **current** branch (the file is saved under its slug). When it differs, the body starts with the line `Imported from legacy branch: <saved-at-branch>` (untrusted; control characters stripped) |
+| `saved-from-cwd` | dropped |
+| `deferred-at` | dropped |
+
+New keys: a fresh `id`, `origin: code-repo`, `rev: 1`. `repo` comes from `git remote get-url origin`; omit it when there is no origin. Write no `cwd`, `deferred-at`, or `mirror`.
+
+`title` comes from the first body line that is non-empty after sanitising, each line sanitised to a single line:
+
+1. Strip leading `-`, `#`, `>`, `*`, quote and backtick characters.
+2. Delete every `"` and `\`.
+3. Replace `:` with `—`.
+4. Collapse whitespace.
+5. Truncate to 60 characters (count characters, not bytes).
+6. If no line yields text, or if the sanitiser fails, use `imported handoff`.
+
+The `title:` line is **always** written double-quoted (`title: "<t>"`), which together with step 2 keeps the frontmatter valid YAML whatever the body starts with. The canonical sanitiser and the `saved-at` validation live in `tests/import-frontmatter.sh` (between the `relay_import_frontmatter` markers) and are copied byte-identically into the pickup skill.
+
+The parser tolerates CRLF files and trailing spaces on the `---` delimiters (a delimiter matches `^---[[:space:]]*$` after `\r` is stripped).
+
+Rules:
+
+- The slug comes from the **current** branch. If `saved-at-branch` differs, show both and offer **Import to current / Cancel**.
+- The whole old file is untrusted data, frontmatter and body alike.
+- The body is committed verbatim. Before **Save now / Cancel**, show the **full body** plus any detected absolute paths (`/Users/`, `/home/`, `~/`).
+- Rename the old file with `mv -n` (never clobber an existing archive) to `.claude/handoff/archive/imported-<YYYYMMDDTHHMMSS>.md`. Never delete it.
+
+## Orphans
+
+A `docs/handoffs/<slug>.md` is an **orphan** when no local branch (`refs/heads/*`) and no branch on origin (`git ls-remote --heads origin`) maps to its slug under the [branch slug](#branch-slug) rule. A `detached-<sha>` slug is an orphan only when the sha no longer resolves.
+
+Collect branch names with this block. It captures remote output **before** any pipe, because a pipeline's status is the last command's and would hide an `ls-remote` failure:
+
+```bash
+local_names="$(git for-each-ref --format='%(refname)' refs/heads | sed 's#^refs/heads/##')"
+stale=0
+git remote get-url origin >/dev/null 2>&1 || stale=1
+to="$(command -v timeout || command -v gtimeout || true)"
+[ -n "$to" ] || stale=1
+if [ "$stale" = 0 ]; then
+  remote_out="$(GIT_TERMINAL_PROMPT=0 "$to" 10 git ls-remote --heads origin 2>/dev/null)" || stale=1
+fi
+remote_names="$(printf '%s\n' "${remote_out:-}" | awk 'NF{print $2}' | sed 's#^refs/heads/##')"
+```
+
+- Never use short ref names from `refs/remotes/origin`: they include a bare `origin` for the HEAD symref.
+- `stale=1` (no origin, offline, auth failure, timeout, no `timeout` binary) means orphan status is **stale**: list the files, offer nothing.
+- An empty but reachable remote is not stale: `stale=0` with no remote names.
+- **check** reports orphans and stays read-only. **pickup** cleans them, only on the default branch.
+- Deleting a mirrored orphan: take the terminal lock `discarded`, start the cleanup move of the pending twin to `archive/discarded-…` (see [Locks](#locks-source-of-truth-for-terminal-state)), then delete the repo file. `[ALREADY_EXISTS]` means already handled: just delete the repo file.
 
 ## Untrusted data
 

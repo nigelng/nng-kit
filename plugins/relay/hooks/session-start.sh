@@ -96,6 +96,9 @@ if command -v git >/dev/null 2>&1 && git -C "$CWD" rev-parse --git-dir >/dev/nul
   if [[ -n "$fm_branch" ]]; then
     if [[ -n "$current_branch" && "$fm_branch" == "$current_branch" ]]; then
       branch_changed="no"
+    elif [[ -z "$current_branch" && "$fm_branch" == "detached" ]]; then
+      # Import writes `branch: detached` for a detached HEAD.
+      branch_changed="no"
     elif [[ -n "$current_branch" ]]; then
       branch_changed="yes"
     elif [[ -z "$current_branch" ]]; then
