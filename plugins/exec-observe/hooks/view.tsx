@@ -5,8 +5,8 @@ import type { Run, TimelineEntry, TimelineKind, ViewMode } from '../types'
 import { elapsed, phaseOf, type Phase } from './reduce'
 
 // Same refs as register.tsx; declared here so `update` is scannable in this file.
-const viewAtom = atom({ plugin: 'evc-observe', key: 'view' } as const, 'compact' as ViewMode)
-const showErrAtom = atom({ plugin: 'evc-observe', key: 'showErr' } as const, false)
+const viewAtom = atom({ plugin: 'exec-observe', key: 'view' } as const, 'compact' as ViewMode)
+const showErrAtom = atom({ plugin: 'exec-observe', key: 'showErr' } as const, false)
 
 // Rows outside the timeline, counted from the tree renderPane draws: every
 // Text is one row (`wrap="truncate-end"`), and only the timeline, stderr and
@@ -94,7 +94,7 @@ export function renderPane($: EngineInterface, e: RenderInput, model: PaneModel,
   if (!run) {
     return (
       <Box flexDirection="column" gap={1}>
-        <Text dimColor>No execute-via-cursor run yet.</Text>
+        <Text dimColor>No /exec run yet.</Text>
         <Text dimColor>Watching {watching || '.claude/tmp'}</Text>
       </Box>
     )
@@ -123,7 +123,7 @@ export function renderPane($: EngineInterface, e: RenderInput, model: PaneModel,
           {phaseLabel(phase)}
         </Text>
         <Text bold wrap={one}>
-          evc #{run.n}
+          exec #{run.n} [{run.backend}]
           {took !== null ? ` · ${elapsed(took)}` : ''}
           {run.model ? ` · ${run.model}` : ''}
         </Text>

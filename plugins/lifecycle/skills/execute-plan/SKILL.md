@@ -11,27 +11,23 @@ disable-model-invocation: true
 
 # execute-plan
 
-Execute a structured implementation plan. The main agent orchestrates: locate the plan, ensure an Execution map (draft → confirm → persist if missing), pre-flight checks, **delegate implementation by Execution-map waves** (parallel `generalPurpose` Tasks per wave, model tier per step), then an **independent** read-only critique pass on a **top-tier** model (same criteria as `/critique change`). Iterate until no `blocking`/`important` findings remain and agreed tests pass.
+Execute a structured plan. Orchestrate: locate plan → ensure Execution map → pre-flight → **wave-delegated implement** (parallel `generalPurpose` Tasks, tier per step) → **independent** review loop (mid intermediate, **top** final) until no `blocking`/`important` remain and agreed tests pass.
 
 **References (read when needed):** [implementer.md](implementer.md) · [review.md](review.md) · [execution-status.md](execution-status.md)
-
-## Relationship to plain Agent mode
-
-Saying "implement this plan" in Agent mode can work without this skill. Use **`/execute-plan`** when you want the **implement ↔ independent critique** loop and explicit plan tracking. Keep the skill thin: do not re-plan beyond drafting/confirming an Execution map; do not expand scope beyond the plan file.
 
 ## Preconditions
 
 **Requires Agent mode.** If you are in Plan or Ask mode, stop and tell the user to switch to Agent mode before continuing.
 
-**Orchestrator model (top-tier).** The `/execute-plan` main session must run on a **top-tier** model (Opus 5.5 / Opus 4.6 / Fable or equivalent). If clearly mid- or low-tier, warn once and recommend switching before delegating. The orchestrator does **not** edit implementation source files — only locates the plan, manages the map, dual-writes plan status/log (see Status audit), launches Tasks, and summarizes. Plan-file map and status edits remain allowed.
+**Orchestrator model (top-tier).** Session/Task tiers: [model-tiers.md](model-tiers.md) (`top`/`mid`/`low`). Warn once if the session is below top-tier and recommend switching before delegating. The orchestrator does **not** edit implementation source files — only locates the plan, manages the map, dual-writes plan status/log (see Status audit), launches Tasks, and summarizes. Plan-file map and status edits remain allowed.
 
 ## Step 1 — Locate the plan
 
-Args are either a path under `docs/plans/` **or** `.cursor/plans/`, or a plan slug/timestamp. Resolve slugs against `docs/plans/` first, then `.cursor/plans/`; use `Glob` for the most recent match if needed.
+Args are a path under `docs/plans/**` or a plan slug/timestamp. Resolve slugs against `docs/plans/` only; use `Glob` for the most recent match if needed.
 
-If no argument, list `docs/plans/*.md` and recent `.cursor/plans/*.md`, then ask the user to pick (`AskQuestion` when available). Prefer `docs/plans/**` when both exist for the same work.
+If no argument, list `docs/plans/*.md`, then ask the user to pick (`AskQuestion` when available).
 
-If missing/unreadable, stop. Do **not** execute raw `~/.claude/plans/` — require a fleet plan under `docs/plans/**` (or a promoted `.cursor/plans/` file).
+If the user points at `.cursor/plans/`, stop and tell them to promote via `/make-plan` into `docs/plans/**` first. If missing/unreadable, stop. Do **not** execute raw `~/.claude/plans/` — require a fleet plan under `docs/plans/**`.
 
 ## Step 2 — Read and parse the plan
 
@@ -39,7 +35,17 @@ Extract: Purpose, Scope, Assumptions, Dependencies, Implementation steps, Execut
 
 If a section is ambiguous or referenced files do not exist, ask a focused clarifying question before proceeding. Treat legacy tier `sonnet` as alias of `auto`.
 
-## Step 2.25 — Execution map (required before implement)
+## Step 2.5 — Refuse if blocked or incomplete
+
+Hard stop (not a clarifying question) if any of:
+
+- Explicit unresolved **"Blocked on"** note
+- Missing **Success criteria** section
+- Missing **Verification** section
+
+State which condition triggered and the next step: resolve the blocker, or `/make-plan update <path>`, then re-invoke `/execute-plan`. Ambiguous *content* inside an existing section → clarifying question (Step 2); missing section / unresolved blocker → hard stop.
+
+## Step 2.75 — Execution map (required before implement)
 
 Do **not** invent silent sequential `auto` steps and proceed. An Execution map must exist and be validated before Step 4.
 
@@ -59,16 +65,6 @@ Do **not** invent silent sequential `auto` steps and proceed. An Execution map m
 
 Re-run validation after confirm/persist (or when the map was already present); fix or ask before Step 4.
 
-## Step 2.5 — Refuse if blocked or incomplete
-
-Hard stop (not a clarifying question) if any of:
-
-- Explicit unresolved **"Blocked on"** note
-- Missing **Success criteria** section
-- Missing **Verification** section
-
-State which condition triggered and the next step: resolve the blocker, or `/make-plan update <path>`, then re-invoke `/execute-plan`. Ambiguous *content* inside an existing section → clarifying question (Step 2); missing section / unresolved blocker → hard stop.
-
 ## Step 3 — Pre-flight checks
 
 1. Project root: `git rev-parse --show-toplevel` (else cwd).
@@ -80,7 +76,7 @@ State which condition triggered and the next step: resolve the blocker, or `/mak
 
 ## Status audit (orchestrator dual-write)
 
-`Read` [execution-status.md](execution-status.md) for schema, `%` formula, placement, and dual-write rule — do **not** paste the full contract here. The **orchestrator** dual-writes YAML frontmatter + `## Execution log` in **one edit** at each locked timing below. Rows outside the current run’s step-scope (or equivalent subset) → `skipped` / `out of step-scope` **only if not already `done`** (never leave `pending`; never downgrade prior `done`). Scoped PASS with remaining out-of-scope skips → overall `partial`, not `completed`.
+`Read` [execution-status.md](execution-status.md) for schema, `%` formula, placement, and dual-write rule. Dual-write YAML frontmatter + `## Execution log` in **one edit** at:
 
 1. **Start** — after Step 3 (and map validation) pass, before or as Step 4 begins: ensure frontmatter + log exist; `status: in-progress`; `started_at` if unset; scoped rows `pending` (leave prior `done` on resume). Confirm with the user before resetting an already-`completed` plan.
 2. **After each wave** (success or wave-failure stop): update those row statuses + frontmatter `%` / `updated_at`.
@@ -92,43 +88,29 @@ Do **not** send the whole plan to a single subagent. Orchestrate from the valida
 
 ### Model resolution (per map tier) — implementers
 
-| Map tier | Cursor | Claude Code |
-| --- | --- | --- |
-| `haiku` | Haiku / kit haiku slug when pin is available; else Auto with prompt noting mechanical scope | Haiku / kit haiku slug |
-| `auto` (mid-tier; legacy `sonnet` → `auto`) | **Platform Auto** — `model: inherit` or omit; **never pin Sonnet** | **Sonnet** |
-| `opus` | Only when the map says so (rare for implement) | Same — state reason in the report |
-
-Always set model explicitly on Claude Code spawns. On Cursor, mid-tier must stay Auto. If the tool cannot set the subagent model, stop and tell the user before delegating.
+Resolve map tiers `haiku`/`auto`/`opus` via [model-tiers.md](model-tiers.md) (`low`/`mid`/`top`). Always set the model explicitly; if you can't, stop and tell the user before delegating.
 
 ### Wave schedule
 
 1. Group map rows by **Wave** (ascending).
 2. Within a wave, launch **one `Task` (`generalPurpose`) per step** with no unmet `Depends on` — typically all same-wave rows **in parallel**.
-3. Wait for the wave. **Orchestrator quality gate:** each step report must show (a) tests added/updated or justified skip, (b) lint/type-check results when those tools exist, (c) no failing commands in scope. On failure, **stop the wave** — do not start later waves; dual-write status (Status audit #2) then ask or resume that step.
+3. Wait for the wave. **Orchestrator quality gate (lint before tests):** each step report must show **lint+tests status** — (a) lint/type-check results when those tools exist, (b) tests added/updated or justified skip, (c) no failing commands in scope. On failure, **stop the wave** — do not start later waves; dual-write status (Status audit #2) then ask or resume that step. If any step reports unresolved issues, ask the user how to proceed before continuing to review.
 4. Next wave only after every prior step passed the gate; dual-write status after each successful wave (Status audit #2).
 5. After the **last** wave, run the full Verification suite once via a mid-tier (`auto`) Task unless the last wave already ran an equivalent full suite successfully.
 
 Track each Task's agent ID, map tier, and resolved platform model for the final report and resume-on-fix.
 
-## Step 5 — Review loop (independent top-tier review)
+## Step 5 — Review loop (independent review; final pass top-tier)
 
-`Read` [review.md](review.md) for criteria, output format, fix handling, and stop conditions. Summary: different subagent than implementers; **every** review pass is **top-tier (`opus`)** — not Auto/Sonnet; `nits` recorded only; `blocking`/`important` fixed via implementer resume/`auto`/`haiku` Tasks; loop until clean or stop conditions.
+`Read` [review.md](review.md) and follow its loop.
 
 ## Step 6 — Final summary
 
-Dual-write terminal status first (Status audit #3). Present: plan path (note if map was drafted/persisted this run); **audit** (`execution.status`, `progress_pct`, `steps_done`/`steps_total`, `last_skill`); files changed; test/coverage results; **orchestrator** model; **each implementer/fix Task** (map ID, tier, resolved model, tests+lint status); **each reviewer** (tier `opus`, resolved model); remaining notes; clear statement that changes are **uncommitted**.
+Dual-write terminal status first (Status audit #3). Present: plan path (note if map was drafted/persisted this run); **audit** (`execution.status`, `progress_pct`, `steps_done`/`steps_total`, `last_skill`); files changed; test/coverage results; **orchestrator** model; **each implementer/fix Task** (map ID, tier, resolved model, lint+tests status); **each reviewer** (tier `auto` for intermediate passes, `opus` for the final pass or escalation; resolved model); whether the **final top-tier review converged** (`clean` or `dirty` — `/critique change` keys off this); remaining notes; clear statement that changes are **uncommitted**.
 
 Offer: `/critique change` · `/commit` · `/gh-create-pr` (clean tree / commits first). Do not commit or push unless explicitly asked.
 
 ## Constraints
 
-- Refuse (Step 2.5) on unresolved "Blocked on" or missing Success criteria / Verification.
-- Never commit or push unless explicitly asked.
-- Main agent must **not** edit implementation source files — only orchestrate (map confirm/persist and status dual-write into the plan file are allowed). All implementation file changes go through `generalPurpose` Tasks.
-- Dual-write plan frontmatter + `## Execution log` per [execution-status.md](execution-status.md) at start, after each wave (or wave-failure stop), and on terminal outcome; out-of-scope → `skipped` / `out of step-scope` only if not already `done`; scoped out-of-scope skips → `partial` not `completed`.
 - Implementers and the review subagent must be **different agents** — never resume an implementer for review; never use the reviewer to apply fixes.
-- Always follow the persisted Execution map; parallelize same-wave steps; mid-tier implement is **`auto`** (Cursor Auto / Claude Sonnet); never pin Sonnet for mid-tier on Cursor.
-- Every review pass is **top-tier (`opus`)**.
-- Per-step quality: tests with behavior changes (or justified skip) + available lint/type-check on touched files before the wave advances.
-- Do not execute raw `~/.claude/plans/`.
-- Cyclomatic complexity ~6; no god methods; human-readable over clever; follow project conventions; verify paths; do not delete existing tests unless replacing with equivalent or better coverage; ask rather than guess when a fix is unclear.
+- Ask rather than guess when a fix is unclear.

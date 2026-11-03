@@ -11,10 +11,7 @@ disable-model-invocation: true
 
 # gh-draft-release
 
-Create a **draft GitHub Release** (release notes) for unreleased commits on the
-repo default branch. This is not `gh-tag-release`: that skill dates the changelog
-and pushes a tag to trigger publish CI; this skill only drafts notes + a draft
-release via `gh`.
+**User prompts:** `AskQuestion` when available; otherwise ask conversationally.
 
 **When to use this vs `/gh-tag-release`:**
 - `/gh-draft-release` (this skill) — create a **draft** GitHub Release with generated notes from unreleased commits. Does **not** push a tag or trigger publish. User publishes the draft manually.
@@ -39,27 +36,16 @@ Use that name (e.g. `main` or `master`) everywhere below as `<default>`. Do **no
 
 ```bash
 git status --short
-git branch --show-current
+ORIG=$(git branch --show-current)
 ```
 
-Prefer **stash** on every branch (including feature branches):
+Record `<orig>` from `ORIG` (the branch to restore after the draft). Prefer **stash** on every branch (including feature branches):
 
 ```bash
 git stash push -m "gh-draft-release-wip"
 ```
 
-Do **not** create a `wip` commit without approval. If the user prefers a WIP commit on a feature branch instead of stash, ask first (`AskQuestion` when available, else conversational). Only after explicit approval:
-
-```bash
-git add -A
-git commit -m "$(cat <<'EOF'
-wip
-
-EOF
-)"
-```
-
-If no changes, proceed.
+Do **not** create a WIP commit. Offer stash only. If no changes, proceed (still keep `<orig>` for restore).
 
 ### 2. Switch to default branch
 
@@ -67,12 +53,22 @@ If no changes, proceed.
 git checkout <default>
 ```
 
-### 3. Fetch and rebase
+### 3. Sync default branch
+
+Release notes must only describe commits that the remote release target includes. Sync once:
 
 ```bash
-git fetch origin
-git rebase origin/<default>
+git pull --ff-only
+git status -sb
+git rev-parse HEAD
+git rev-parse origin/<default>
 ```
+
+Require local `<default>` == `origin/<default>` (same commit).
+
+- If local is **ahead** / has unpushed commits: stop, or user prompts whether to push first. Do not create a release whose notes describe commits the remote target does not include.
+- If `git pull --ff-only` fails (diverged / non-ff): stop and inform the user; do not force-rebase unless they explicitly ask.
+- If they match: proceed.
 
 ### 4. Detect unreleased changes
 
@@ -87,17 +83,15 @@ If there are no commits since the latest tag, inform the user "nothing to releas
 
 ### 5. Generate release notes
 
-From commits since the last tag, group by conventional commit type (`feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`, `chore`, `style`, `revert`).
+Prefer the **Unreleased** section of `CHANGELOG.md` (or `CHANGELOG`) when present and non-empty. Use that text as the release notes.
 
-Present as a markdown summary with sections per type. Omit empty groups.
+Otherwise, from commits since the last tag, group by conventional commit type (`feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`, `chore`, `style`, `revert`). Present as a markdown summary with sections per type. Omit empty groups.
 
 ### 6. Suggest a release tag
 
-- Read the `version` field from `package.json`.
-- Suggest `v<version>` as the tag (e.g. `v0.1.0`).
-- Present the tag and release note to the user for approval.
-
-Use `AskQuestion` when available (otherwise ask conversationally).
+- If `package.json` exists, read the `version` field and suggest `v<version>` as the tag (e.g. `v0.1.0`).
+- If `package.json` is missing, user prompts for the tag (or infer from the latest tag / CHANGELOG when obvious). Do not invent a version silently.
+- Present the tag and release note for approval (user prompts).
 
 ### 7. Check existing tag / release
 
@@ -108,55 +102,43 @@ git rev-parse "v<version>" 2>/dev/null && echo "tag-exists" || echo "tag-free"
 gh release view "v<version>" 2>/dev/null && echo "release-exists" || echo "release-free"
 ```
 
-If the tag or release already exists, stop or ask the user whether to bump the version — do not overwrite or recreate.
+If the tag or release already exists, stop or user prompts whether to bump the version — do not overwrite or recreate.
 
-### 8. Ensure local default matches remote
+### 8. Create draft GitHub Release
 
-Release notes must only describe commits that the remote release target includes. Before `gh release create --target <default>`:
-
-```bash
-git fetch origin
-git rev-parse HEAD
-git rev-parse origin/<default>
-git status -sb
-```
-
-Require local `<default>` == `origin/<default>` (same commit).
-
-- If local is **ahead** / has unpushed commits: stop, or ask whether to push first (`AskQuestion` when available). Do not create a release whose notes describe commits the remote target does not include.
-- If local is **behind**: rebase onto `origin/<default>` (step 3) and re-check.
-- If they match: proceed.
-
-### 9. Create draft GitHub Release
-
-On approval of tag + notes, and after steps 7–8 pass:
+On approval of tag + notes, and after steps 3 and 7 pass, pass notes via `--notes-file` or a heredoc (never inline `--notes "..."` with a multi-line body):
 
 ```bash
-gh release create <tag> --title "<tag>" --notes "<release-note>" --draft --target <default>
+gh release create <tag> --title "<tag>" --notes-file - --draft --target <default> <<'EOF'
+<release-note>
+EOF
 ```
+
+Or write notes to a temp file and use `--notes-file <path>`.
 
 Share the release URL with the user.
 
-### 10. Revisions
+### 9. Revisions
 
-If the user requests changes to the tag or release note, revise and repeat from step 6 (re-run steps 7–8 before create).
+If the user requests changes to the tag or release note, revise and repeat from step 6 (re-run steps 3 and 7 before create).
 
 ## Post-release
 
-After the release is created (or if the workflow stops early), inform the user how to restore their working state:
+After the release is created (or if the workflow stops early), restore the working state:
 
-- If changes were stashed: `git stash pop`
-- If a WIP commit was created on a feature branch (only after approval):
-  1. `git checkout <branch>` to return to the feature branch.
-  2. `git reset --soft HEAD~1` to uncommit the WIP while keeping changes staged (or `git reset HEAD~1` to unstage).
+```bash
+git checkout <orig> && git stash pop
+```
+
+Skip `stash pop` if nothing was stashed. If already on `<orig>`, only `git stash pop` as needed.
 
 ## Constraints
 
 - Always create releases in **draft** mode — the user publishes them manually.
-- Do not push to `<default>` directly unless the user explicitly approves a push to sync local ahead commits (step 8).
+- Do not push to `<default>` directly unless the user explicitly approves a push to sync local ahead commits (step 3).
 - If already on `<default>` with no unreleased changes, inform the user and stop.
 - Keep release text clean and user-authored — no AI co-author trailers.
-- Use [Conventional Commits](https://www.conventionalcommits.org/) to group release notes by type.
+- Use [Conventional Commits](https://www.conventionalcommits.org/) to group release notes by type when CHANGELOG Unreleased is absent.
 
 ## Safety (never)
 
@@ -166,4 +148,4 @@ After the release is created (or if the workflow stops early), inform the user h
 - Push to `<default>` without explicit user approval
 - Create a non-draft release without explicit user approval
 - Create a release without user approval of the tag and notes
-- Create a `wip` commit without explicit user approval
+- Create a WIP commit (stash only)

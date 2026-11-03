@@ -10,51 +10,64 @@ Editing a skill means editing it **here**, never in an installed copy.
 | --- | --- | --- |
 | Claude Code (local or cloud) | `claude plugin marketplace add nigelng/nng-kit` then `claude plugin install lifecycle@nng-kit` | `/lifecycle:<name>` |
 | Cursor, Devin, Windsurf | Each skill dir symlinked into `~/.agents/skills/<name>/` and the tool's own skills dir (the private source repo's Home Manager kit does this) | `/<name>` |
+| Antigravity | Kit links each skill into `~/.gemini/config/skills/<name>/` when `antigravity-cli` is in the host's Homebrew casks (same HM kit as Cursor/Devin/Windsurf) | `/<name>` |
 
 The SKILL.md files use only relative links to sibling files and no plugin-only
 syntax, so the same directory works on every surface.
 
-`execute-via-cursor` (needs the Cursor `agent` CLI) is a separate, local-only
-Claude Code skill and is **not** part of this plugin. It is described below
-because it writes the same plan audit metadata as `/execute-plan`.
+`/delegate:execute-via-cursor` (needs the Cursor `agent` CLI) and
+`/delegate:execute-via-agy` (needs the Antigravity `agy` CLI) are separate Claude
+Code skills in the `delegate` plugin and are **not** part of this plugin. They are
+described below because they write the same plan audit metadata as `/execute-plan`.
 
 ## The chain
 
 ```
-/brainstorm [idea]                 read-only; adaptive Goal brief (extract → ask
-  → docs/brainstorms/**              gaps → never empty), explores feasibility,
-  → /make-plan handoff prompt        iterates with the user, then emits a roadmap
-                                       + a ready-to-paste /make-plan prompt
+/brainstorm [idea]                 top-tier session; read-only; adaptive Goal brief
+  → docs/brainstorms/**              (extract → ask gaps → never empty), explores
+  → /make-plan handoff prompt        feasibility, iterates with the user, then emits a
+                                       roadmap + a ready-to-paste /make-plan prompt
 
 /make-plan [update] [task]         top-tier planner; interview-first for Goal/requirements
   → docs/plans/**                     when no brainstorm handoff; drafts a structured plan
                                        with an Execution map (haiku/auto/opus waves)
 
-/critique plan <path>              optional lean second opinion (mid-tier, 1–2 passes;
-  (optional)                          Opus escalate if blockers remain) before execute
+/critique plan <path>              optional top-tier second opinion on the plan before
+  (optional)                          execute (not a lean mid-tier pass)
 
 /execute-plan <path>               top-tier orchestrator; requires Agent mode; refuses
   → uncommitted working-tree diff     if Blocked / missing Success or Verification;
                                        requires Execution map (draft→confirm→persist if
-                                       missing); runs waves (haiku/auto implementers)
-                                       then top-tier review every pass until clean
+                                       missing); runs waves (haiku-biased / auto
+                                       implementers; low→mid fallback if capped) then
+                                       mid-tier review passes, then a top-tier
+                                       final pass, until clean
 
-/execute-via-cursor <path>         Claude Code–only alternative: Cursor `agent` CLI
-  → uncommitted working-tree diff     implements; Claude gates, briefs, reviews (≤2 FIX
-                                       resumes). Not an L0 multi-consumer skill — see
-                                       Claude-only install note below. Prefer when you
+/delegate:execute-via-cursor <path>  Claude Code–only alternative (`delegate` plugin):
+  → uncommitted working-tree diff     Cursor `agent` CLI implements (default Auto when
+                                       `model=` omitted); Claude gates, briefs, reviews
+                                       (bounded FIX loop). Not an L0 multi-consumer skill —
+                                       see Claude-only install note below. Prefer when you
                                        want Cursor to code and Claude to review; keep
                                        `/execute-plan` for in-process Task waves.
 
-/critique change [ref]             optional lean diff critique + security pass
-  (optional)                          (Cursor/Claude security-review when available);
-                                       after execute-plan skip lean critique by default
-                                       but still run security unless docs-only
+/delegate:execute-via-agy <path>    Claude Code–only alternative (`delegate` plugin):
+  → uncommitted working-tree diff     Antigravity `agy` CLI implements (default Auto when
+                                       `model=` omitted); Claude gates, briefs, reviews
+                                       (bounded FIX loop). Same contract as
+                                       `/delegate:execute-via-cursor`, different backend.
 
-/commit                            Haiku-class default; classifies the diff, drafts a
+/critique change [ref]             lean mid-tier diff rounds + final top-tier change
+  (optional)                          critique; security pass (Cursor/Claude
+                                       security-review when available); after a
+                                       converged execute-plan review skip lean and
+                                       skip the closing final pass by default; still
+                                       run security unless docs-only
+
+/commit                            low-tier default; classifies the diff, drafts a
   → local commit(s)                   Conventional Commit, optionally bumps
                                        version/CHANGELOG, commits only after approval
-                                       (bump to mid-tier Auto for large mixed splits)
+                                       (use mid-tier for large mixed splits)
 
 /gh-create-pr                      ensures a feature branch, pushes, opens a PR via
   → pull request                      `gh`, and watches CI (investigates failures,
@@ -75,23 +88,30 @@ or "tag to trigger CI publish."
 ## Execute alternatives
 
 - **`/execute-plan`** — in-process Task orchestrator (Execution-map waves +
-  independent top-tier review). Multi-consumer L0 skill.
-- **`/execute-via-cursor`** — Claude Code–only: hands the plan to Cursor's
-  `agent` CLI for implementation; Claude writes the brief, reviews against Base
-  SHA + Verification, and may FIX-resume ≤2 times. Never commits (offer
-  `/commit`). Local-only; not in this plugin and not linked into
-  `~/.agents/skills` or Cursor/Devin/Windsurf.
+  independent review: mid-tier passes, top-tier final pass). Multi-consumer L0
+  skill.
+- **`/delegate:execute-via-cursor`** — Claude Code–only, in the `delegate` plugin:
+  hands the plan to Cursor's `agent` CLI for implementation (when `model=` is
+  omitted, backend **Auto**); Claude writes the brief, reviews against Base SHA +
+  Verification, and may FIX-resume ≤2 times. Never commits (offer `/commit`).
+  Not linked into `~/.agents/skills` or Cursor/Devin/Windsurf.
+- **`/delegate:execute-via-agy`** — Claude Code–only, in the `delegate` plugin:
+  same contract as `/delegate:execute-via-cursor`, but Google's Antigravity `agy`
+  CLI does the implementing (default **Auto** when `model=` omitted). Never
+  commits.
 
 ## Ideate vs plan (three-way split)
 
 - **`/brainstorm`** — open-ended ideation: multiple approaches, feasibility unknown,
-  Goal brief + roadmap. Persists to `docs/brainstorms/**`.
+  Goal brief + roadmap. Persists to `docs/brainstorms/**`. Always a **top-tier**
+  session (same model bar as `/make-plan`).
 - **`/make-plan`** — scope already clear (or after brainstorm handoff); durable
   step-by-step plan under `docs/plans/**` for execute/critique and cross-session
-  handoff. Intended to run on a **top-tier** planner (Opus or equivalent). When
-  there is no brainstorm artifact, interviews for Goal, requirements, non-goals,
-  and constraints before drafting. Plans include an **Execution map** (waves +
-  `haiku` / `auto` / `opus` tiers) for parallel, tiered execute.
+  handoff. Always a **top-tier** planner session. When there is no brainstorm
+  artifact, interviews for Goal, requirements, non-goals, and constraints before
+  drafting. Plans include an **Execution map** (waves + `haiku` / `auto` /
+  `opus` tiers) for parallel, tiered execute — biased to smallest mechanical
+  units / prefer `haiku`.
 - **Built-in Plan** (Cursor Plan mode / Claude Code `/plan`) — same "ready for
   steps" case, but product-owned artifacts under `~/.cursor/plans` or
   `~/.claude/plans` (not the fleet `docs/plans/**` contract). Claude `/plan`
@@ -104,39 +124,16 @@ missing.
 
 ## Execution tiers
 
-Portable labels in plan Execution maps: **`haiku`** | **`auto`** | **`opus`**.
+Portable map labels: **`haiku`** | **`auto`** | **`opus`** (`low`/`mid`/`top`).
+Per-skill session/Task requirements: that skill's `SKILL.md`. Canonical chains,
+fallback, and per-tool resolution: [model-tiers.md](model-tiers.md) — **edit
+tier policy there**, then run `bash scripts/sync-model-tiers.sh`.
 
-- **Planner** (`/make-plan` session): top-tier (Opus or equivalent).
-- **Orchestrator** (`/execute-plan` session): top-tier (Opus or equivalent); does
-  not implement code itself.
-- **`/commit` session**: **Haiku-class default** (Haiku 5.5 / Luna-equivalent).
-  Checklist skill — not design/orchestration. Use mid-tier Auto for large mixed
-  multi-commit splits or version+CHANGELOG judgment; do not require Opus.
-- **`haiku`**: mechanical implementer / fix steps (also the default for `/commit`).
-- **`auto` (mid-tier default for implement)**: Cursor → platform **Auto** (do not
-  pin Sonnet); Claude Code → **Sonnet**. Legacy `sonnet` in old plans means `auto`.
-- **`/execute-plan` reviewer**: **top-tier every pass** (Opus / Fable) — independent
-  read-only Task; never Auto/Sonnet for this skill's review loop.
-- **Map-first:** if the plan has no Execution map, `/execute-plan` drafts a
-  mechanical haiku/auto map, confirms with the user, **persists** it into the plan
-  file, then runs. If a map is present, validate and follow it (no silent rewrite).
-- Map-row **`opus`** for implement remains rare; prefer finishing design in
-  `/make-plan`. Other Opus subagent uses: see `subagents-claude.md` /
-  `subagents-auto.md` (escalation / whole-branch review).
+## Critique (policy A)
 
-## Critique (lean second opinion)
-
-`/critique` is **not** a second Opus planning/execute loop. Defaults:
-
-- **Mid-tier** lean review (Cursor Auto / Claude Sonnet), max **2** review+fix
-  cycles; then **one Opus escalate** if `blocking` / unresolved `important`
-  remain; then stop and hand remaining items to the user.
-- High-confidence findings only — prefer Ship as-is over inventing nits; never
-  Ship as-is while blockers remain.
-- **`/critique change` security pass:** invoke Cursor `security-review` (or
-  Claude Code equivalent) once when available; inline trust-boundary fallback
-  otherwise. After a successful `/execute-plan` review, skip lean critique by
-  default but **still run the security pass** (unless docs-only / user opts out).
+`/critique` is **not** a second planning/execute loop. Pass table and modes:
+`skills/critique/SKILL.md`; models via
+[model-tiers.md](model-tiers.md).
 
 ## Goal brief
 
@@ -164,20 +161,23 @@ codebase.
 - **No unapproved commits or pushes.** `/commit` and `/gh-create-pr`/`/gh-tag-release`
   always present the exact change (message, branch, tag) for approval before acting.
 - **No scope creep past the plan.** Execute skills (`/execute-plan`,
-  `/execute-via-cursor`) implement only what `docs/plans/**` specifies; they do
+  `/delegate:execute-via-cursor`, `/delegate:execute-via-agy`) implement only what `docs/plans/**` specifies; they do
   not re-plan or expand scope.
-- **Execute skills persist progress on the plan.** `/execute-plan` and
-  `/execute-via-cursor` record row status and run history in the plan file
-  (frontmatter + `## Execution log`) per `execute-plan/execution-status.md`.
+- **Execute skills persist progress on the plan.** `/execute-plan`,
+  `/delegate:execute-via-cursor`, and `/delegate:execute-via-agy` record row status and run history in the plan file
+  (frontmatter + `## Execution log`) per `skills/execute-plan/execution-status.md`.
 - **Refuse, don't guess, when a plan is unsafe to execute.** Execute skills
-  (`/execute-plan`, `/execute-via-cursor`) stop (do not proceed, do not ask a
+  (`/execute-plan`, `/delegate:execute-via-cursor`, `/delegate:execute-via-agy`) stop (do not proceed, do not ask a
   soft clarifying question) if the plan has an unresolved "Blocked on" note or
   is missing a Success criteria or Verification section entirely.
-- **Independent review is never self-review.** `/critique` and `/execute-plan`'s
-  review loop always use a different subagent than the one that wrote the
-  plan/code, and that reviewer is read-only. `/execute-plan` reviewers are
-  always top-tier (every pass). `/critique` lean reviewers are mid-tier; Opus
-  only on escalate; security uses platform `security-review` when available.
+- **Independent review is never self-review** for `/critique change` and
+  `/execute-plan`'s review loop — details:
+  `skills/critique/SKILL.md`,
+  `skills/execute-plan/review.md`;
+  models via [model-tiers.md](model-tiers.md).
+- **Behavior-changing implement steps:** quality loop in
+  `skills/execute-plan/implementer.md` (docs/config-only:
+  justified skip + validate/portable checks).
 - **`AskQuestion` options vs. questions.** `AskQuestion` supports up to **4 options
   per call**, not up to 4 questions. When a step needs to ask several questions
   (`/brainstorm`'s Goal brief, `/make-plan`'s scope/constraints/success/assumptions
@@ -201,7 +201,8 @@ companions ship with the skill.
 | `make-plan` | `docs/plans/**` | Never |
 | `critique` | Plan file (plan mode) or working tree (change mode, via a fix subagent) | Never |
 | `execute-plan` | Working tree (via implementation subagent); plan audit metadata on `docs/plans/**` (frontmatter + Execution log) | Never (leaves changes uncommitted for review) |
-| `execute-via-cursor` | Working tree (via Cursor `agent` CLI; Claude reviews); plan audit metadata on `docs/plans/**` (frontmatter + Execution log) | Never (leaves changes uncommitted; local Claude Code only, not in this plugin) |
+| `delegate:execute-via-cursor` | Working tree (via Cursor `agent` CLI; Claude reviews); plan audit metadata on `docs/plans/**` (frontmatter + Execution log) | Never (leaves changes uncommitted; Claude Code only, in the `delegate` plugin) |
+| `delegate:execute-via-agy` | Working tree (via Antigravity `agy` CLI; Claude reviews); plan audit metadata on `docs/plans/**` (frontmatter + Execution log) | Never (leaves changes uncommitted; Claude Code only, in the `delegate` plugin) |
 | `commit` | Local git history | Commits only, after approval; never pushes |
 | `gh-create-pr` | Remote branch + PR | Pushes + opens PR, after approval |
 | `gh-draft-release` | Draft GitHub Release | Creates a draft release, after approval |

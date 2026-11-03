@@ -21,8 +21,11 @@ export type TimelineEntry = {
 
 export type KindCounts = Record<TimelineKind, number>
 
+export type Backend = 'cursor' | 'agy'
+
 export type Run = {
   n: number
+  backend: Backend
   sessionId: string | null
   model: string | null
   tool: string | null
@@ -47,7 +50,7 @@ export type ViewMode = 'compact' | 'full'
 
 declare module 'claude-code' {
   interface PluginState {
-    'evc-observe': {
+    'exec-observe': {
       run: Shaped<Run | null>
       view: ViewMode
       showErr: boolean

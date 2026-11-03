@@ -14,24 +14,11 @@ Build a structured implementation plan for a task. Prompt for purpose, clarify s
 
 **References (read when needed):** [plan-template.md](plan-template.md) · [drafting-rules.md](drafting-rules.md) · [brainstorm-handoff.md](brainstorm-handoff.md) · [execution-status.md](../execute-plan/execution-status.md) (execution scaffold SoT)
 
-## Planner model (top-tier)
+Session/Task tiers: [model-tiers.md](model-tiers.md) (`top`/`mid`/`low`). `/make-plan` needs **top**; warn once and recommend switching if below top — do not silently draft a thin plan. Execution-map rows stay haiku-biased (`haiku`/`auto`/`opus`); that does not lower the planner session.
 
-`/make-plan` is intended to run on a **top-tier** model (Opus 5.5 / Opus 4.6 / Fable or equivalent). If the current session is clearly mid- or low-tier, warn once and recommend switching before drafting — do not silently produce a thin plan.
+## Built-in Plan vs this skill
 
-## Relationship to built-in Plan (Cursor / Claude Code)
-
-Built-in Plan is fine for a single-session explore→approve→code loop. This skill's job is a **durable** plan under `docs/plans/**` for Claude Code, Devin, Cursor execute/critique, and cross-session handoff.
-
-| Surface | Artifact | After approve |
-| --- | --- | --- |
-| **This skill** (`/make-plan`) | `docs/plans/**` (fleet template) | Stops — user runs `/critique plan` → `/execute-plan` |
-| **Cursor Plan mode** | `~/.cursor/plans/*.plan.md` or project `.cursor/plans/` | Switch to Agent and implement |
-| **Claude Code `/plan`** | `~/.claude/plans/` | Often **continues into implementation** |
-
-- Prefer **this skill** when you need a checked-in/shared plan or a `/execute-plan` / `/critique plan` input.
-- Claude `/plan` may implement after approval; **`/make-plan` never implements**.
-- If a Cursor or Claude plan already exists for the same task, **offer to promote/copy** it into `docs/plans/` (adapt to the fleet template) instead of re-running full discovery. Once promoted, `docs/plans/**` is the cross-tool source of truth. Do **not** teach `/execute-plan` to run raw `~/.claude/plans/` — promote first.
-- If the user is still choosing among approaches or lacks a Goal brief, suggest `/brainstorm` first — then return here with the handoff prompt.
+Prefer this skill's `docs/plans/**` artifact for `/execute-plan` / `/critique plan`. If a Cursor (`~/.cursor/plans/`) or Claude (`~/.claude/plans/`) plan already exists, **promote/copy** it into `docs/plans/` (fleet template) instead of rediscovering — never run `/execute-plan` on those raw paths. Suggest `/brainstorm` first if approaches are still open; `/make-plan` never implements.
 
 ## Step 1 — Determine intent: new plan vs. update
 
@@ -39,34 +26,25 @@ Parse the user's slash-command or message args:
 
 1. **Update mode** — if args start with `update` or `revise` (case-insensitive), strip the keyword and treat the remainder as a path or slug to an existing plan file. Read that plan and skip to "Update mode" below.
 2. **Existing plan path** — if args are a single argument that is an existing file path under `docs/plans/` (or resolves to one via `Glob`), ask: "Update this plan, or use it as context for a new plan?" Default to **Update**.
-3. **Brainstorm handoff** — if args contain `Scope:`, `Target Phase 1:`, `Brainstorm:`, or a `docs/brainstorms/*.md` path, parse per [brainstorm-handoff.md](brainstorm-handoff.md).
-4. **New plan** — otherwise use args as the task description and proceed to Step 1.5.
+3. **Brainstorm handoff** — if args contain `Scope:`, `Target Phase 1:`, `Brainstorm:`, or a `docs/brainstorms/*.md` path, parse once per [brainstorm-handoff.md](brainstorm-handoff.md); Step 2 skips duplicates.
+4. **New plan** — otherwise use args as the task description and proceed to Step 2.
 
 If no arguments were given, use `AskQuestion` when available (otherwise ask conversationally):
 - **What do you want to build or accomplish?** (free-text via "Other", plus 2–4 example options inferred from the current project)
 - Optional follow-up: **Is this a new plan or an update to an existing plan?**
 
-## Step 1.5 — Requirements interview (when no brainstorm)
+## Step 2 — Requirements & scope
 
 After Step 1, detect whether a brainstorm artifact already answers Goal / requirements:
 
-- **Has brainstorm handoff** — `Brainstorm:` path, bare `docs/brainstorms/*.md`, or parsed `Goal:` + `Scope:` + `Constraints:` markers with enough detail → `Read` the brainstorm file when a path is present; skip duplicate questions (see [brainstorm-handoff.md](brainstorm-handoff.md)). Continue to Step 2 only for gaps.
-- **No brainstorm artifact** → before codebase exploration (Step 3), run a mandatory **Requirements interview**. Use `AskQuestion` when available (otherwise ask conversationally). `AskQuestion` supports **up to 4 options per call, not up to 4 questions** — issue **one `AskQuestion` call per question** (2-4 options plus "Other" each). Ask only gaps: **Goal**, **Requirements / must-haves**, **Non-goals**, **Hard constraints**, **Success criteria** (may fold into Step 2 if already answered).
+- **Has brainstorm handoff** (from Step 1) — `Read` the brainstorm file when a path is present; ask only remaining gaps (handoff file owns the skip list).
+- **No brainstorm artifact** → before codebase exploration (Step 3), run this step as a mandatory gap-fill interview.
 
-Do **not** draft Implementation steps or the Execution map until Goal and requirements are captured. If the user is still choosing among approaches, recommend `/brainstorm` and stop — do not force a thin plan.
+`AskQuestion` when available (else conversational): one call per facet, ≤4 options + "Other". Ask **only gaps** among Goal, must-haves, non-goals (→ Out of scope), constraints (→ Assumptions/Risks), in/out of scope, success criteria, assumptions. Skip answers already known from handoff, an existing plan being updated, or an obvious codebase fact.
 
-## Step 2 — Clarify scope
+Do **not** ask for a **coverage target** here — ask only after Step 3's probe finds tooling (see [drafting-rules.md](drafting-rules.md)).
 
-Use `AskQuestion` when available; otherwise ask conversationally. One `AskQuestion` call per facet (2-4 options plus "Other"), never one call compressing several questions into 4 options:
-
-- **Goal** — skip if clear from Step 1.5, task description, or parsed `Goal:` handoff
-- **Scope boundaries** — explicitly in/out
-- **Constraints** — must-not-touch, deps, compatibility, performance
-- **Success criteria** — how the user knows it's done and correct
-- **Assumptions** — existing code, environment, data, deps, prior state
-- **Coverage target** — only if Step 3 found coverage tooling (or ask after Step 3): accept repo threshold, default **90%**, or user-stated percent. Skip if coverage unavailable.
-
-Skip answers already known from Step 1.5, brainstorm handoff, an existing plan being updated, or an obvious codebase fact. Prefer running Step 3's coverage probe before asking about a coverage target.
+Do **not** draft Implementation steps or the Execution map until Goal and must-haves are captured. If the user is still choosing among approaches, recommend `/brainstorm` and stop — do not force a thin plan.
 
 ## Step 3 — Explore the codebase and prior plans
 
@@ -86,11 +64,15 @@ Do not over-explore. Focus on what the plan needs to be concrete and grounded.
 
 ### New plan
 
-Project root: `git rev-parse --show-toplevel` (else cwd). Slug: kebab-case from title; strip stopwords (`the`, `a`, `an`, `and`, `or`, `for`, `to`, `in`, `on`, `of`, `with`, `is`, `are`, `this`, `that`, `it`, `as`, `by`, `from`). Timestamp: `date +%y%m%d%H%M`. Write `<project-root>/docs/plans/<yymmddhhmm>-<slug>.md` (create `docs/plans/` if needed).
+Project root: `git rev-parse --show-toplevel` (else cwd). Slug: kebab-case from title; strip common stopwords. Timestamp: `date +%y%m%d%H%M`. Write `<project-root>/docs/plans/<yymmddhhmm>-<slug>.md` (create `docs/plans/` if needed).
 
-### Update path
+### Update mode
 
-If updating, follow **Update mode** below — same file path, do not create a new file.
+1. `Read` the existing plan; present briefly; ask what to change (or apply the change description from args).
+2. Clarify with `AskQuestion` if needed.
+3. If the update changes system shape or Scope, re-run the architecture-doc scan and adjust the docs Implementation/map step or justified skip ([drafting-rules.md](drafting-rules.md)). Wording-only edits may keep the prior Architecture docs note.
+4. Write back to the **same path**; keep the filename unless the title/slug is badly misleading.
+5. Present and offer next steps (Step 6–7).
 
 ## Step 6 — Present the plan
 
@@ -100,21 +82,7 @@ Show the full plan in the chat and share the file path.
 
 Offer: **Refine** · **Review** (`/critique plan`) · **Proceed** (`/execute-plan <path>`, Agent mode). Wait for the user's choice. Do not start implementing unless explicitly asked.
 
-## Update mode
-
-1. `Read` the existing plan; present briefly; ask what to change (or apply the change description from args).
-2. Clarify with `AskQuestion` if needed.
-3. If the update changes system shape or Scope, re-run the architecture-doc scan and adjust the docs Implementation/map step or justified skip ([drafting-rules.md](drafting-rules.md)). Wording-only edits may keep the prior Architecture docs note.
-4. Write back to the **same path**; keep the filename unless the title/slug is badly misleading.
-5. Re-read for coherence; present and offer next steps (Step 6–7).
-
 ## Constraints
 
-- Never implement in this skill — only produce the plan. Execution needs an explicit request (e.g. `/execute-plan <path>`).
-- Do not commit or push — only write `docs/plans/**`.
-- If still ambiguous after questioning, say so and ask rather than guess.
-- Keep the plan minimal and concrete — each step actionable; no padding.
-- When updating, preserve the original filename (timestamp) unless the title changed drastically.
-- Prefer small, tier-labeled steps (`haiku` / `auto`) and parallel waves over mega-steps.
-- Always probe for coverage; when available put command + numeric target in Verification (default **90%** if no repo threshold); when unavailable, state that explicitly.
-- Every plan must include an Update documentation Implementation/Execution-map step for architecture docs (prefer OVERVIEW / canonical Archify; create under `docs/architecture/` if scan empty and shape changes) **or** a one-line justified skip for pure chore/docs-only/formatting with no system-shape impact. Verification must prove doc diffs or the skip — not merely that scan paths were recorded.
+- Never implement — only write `docs/plans/**`; no commit/push. Ask rather than guess; keep plans minimal.
+- Preserve filename on update unless the title changed drastically.

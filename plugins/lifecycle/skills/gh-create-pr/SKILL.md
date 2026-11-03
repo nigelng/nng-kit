@@ -12,20 +12,9 @@ disable-model-invocation: true
 
 Create a pull request for the current changes: ensure a feature branch, push, open the PR, then watch CI. Does not commit — ask the user to run `/commit` first if needed.
 
-## Delta over Agent + `gh`
-
-Agent + user PR rules can open PRs without this skill. **Keep this skill focused on:**
-
-1. **Dirty-tree gate** — if uncommitted changes exist, stop and tell the user to run `/commit` first
-2. Resolve **`<default>`** branch via `gh` (never hardcode `main`)
-3. Feature branch + `git push -u` + `gh pr create` + **CI watch**
-
-Do not expand into Autopilot/Bugbot merge-ready loops (`/autopilot` / Cursor `/review`); stop after CI status is reported.
-
 ## Preconditions
 
 - User explicitly asked to create a PR (this skill does not push or open PRs on its own initiative).
-- Do not commit files that likely contain secrets (`.env`, credentials, tokens). Warn the user if they request those.
 - Use `gh` for all GitHub operations. If `gh` is not available, inform the user and stop.
 
 ## Workflow
@@ -36,24 +25,26 @@ Run these in parallel:
 
 ```bash
 git status --short
-git diff HEAD
-git diff --staged
 git log -5 --oneline
 git branch --show-current
 git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo "no-upstream"
 gh repo view --json defaultBranchRef -q .defaultBranchRef.name
+gh pr view --json url -q .url 2>/dev/null || echo "no-pr"
 ```
 
 Use the resolved name (e.g. `main` or `master`) everywhere below as `<default>`. Do **not** hardcode `main` / `origin/main`.
 
-Then compare the current branch to that base:
+If `gh pr view` returned a URL, a PR already exists for this branch — report that URL and skip create later (still may push / watch CI as needed).
+
+Then fetch the remote default branch and compare against it (not a possibly stale local ref):
 
 ```bash
-git log --oneline <default>...HEAD
-git diff <default>...HEAD
+git fetch origin <default>
+git log --oneline origin/<default>...HEAD
+git diff origin/<default>...HEAD
 ```
 
-If the working tree is clean **and** there are no commits ahead of `<default>`/remote, inform the user and stop.
+If the working tree is clean **and** there are no commits ahead of `origin/<default>`, inform the user and stop.
 
 ### 2. Commit uncommitted work (if any)
 
@@ -61,7 +52,7 @@ If there are uncommitted changes, ask the user to run `/commit` to handle them f
 
 ### 3. Ensure feature branch
 
-Check the current branch with `git branch --show-current`:
+Use the current branch from step 1 (do not re-run `git branch --show-current`):
 
 - If already on a feature branch (not `<default>`), skip branch creation.
 - If on `<default>`, analyze the commits and suggest a branch name in the format `<type>/<short-description>` (e.g. `feat/add-tsconfig`, `fix/publish-workflow`). Present the suggested name for approval. On approval, run `git checkout -b <branch>`.
@@ -96,7 +87,7 @@ Use `-u` when the branch has no upstream. Do not force-push to `<default>`; warn
 
 ### 7. Create PR (sequential)
 
-If a PR already exists for this branch, report its URL instead of creating a duplicate (`gh pr view --json url -q .url`).
+If step 1 already found an existing PR for this branch, report that URL and skip create (do not call `gh pr create`).
 
 Otherwise:
 
@@ -122,7 +113,8 @@ Share the returned PR URL. Mention any commits created and the base branch (`<de
 CI checks are triggered by the push and/or PR creation. After the PR exists:
 
 1. Run `gh pr checks <PR-number> --watch` to monitor status checks in real time.
-2. If `--watch` is unsupported or times out, poll with `gh pr checks <PR-number>` every 30–60 seconds until all checks reach a terminal state (success, failure, or cancelled).
+2. If `--watch` is unsupported or times out, poll with `gh pr checks <PR-number>` every 30–60 seconds until all checks reach a terminal state (success, failure, or cancelled), **or until ~20 minutes have elapsed**.
+3. If still pending after ~20 minutes, stop polling and report which checks are still pending (names + current status). Do not keep waiting indefinitely.
 
 **If all checks pass** — report success and stop. Do not merge.
 
@@ -136,7 +128,7 @@ CI checks are triggered by the push and/or PR creation. After the PR exists:
    - Specific error message(s) and failing step(s)
    - Whether the failure is caused by the PR or appears pre-existing/flaky
    - A recommended next step (fix code, update workflow, re-run, etc.)
-5. If the failure is clearly caused by the PR and the fix is obvious, offer to fix it. Do **not** fix without user approval.
+5. If the failure is clearly caused by the PR and the fix is obvious, offer to fix it. Do **not** fix without user approval; if approved, commit via `/commit` (or a new non-amended commit) and push normally without `--force`.
 6. If flaky or infrastructure-related (network timeout, runner issue), offer `gh run rerun <run-id> --failed`.
 
 **If checks are skipped or none run** — tell the user no CI checks were triggered and ask whether they expected any.
@@ -146,33 +138,8 @@ CI checks are triggered by the push and/or PR creation. After the PR exists:
 After the PR is open (and CI is green or the user accepted skipped checks):
 - Done — stop here; user merges manually.
 - After merge on `<default>`: suggest `/gh-tag-release` to tag and trigger the publish workflow, **or** `/gh-draft-release` to create a draft GitHub Release with notes (no tag/publish).
-- Clarify the difference if useful:
-  - `/gh-tag-release` — push a git tag on `<default>` to trigger the publish workflow.
-  - `/gh-draft-release` — create a draft GitHub Release from unreleased commits without tagging/publishing.
-
-## Constraints
-
-- Do not push to `<default>` directly — always use a feature branch.
-- Do not create a PR if there are no changes or commits ahead of the remote.
-- Present branch name (when creating one), PR title, and PR body for approval before executing.
-- Do not merge the PR — this skill only creates it and watches CI.
-- Do not report a CI failure without investigating — always fetch failed logs and provide a diagnosis.
-- Do not fix CI failures without user approval — offer the fix and wait.
-- Keep commit/PR text clean and user-authored — no AI co-author trailers.
 
 ## Safety (never)
 
-- Update git config
-- `git push --force` to `<default>` (warn if requested)
-- Skip hooks (`--no-verify`) unless the user explicitly asks
-- Push or open a PR when there is nothing to publish
-
-## Amend (rare)
-
-Use `git commit --amend` only when **all** are true:
-
-1. User explicitly requested amend, **or** commit succeeded but the hook auto-modified files
-2. HEAD commit was created by you in this conversation
-3. Commit has not been pushed
-
-If already pushed, never amend unless the user explicitly requests it (requires force push). Amending after push requires force push — warn and only proceed if the user explicitly asks.
+- Commit secret/credential files (`.env`, tokens, keys), update `git config`, or skip hooks (`--no-verify`) unless the user explicitly asks
+- `git commit --amend` after push or `git push --force` (to `<default>` or the PR branch) unless the user explicitly asks after warning

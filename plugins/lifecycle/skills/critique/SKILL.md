@@ -1,51 +1,57 @@
 ---
 name: critique
 description: >-
-  Lean independent review of a plan file or code changes: mid-tier 1–2 passes,
-  Opus escalate if blockers remain, plus a Cursor/Claude security-review pass
-  when available. Args: [plan <path> | change <ref|range|#PR> | <path-or-ref>].
+  Independent review of a plan or code changes (policy A): top-tier for
+  /critique plan and final /critique change; lean mid-tier change rounds
+  (≤2) with ≤1 top-tier escalate; Cursor/Claude security-review pass when
+  available. Args: [plan <path> | change <ref|range|#PR> | <path-or-ref>].
   Use when the user asks to review a plan or change, or mentions /critique.
 disable-model-invocation: true
 ---
 
 # critique
 
-High-confidence, low-token second opinion on a **plan** or **change**. Not a second Opus planning/execute loop. Prefer “Ship as-is” over inventing nits. Auto-apply only `blocking` / `important`; leave `nit`s for the user.
+High-confidence second opinion on a **plan** or **change**. Not a second
+planning/execute loop. Prefer “Ship as-is” over inventing nits. Auto-apply only
+`blocking` / `important`; leave `nit`s for the user.
 
-**Budget:** Phase A — up to **2 mid-tier** lean review+fix cycles. Phase B — at most **one Opus escalate** if blockers remain, then **stop** and hand remaining items to the user. Never silent “Ship as-is” while `blocking` / unresolved `important` remain. Never spin mid-tier past 2 rounds.
+## Critique policy A (session / Task tiers)
+
+**Not all critique is Opus.** Split by mode — do not collapse these into one
+mid-tier loop. Resolve models per [model-tiers.md](model-tiers.md)
+(`top` / `mid` / `low`). Report each subagent with intended tier and resolved
+model.
+
+`/critique change` uses at most **2 top-tier passes** per run (≤1 escalate +
+1 final closing pass); report each with its reason.
+
+| Pass | Tier | Notes |
+| --- | --- | --- |
+| **`/critique plan`** | **top** (in-session) | Plan edits OK; warn once if session below top; 2-pass budget |
+| Lean review (change Phase A) | **mid** | Resolve **mid** per [model-tiers.md](model-tiers.md); max **2** |
+| Fix Task (change) | **mid** (**low** if mechanical) | Separate write agent; never the reviewer |
+| Escalate (≤1) | **top** Task | After round-1 **Rework**, or after **2 mid** with `blocking`/unresolved `important`; then **stop**; `critique escalate` |
+| **Final `/critique change`** | **top** Task | Separate read-only Task (`critique closing pass`); ≠ escalate |
+| Security pass | Cursor **`security-review`** | Not a generic Opus essay; Claude / inline trust-boundary fallback if unavailable |
+
+Never silent “Ship as-is” while `blocking` / unresolved `important` remain; never lean past 2 rounds.
+
+Fleet multi-mode critique (not Cursor `/review` / `/review-bugbot` / `/review-security`). When security tooling runs as a sub-step here, do not also tell the user to run `/review-security`.
 
 ## When to use / skip
 
-- **Use `/critique plan`** after `/make-plan` for an independent stress-test before execute (especially large blast radius, migrations, security-sensitive scope).
-- **Keep light** if the plan is tiny/mechanical and already has Execution map + Verification/coverage — one short mid-tier pass, not a multi-round rewrite.
-- **Use `/critique change`** before commit when `/execute-plan` was **not** used, or for hand-written diffs.
-- **After a successful `/execute-plan` Opus review loop:** skip the **lean** change critique by default; **still run the security pass** unless docs-only or the user opts out. If the user insists on lean critique anyway, one mid-tier pass only.
-- Main `/critique` session need not be Opus; mid-tier is fine.
-
-## Not Cursor `/review` (but may invoke Security Review)
-
-Cursor's built-in **`/review`** / **`/review-bugbot`** / **`/review-security`** are product surfaces. This skill is the fleet multi-mode critique. For **security**, `/critique change` **invokes** Cursor Security Review (or Claude Code equivalent) as a sub-step when available — do not tell the user to run `/review-security` separately if this skill already ran it successfully.
-
-| Need | Use |
-| --- | --- |
-| Stress-test a `docs/plans/**` plan; lean fix loop | **`/critique plan`** |
-| Working-tree / commit critique + security pass | **`/critique change`** |
-| Standalone PR Bugbot / Security only | Cursor **`/review-bugbot`** / **`/review-security`** |
+- **`/critique plan`** after `/make-plan` (large blast radius, migrations,
+  security-sensitive scope especially): in-session top-tier review + plan edits.
+  Tiny/mechanical plans still use top-tier — keep the review short.
+- **`/critique change`** before commit when `/execute-plan` was **not** used, or
+  for hand-written diffs (lean mid → final top closing Task when lean is clean).
+- **After converged `/execute-plan` top-tier review:** Change mode → After
+  execute-plan.
 
 ## Preconditions
 
-**Requires Agent mode** when applying plan edits or code fixes. If you are in Plan or Ask mode and the chosen mode needs writes, stop and tell the user to switch to Agent mode before continuing.
-
-## Model tiers
-
-| Role | Cursor | Claude Code |
-| --- | --- | --- |
-| Lean review Task | Auto (`model: inherit` / omit) — **never pin Sonnet** | Sonnet (`model: "sonnet"`) |
-| Fix Task (change) | Auto; Haiku if mechanical | Sonnet; Haiku if mechanical |
-| Opus escalate (≤1) | Pin top-tier when available; reason `critique escalate` | Opus/Fable; reason `critique escalate` |
-| Security pass | `security-review` subagent (see below) | Same role if available; else inline fallback |
-
-Report each subagent with intended tier and resolved model.
+**Requires Agent mode** for plan edits or code fixes. In Plan/Ask mode needing
+writes: stop and tell the user to switch to Agent mode.
 
 ## Step 1 — Detect review context
 
@@ -64,24 +70,20 @@ Parse the user's slash-command or message args.
 
 ### No arguments — auto-detect
 
-- **Has uncommitted changes** (staged or unstaged) → **change mode** (review `git diff HEAD`).
-- **Working tree clean, has commits** → look at `docs/plans/*.md`:
-  - If the most recent plan file's timestamp is newer than the latest commit's author date → **plan mode**.
-  - Otherwise → **change mode** (review the latest commit, `git show HEAD`).
-- **No commits and no plan files** → tell the user there's nothing to review and stop.
-- **Both a fresh plan and uncommitted changes exist** → ambiguous. Use `AskQuestion` when available (otherwise ask conversationally):
-  - Option A: "Review the plan at `<path>`" — rationale: stress-test before execute.
-  - Option B: "Review uncommitted changes (`git diff HEAD`)" — rationale: catch bugs before commit.
-  - Option C: "Other".
-  - **Recommendation: A** if the plan was drafted in this session, otherwise **B**.
+Evaluate in this order (ambiguous before uncommitted→change):
+
+1. **Both a fresh plan and uncommitted changes exist** → ambiguous. Use `AskQuestion` when available (otherwise ask conversationally):
+   - Option A: "Review the plan at `<path>`" — rationale: stress-test before execute.
+   - Option B: "Review uncommitted changes (`git diff HEAD`)" — rationale: catch bugs before commit.
+   - Option C: "Other".
+   - **Recommendation: A** if the plan was drafted in this session, otherwise **B**.
+2. **Has uncommitted changes** (staged or unstaged) → **change mode** (review `git diff HEAD`).
+3. **Working tree clean, has commits** → look at `docs/plans/*.md`:
+   - If the most recent plan file's timestamp is newer than the latest commit's author date → **plan mode**.
+   - Otherwise → **change mode** (review the latest commit, `git show HEAD`).
+4. **No commits and no plan files** → tell the user there's nothing to review and stop.
 
 If at any point you cannot confidently determine the mode, ask — never guess.
-
-## Step 2 — Run the appropriate mode
-
-Skip to Plan mode or Change mode below.
-
----
 
 ## Shared — lean output contract
 
@@ -91,7 +93,7 @@ Review Tasks must:
 - Report **only** high-confidence `blocking` / `important` / `nit` findings (nits ≤3, optional; prefer zero).
 - Blind spots: only if there is a real finding; else one line: “No additional blind spots.”
 - No plan/code rewrites for style. Prefer Ship as-is when unsure.
-- Verdict: one of `"Ship as-is"`, `"Apply N suggested changes then ship"` / `"Address N findings then ship"`, `"Rework — fundamental issues"`. Count must match actionable items. **Never** verdict Ship as-is while `blocking` or unresolved `important` remain.
+- Verdict: `"Ship as-is"` | `"Apply N suggested changes then ship"` / `"Address N findings then ship"` | `"Rework — fundamental issues"`. Count matches actionable items.
 
 Each finding: **Severity**, **Location**, **Description**, **Suggested fix**.
 
@@ -99,37 +101,58 @@ If none: “No high-confidence issues found.”
 
 ---
 
-## Shared — round budget (Phase A / B)
+## Shared — round budget (change mode Phase A / B + final)
 
-### Phase A — lean (mid-tier), max 2
+Plan mode has no lean mid-tier loop (in-session top-tier; pass budget in Plan mode).
 
-1. Spawn an independent **read-only** lean review Task (`generalPurpose`).
-2. Parse findings; auto-apply only `blocking` / `important` (plan: main agent edits; change: fix Task).
-3. Stop if Ship as-is / only nits / no high-confidence issues.
-4. If blockers remain with clear fixes: apply, then **at most one more** lean review (max **2** mid-tier reviews total).
+### Phase A — lean mid-tier (change mode only), max 2
 
-### Phase B — Opus escalate (only if still dirty)
+1. Spawn an independent **read-only** lean review Task (`generalPurpose`, mid-tier).
+2. Parse findings; auto-apply only `blocking` / `important` via fix Task.
+3. Stop lean loop if Ship as-is / only nits / no high-confidence issues.
+4. If blockers remain with clear fixes: apply, then **at most one more** lean
+   review (max **2** mid-tier reviews total).
 
-Run **exactly one** Opus review when:
+### Phase B — top-tier escalate (≤1; only if still dirty)
 
-- round-1 verdict is “Rework”, or
+Run **exactly one** top-tier escalate review (reason `critique escalate`) when:
+
+- round-1 verdict is “Rework” → escalate immediately (**skip** a second lean
+  round), or
 - after **2 mid-tier** rounds any `blocking` or unresolved `important` remains.
 
-Apply clear blocking/important fixes; optional quick lint/tests verify. **No further automatic rounds.**
+Apply clear blocking/important fixes; optional quick lint/tests verify. **No
+further automatic escalate rounds.** If issues remain: **stop**, present the
+remaining list, offer refine / re-run `/critique` later / accept deferred.
 
-If issues still remain: **stop**. Present the consolidated remaining list. Offer: refine manually / re-run `/critique` later / accept deferred.
+### Final `/critique change` — top-tier closing pass
+
+When Phase A is clean/ship-ready **and** escalate was not required — or after
+escalate fixes leave the change ship-ready — run **one** read-only **top-tier**
+Task (`reason: critique closing pass`); never in-session (avoids
+self-review). Distinct from Phase B escalate. **Skip** when After execute-plan
+applies, the user opts out, or that Task already ran this turn (in-session
+self-review does **not** count).
+
+If the closing pass finds `blocking` / `important`: apply clear fixes via a
+fix Task (**no re-review**), list those fixes as **unverified**, and **stop**.
 
 ---
 
 ## Plan mode
 
-Review a plan file in `docs/plans/**` (or promoted `.cursor/plans/`) for residual failure modes, then apply fixes to the plan file.
+Review a plan in `docs/plans/**` (or promoted `.cursor/plans/`) for residual
+failure modes; apply plan-file edits. **Session is top-tier** — in-session
+review + edits (not a separate Task). **Warn once** (do not block) if the
+session is below top tier.
 
 ### Load the plan
 
-Read the plan with `Read`. Capture content for the review Task. On round 2 / escalate, pass **prior findings + updated plan**, not a full criteria re-narration.
+`Read` the plan; review **in-session**. Second pass: **re-check only edited
+sections + open findings**. After **2** passes, **stop** and present remaining
+items — no third automatic plan critique.
 
-### Lean review criteria (only report hits)
+### Review criteria (only report hits; top-tier plan pass)
 
 1. **Unverified assumptions / missing decisions** that will cause guesswork at execute time
 2. **Failure modes & unsafe half-done states**
@@ -140,19 +163,12 @@ Also flag **security-sensitive scope** (auth, crypto, PII, network trust boundar
 
 Do **not** re-litigate Execution map tier labels or Goal wording unless wrong/unsafe.
 
-### Suggested changes
+### Suggested changes / apply
 
-Concrete, minimal plan edits tied to a finding. If a finding needs a human decision, frame it as a question — do not invent the answer.
-
-### Applying changes
-
-Main agent edits only the plan file under review. Summarize fixes in 1–2 sentences per finding. Never commit or push.
-
-### Plan mode constraints
-
-- Only edit the plan file under review. No other files.
-- Never commit or push.
-- If the plan references paths you can't verify with `Glob`/`Read`, flag that as a finding rather than guessing.
+Concrete minimal plan edits tied to a finding; human decisions → questions (do
+not invent answers). Main agent edits **only** the plan file; summarize fixes
+in 1–2 sentences per finding. Unverifiable paths via `Glob`/`Read` → finding,
+not a guess.
 
 ---
 
@@ -175,7 +191,13 @@ Capture diff, changed files, base ref. For lean review: if the diff is huge, pas
 
 ### After execute-plan
 
-If this session (or the user) just finished `/execute-plan` with a converged Opus review: **skip Phase A lean critique** unless the user insists. Proceed to **Security pass**, then Final output.
+If this session (or the user) just finished `/execute-plan` with a converged
+**top-tier** review: **skip Phase A lean** and **skip** the closing final
+`/critique change` pass by default (execute-plan review already closed the
+change). Proceed to **Security pass** unless docs-only or the user opts out.
+Run this skill’s closing top-tier pass only when **this skill’s own lean loop**
+is what is shipping, or the user asks for another pass. In the round table, note
+skipped Phase A / final closing rows with reason `after converged execute-plan`.
 
 ### Lean review criteria (only report hits)
 
@@ -236,28 +258,31 @@ One short mid-tier read-only Task on trust-boundary issues only: injection, auth
 
 #### Merge security findings
 
-Map into `blocking` / `important` / `nit`. Auto-fix via fix Task only when concrete, in-diff, and safe; otherwise defer. Do not open a multi-round security loop. Do not tell the user to run `/review-security` separately if this pass already succeeded.
+Map into `blocking` / `important` / `nit`. Auto-fix via fix Task only when
+concrete, in-diff, and safe; otherwise defer. No multi-round security loop.
 
 ---
 
 ## Final output (both modes)
 
-- **Mode** (plan / change) and what was reviewed.
-- **Round table** (expect 1–2 lean rows; note Opus escalate if used) with model tiers.
-- **Security** subsection (change mode): tool used (Cursor security-review / Claude equivalent / inline fallback / skipped + reason) and findings count or “no issues”.
-- **Change mode:** current `git diff --stat` after fixes.
-- **Deferred / disputed / remaining** list sorted by severity — never hide remaining blockers.
-- **Final verdict** from the last substantive review (must not be Ship as-is if blockers remain).
-- **Next steps:**
-  - Plan: `/execute-plan <path>` or refine further.
-  - Change: run tests, review deferred items, `/commit`, then `/gh-create-pr`.
+- **Mode** and what was reviewed; **round table** (plan: top session; change:
+  lean mid rows, escalate/final top if used).
+- **Security** (change): tool (`security-review` / Claude / inline / skipped +
+  reason) + findings count or “no issues”.
+- **Change:** `git diff --stat` after fixes; deferred/disputed/remaining by
+  severity (never hide blockers).
+- **Final verdict** from the last substantive review (not Ship as-is if
+  blockers remain).
+- **Next:** plan → `/execute-plan <path>` or refine; change → tests, deferred,
+  `/commit`, `/gh-create-pr`.
 
 ## Global constraints
 
-- Never commit or push.
-- Never mutating git except allowed `git checkout -- <file>` revert for out-of-scope / regressing edits in change mode.
-- Review Tasks: `generalPurpose` read-only (except platform `security-review` for the security pass). Fix Tasks: separate write agents. Never use the reviewer to apply fixes.
-- Plan mode only edits the plan file. Change fix Tasks only edit files in the current diff.
-- Auto-apply only `blocking` and `important`. Leave `nit`s for the user.
-- Do not report speculative findings. Ground every conclusion in plan text or diff + read context.
-- Pre-existing bugs in touched files: label separately; fix only if minimal and in-diff, else defer.
+- Never commit or push. Mutating git only for allowed `git checkout -- <file>`
+  reverts of out-of-scope / regressing change-mode edits.
+- Review Tasks: `generalPurpose` read-only (except platform `security-review`).
+  Fix Tasks: separate write agents — never the reviewer.
+- Plan mode: only the plan file. Change fixes: only files in the current diff.
+- Auto-apply only `blocking` / `important`; leave `nit`s. No speculative
+  findings — ground in plan text or diff + reads. Pre-existing bugs in touched
+  files: label separately; fix only if minimal and in-diff, else defer.

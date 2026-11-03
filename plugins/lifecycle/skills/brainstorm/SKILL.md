@@ -14,6 +14,10 @@ Brainstorm an idea with the user: explore the codebase for feasibility, iterate 
 
 This skill is read-only except for persisting its own output. It does not edit code or commit. It produces a prompt that the user can paste into `/make-plan` to turn the agreed idea into an implementation plan.
 
+## Session model (top-tier)
+
+Session/Task tiers: [model-tiers.md](model-tiers.md) (`top`/`mid`/`low`). `/brainstorm` needs **top** for the whole session; warn once and recommend switching if below top — do not silently run a thin brainstorm.
+
 ## Step 1 — Gather the idea
 
 If arguments were provided (the user's slash-command or message args), use them as the initial idea and continue to **When NOT to brainstorm** — do **not** skip Step 1.5 or jump to Step 2.
@@ -25,7 +29,7 @@ Use the response as the initial idea, then continue to **When NOT to brainstorm*
 
 ## When NOT to brainstorm
 
-Right after the idea is known (args or Step 1 answer), check whether brainstorm is the right tool. Present this once with a recommendation and rationale — not a neutral menu. No domain-specific branches.
+Right after the idea is known (args or Step 1 answer), check whether brainstorm is the right tool. Present this once.
 
 - **Scope clear, one approach, ready for steps** → prefer `/make-plan` (durable `docs/plans/**` + execute/critique chain). Recommended when the user already knows what to build.
 - **Same, but no fleet handoff needed** → Cursor Plan mode (`SwitchMode` / `CreatePlan`) or Claude Code `/plan` (product-owned under `~/.cursor/plans` / `~/.claude/plans`). Recommended when `docs/plans/**` is not required.
@@ -46,10 +50,10 @@ The four facets:
 Process:
 
 1. **Extract** Goal / why-now / non-goals / hard constraints from args + the user message when already stated.
-2. **Ask only gaps** — one `AskQuestion` per missing facet when available (otherwise ask conversationally). `AskQuestion` supports **up to 4 options per call, not up to 4 questions.** Issue **one `AskQuestion` call per question** (2-4 options plus "Other" each) — never compress several questions into a single 4-option call. For why-now, offer 2-4 inferred candidates (recent pain point, upcoming deadline, user request, tech debt, etc.) plus "Other".
+2. **Ask only gaps** — one `AskQuestion` (or conversational ask) per missing facet: 2–4 options plus "Other" per call; never pack multiple facets into one 4-option call.
 3. **Compress** when the idea is tiny or args already encode the brief: confirm a drafted 4-line brief in one turn instead of four interviews.
 4. **Floor**: if any of the four lines is still empty after extraction, ask until filled. Never proceed to exploration with a blank brief. Never silently skip this step because args existed in Step 1.
-5. Carry the brief verbatim into Step 5.5 (persisted brainstorm) and Step 6 (`/make-plan` handoff) so the eventual plan starts from the same Goal, not a re-interpreted one.
+5. Carry the brief verbatim into Step 6 (`/make-plan` handoff) and Step 6.5 (persisted brainstorm) so the eventual plan starts from the same Goal, not a re-interpreted one.
 
 Keep the brief to four short lines, not a discussion.
 
@@ -79,20 +83,18 @@ Present a concise feasibility read before ideating. Structure it as:
 ### Feasibility verdict
 One of: **Straightforward** (codebase supports it), **Moderate** (needs new abstractions but no architectural shift), **Hard** (requires architectural changes or new dependencies), **Not feasible** (explain why — wrong layer, conflicts with existing design, external constraint).
 
-Be honest. Do not soften a "Hard" into "Moderate" to please the user. If the idea is not feasible, say so directly and explain what would need to change to make it feasible.
+If the idea is not feasible, say so directly and explain what would need to change to make it feasible.
 
 ## Step 4 — Ideate iteratively
 
 This is the core loop. Present a concrete proposal for the idea, grounded in what you found in Step 2. Then use `AskQuestion` when available (otherwise ask conversationally) to let the user steer:
 
-- **Direction** — offer 2-4 concrete approaches to the idea, each with trade-offs. End with your recommendation and rationale. Do not present a neutral menu.
-- **Scope** — what to include vs. defer. Offer a "minimal viable" option and a "full vision" option, plus your recommendation.
+- **Direction** — offer 2-4 concrete approaches to the idea, each with trade-offs.
+- **Scope** — what to include vs. defer (e.g. minimal viable vs. full vision).
 - **Open questions** — anything the codebase exploration couldn't resolve (e.g. "should this be a new module or extend the existing one?")
 
 Rules for the ideation loop:
-- Each proposal must be concrete: reference specific files, modules, and patterns from the codebase. No generic advice.
-- Each set of options must include a recommendation with rationale. Never leave the decision entirely to the user.
-- Iterate until the user explicitly says they're satisfied (e.g. "looks good", "ship it", "that's the one"). Do not exit the loop early — **except** if the user says "good enough", "ship Phase 1", or "make the plan": exit ideation and go to Step 5; do not demand another satisfaction round.
+- Iterate until the user explicitly signals done (e.g. "looks good", "ship it", "make the plan", "good enough"). Never exit the loop on your own.
 - If the user rejects an approach, ask why before proposing the next one. Don't just cycle through options blindly.
 - If the user proposes something the codebase can't support, say so and explain the constraint.
 
@@ -128,18 +130,6 @@ Phased delivery, ordered so each phase is independently useful:
 
 Be explicit about all three lists. Do not blur the line between "can't" and "deferring" — they're different commitments.
 
-## Step 5.5 — Persist the brainstorm
-
-Determine the project root with `git rev-parse --show-toplevel` (fall back to the current working directory if not a git repo).
-
-Derive a kebab-case slug from the idea title (lowercase, hyphen-separated). Remove stopwords: `the`, `a`, `an`, `and`, `or`, `for`, `to`, `in`, `on`, `of`, `with`, `is`, `are`, `this`, `that`, `it`, `as`, `by`, `from`. Example: "Add a plugin system" → `add-plugin-system`.
-
-Generate a timestamp with `date +%y%m%d%H%M` (2-digit year, month, day, hour, minute — e.g. `2607051430`).
-
-Create the `docs/brainstorms/` directory at the project root if it doesn't exist, then write the brainstorm to `<project-root>/docs/brainstorms/<yymmddhhmm>-<slug>.md`.
-
-The file must contain: the Step 1.5 Goal brief, the Step 3 feasibility assessment, the Step 5 roadmap (strategy, architecture, phases, can/can't/deferring lists), and the Step 6 make-plan prompt.
-
 ## Step 6 — Produce the /make-plan prompt
 
 Produce a single prompt that the user can paste into `/make-plan` to turn the agreed idea into a concrete implementation plan. The prompt must:
@@ -160,21 +150,32 @@ Format the prompt in a fenced code block so the user can copy-paste it cleanly:
 
 If the prompt is too long for a single line, use a multi-line fenced block and instruct the user to paste it after `/make-plan`.
 
+## Step 6.5 — Persist the brainstorm
+
+Run this step **after** Step 6 so the saved file includes the produced `/make-plan` prompt.
+
+Determine the project root with `git rev-parse --show-toplevel` (fall back to the current working directory if not a git repo).
+
+Derive a kebab-case slug from the idea title (lowercase, hyphen-separated; drop common English stopwords). Example: "Add a plugin system" → `add-plugin-system`.
+
+On the **first** completion of Steps 5–6 for this brainstorm, generate a timestamp with `date +%y%m%d%H%M` (2-digit year, month, day, hour, minute — e.g. `2607051430`) and set the path to `<project-root>/docs/brainstorms/<yymmddhhmm>-<slug>.md`. On **Refine** (Step 7 → back to Step 4), **overwrite that same path** — do not create a new timestamped file.
+
+Create the `docs/brainstorms/` directory at the project root if it doesn't exist, then write the brainstorm to the path above.
+
+The file must contain: the Step 1.5 Goal brief, the Step 3 feasibility assessment, the Step 5 roadmap (strategy, architecture, phases, can/can't/deferring lists), and the Step 6 make-plan prompt (verbatim).
+
 ## Step 7 — Offer next steps
 
-After presenting the roadmap and prompt (and confirming the brainstorm was saved to `docs/brainstorms/`), offer the user these options:
-- **Refine the idea** — go back to Step 4 and iterate further (the persisted file will be updated)
+After presenting the roadmap and prompt, run Step 6.5, then confirm the brainstorm was saved to `docs/brainstorms/`. Offer the user these options:
+- **Refine the idea** — go back to Step 4 and iterate further (Step 6.5 overwrites the same persisted path)
 - **Run /make-plan now** — the user pastes the prompt from Step 6 to produce the implementation plan
 - Mention the recommended chain after planning: `/make-plan` → `/critique plan` → `/execute-plan`
 
-Wait for the user's choice. Do not invoke `/make-plan` yourself — the user runs it with the prompt you produced.
+Wait for the user's choice.
 
 ## Constraints
 
-- Never edit code or commit anything — this skill only writes to `docs/brainstorms/**`.
-- Never invoke `/make-plan` directly — produce the prompt and let the user run it.
-- Be honest about feasibility. Do not soft-pedal "Hard" or "Not feasible" verdicts.
-- Every set of options presented to the user must include a recommendation with rationale.
-- Ground every proposal in specific files, modules, and patterns from the codebase. No generic advice.
-- If the idea is ambiguous even after exploration, say so and ask rather than guess.
-- The roadmap is high-level. Detailed step-by-step implementation belongs in `/make-plan`, not here.
+- Never edit code or commit — only write `docs/brainstorms/**`. Never invoke `/make-plan` (prompt only).
+- Be honest about feasibility; do not soft-pedal Hard / Not feasible. Ask rather than guess when still ambiguous.
+- Every option set needs a recommendation with rationale. Ground proposals in specific codebase files/patterns.
+- Roadmap stays high-level; step-by-step implementation belongs in `/make-plan`.

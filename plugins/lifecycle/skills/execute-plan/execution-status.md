@@ -13,7 +13,7 @@ execution:
   progress_pct: 0-100
   steps_done: <int>
   steps_total: <int>
-  last_skill: execute-plan | execute-via-cursor
+  last_skill: execute-plan | execute-via-cursor | execute-via-agy
   started_at: <ISO-8601Z>   # first run that moved status off not-started
   updated_at: <ISO-8601Z>   # every write
   completed_at: <ISO-8601Z | null>  # only when status == completed
@@ -28,10 +28,10 @@ Timestamps: ISO-8601 UTC (`YYYY-MM-DDTHH:MM:SSZ`).
 | --- | --- |
 | `not-started` | Scaffold only; no execute run yet. |
 | `in-progress` | At least one row `in-progress` or `done`, and not terminal. |
-| `completed` | Every row is `done` **or** `skipped` for a reason **other than** solely `out of step-scope`, **and** the skill’s success path finished (execute-plan review clean / execute-via-cursor PASS). Rows skipped only as out-of-scope do **not** satisfy this. |
-| `partial` | Run stopped without meeting `completed`: user abort mid-wave; scoped PASS that left other rows as out-of-scope skips (or any in-scope row not yet `done`/`skipped`); or any row still `pending`/`in-progress`/`failed` after a non-failed stop. A scoped PASS is **`partial`**, not `completed`, when the only unresolved work was marked `skipped` / `out of step-scope`. |
-| `failed` | Terminal failure (execute-via-cursor FAIL after FIX budget; execute-plan hard stop after failed wave/review stop conditions without a clean finish). |
-| `aborted` | User explicitly aborted before meaningful progress, or preflight refuse after a prior `in-progress` write was not applicable (prefer leaving prior state if never started this run). |
+| `completed` | Every row is `done` **or** `skipped` for a reason **other than** solely `out of step-scope`, **and** the skill’s success path finished (execute-plan review clean / execute-via-cursor or execute-via-agy PASS). Rows skipped only as out-of-scope do **not** satisfy this. |
+| `partial` | Run stopped without meeting `completed`: user abort mid-wave; scoped PASS (out-of-scope skips and/or unfinished in-scope rows); or any row still `pending`/`in-progress`/`failed` after a non-failed stop. Scoped PASS is never `completed`. |
+| `failed` | Terminal failure (execute-via-cursor or execute-via-agy FAIL after FIX budget; execute-plan hard stop after failed wave/review stop conditions without a clean finish). |
+| `aborted` | User aborted before any row reached `done` this run; preflight refusals write nothing. |
 
 ## Row statuses
 
@@ -46,11 +46,7 @@ Table column values: `pending` | `in-progress` | `done` | `skipped` | `failed`.
 
 ## Out-of-scope / step-scope (locked)
 
-Rows not in the current `step-scope` (or equivalent execute-plan subset) → status **`skipped`** with Notes **`out of step-scope`**, **only if the row is not already `done`**. Do **not** leave them `pending`. Do **not** downgrade a prior `done` to `skipped` (preserve-prior-done).
-
-**Preserve-prior-done:** if an out-of-scope row was `done` from an earlier run, leave it `done` (and its prior Notes). Only non-`done` out-of-scope rows get `skipped` / `out of step-scope`.
-
-Out-of-scope skips alone never make overall `completed` — see status meanings above (scoped PASS → `partial`).
+Out-of-scope rows (not in current `step-scope` / execute-plan subset) → **`skipped`** + Notes **`out of step-scope`**, only if not already `done` (never leave `pending`; never downgrade prior `done`). Out-of-scope skips alone never yield overall `completed` (see `partial`).
 
 ## Placement (locked)
 
@@ -66,7 +62,7 @@ Writers must **create or move** the section to that slot — do **not** append a
 ## Execution log
 
 - **Overall:** <status> — <progress_pct>% (<steps_done>/<steps_total>)
-- **Last skill:** <execute-plan|execute-via-cursor>
+- **Last skill:** <execute-plan|execute-via-cursor|execute-via-agy>
 - **Updated:** <ISO-8601Z>
 
 | ID | Status | Notes |
@@ -93,7 +89,7 @@ Keep history short: replace/update the summary table on each write; add one `###
 | Skill | Writer |
 | --- | --- |
 | `/execute-plan` | **Orchestrator** (same agent that persists the Execution map). |
-| `/execute-via-cursor` | **Claude** after each meaningful phase (post-Cursor implement before/after review as needed; always on terminal verdict). **Never Cursor.** |
+| `/delegate:execute-via-cursor`, `/delegate:execute-via-agy` | **Claude** after each meaningful phase (post-implement before/after review as needed; always on terminal verdict). **Never** the implementer tool (`agent` / `agy`). |
 
 ## Fallback when no Execution map
 

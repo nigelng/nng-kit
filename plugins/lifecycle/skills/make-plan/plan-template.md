@@ -27,17 +27,16 @@ execution:
 - <item>
 
 ## Assumptions
-- <assumption the plan makes about existing code, environment, data shape, dependencies, or prior state; mark as `[verified]` or `[unverified]`>
-- **Architecture docs (from scan):** <paths / canonical doc from Step 3, or "none found">
+- <assumption; mark `[verified]` or `[unverified]`>
+- **Architecture docs (from scan):** <paths / canonical, or "none found"; note if create-under-`docs/architecture/` needed>
 
 ## Dependencies
 - <other plans, PRs, external API approvals, or infra that must be in place first; link if known>
-- **Architecture docs (from scan):** <same paths / canonical pointer; note if create-under-`docs/architecture/` is needed>
 
 ## Implementation steps
 1. <step> — <file(s) affected>
 2. <step> — <file(s) affected>
-3. **Update documentation** — <architecture doc path(s) to update, or create under `docs/architecture/` if scan empty and shape changes> — **or** one-line **justified skip** here / in Scope (see drafting-rules.md)
+3. **Update documentation** — <arch paths / create / one-line justified skip>
 ...
 
 ## Execution map
@@ -58,7 +57,7 @@ execution:
 | ID | Status | Notes |
 | --- | --- | --- |
 
-<!-- Scaffold only. /execute-plan and /execute-via-cursor fill this table and the frontmatter above (dual-write). Do not hand-edit rows. -->
+<!-- Scaffold: execute/delegate skills dual-write; do not hand-edit. -->
 
 ## Files to modify/create
 - `<path>` — <brief description of the change>
@@ -67,21 +66,21 @@ execution:
 ## Verification
 - <test / lint / type-check / build commands — concrete and copy-pastable>
 - **Coverage:** <available | not available>
-  - If available: command `<exact coverage command>`; **target: <N>%** (repo threshold if present, else **90%** unless user overrode); scope of measurement if known (e.g. changed packages only)
-  - If not available: state that explicitly; do not require `/execute-plan` to invent a coverage run
-- **Architecture docs:** execute-checkable proof — `git diff` / Files show the architecture-doc paths changed as listed in the Implementation docs step, **or** Scope/Implementation contains a one-line justified skip. Listing scan paths in Assumptions alone is **not** proof.
+  - If available: command `<exact coverage command>`; **target: <N>%** (repo threshold if present, else **90%** unless user overrode); scope if known
+  - If not available: state that explicitly
+- **Architecture docs:** `git diff` / Files prove listed arch-doc changes, **or** one-line justified skip present
 
 ## Success criteria
-- <how the user will know the task is done and correct; distinct from verification — "what good looks like" vs "how to check">
-- If coverage is available: include meeting the stated **coverage target** as a success criterion
-- Architecture docs reflect the shape change (OVERVIEW / canonical Archify updated or created as planned), **or** a justified skip is recorded
+- <what good looks like — distinct from Verification>
+- If coverage available: meeting the stated **coverage target**
+- Architecture docs reflect the shape change, **or** justified skip recorded
 
 ## Rollback / reversibility
-- <what can be undone cleanly and how; what's NOT reversible (schema changes, deleted files, external API calls with side effects)>
+- <what can be undone cleanly and how; what's NOT reversible>
 
 ## Risks & considerations
-- <edge case, tradeoff, backwards-compatibility note, or "None identified">
-- If coverage is unavailable but the change is high-risk: note the gap
+- <edge case, tradeoff, backwards-compat, or "None identified">
+- If coverage unavailable but high-risk: note the gap
 ```
 
 Implementation steps stay human-readable; the map is the machine-oriented schedule for `/execute-plan`.

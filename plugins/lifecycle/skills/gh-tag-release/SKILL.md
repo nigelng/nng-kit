@@ -15,25 +15,22 @@ Date the changelog and **push a release tag** to trigger publish CI. This is not
 skill only dates the changelog and pushes a git tag (the publish workflow
 handles the release).
 
-**When to use this vs `/gh-draft-release`:**
-- `/gh-tag-release` (this skill) — push a git tag on `<default>` (after CI is green) to trigger the publish workflow. Does **not** create a GitHub Release draft; the publish workflow handles the release.
-- `/gh-draft-release` — create a **draft** GitHub Release with generated notes from unreleased commits. Does **not** push a tag or trigger publish. User publishes the draft manually.
-
 ## Preconditions
 
 - User explicitly asked to tag a release (this skill does not push or tag on its own initiative).
-- Use `gh` for all GitHub operations. If `gh` is not available, skip the CI wait step with a note.
-- Do not create a GitHub Release — this skill only creates and pushes a git tag. The publish workflow handles the release.
+- Resolve the default branch with git only (see step 0). Use `gh` for CI wait and workflow-run listing. If `gh` is not available, **stop** at the CI wait step — do not skip it and tag anyway (that would contradict "do not tag until CI passes").
 
 ## Workflow
 
-### 0. Resolve default branch
+### 0. Resolve default branch and confirm a clean tree
+
+Resolve `<default>` **without** `gh`:
 
 ```bash
-gh repo view --json defaultBranchRef -q .defaultBranchRef.name
+git symbolic-ref refs/remotes/origin/HEAD
 ```
 
-Use that name (e.g. `main` or `master`) everywhere below as `<default>`. Do **not** hardcode `main` / `origin/main`.
+Use the branch name after `refs/remotes/origin/` (e.g. `main` or `master`) everywhere below as `<default>`. Do **not** hardcode `main` / `origin/main`. If `symbolic-ref` fails (no `origin/HEAD`), stop and ask the user to set upstream tracking or name the default branch — do not guess.
 
 Confirm the current branch:
 
@@ -43,6 +40,16 @@ git branch --show-current
 
 - If already on `<default>`, proceed.
 - If not on `<default>`: abort, **or** ask for approval to `git checkout <default>` before any push/tag. Do not push or tag from a non-default branch.
+
+Before any edit, confirm a clean working tree:
+
+```bash
+git status --short
+```
+
+If there are uncommitted changes, inform the user: "There are uncommitted changes. Commit or stash them first." and stop.
+
+If the working tree is clean, proceed.
 
 ### 1. Propose the tag version
 
@@ -55,22 +62,21 @@ git branch --show-current
 - If the `package.json` version and the CHANGELOG header version **match**, propose `v<version>` as the tag.
 - If they **differ**, present both versions and propose a reconciliation:
   - Use `AskQuestion` when available (otherwise ask conversationally) which version to use, or suggest bumping `package.json` to match the CHANGELOG (or vice versa).
-  - On approval, update the mismatched file(s) so both agree.
+  - On approval, plan to update the mismatched file(s) so both agree — apply those edits in step 4 together with the changelog dating (do not edit yet).
 - Present the proposed tag to the user for approval. If the user requests a different tag, revise.
 
 If no `package.json` exists, ask the user for the version directly.
 
-### 2. Check for uncommitted changes
+Tag-free pre-check (local and remote) once `<version>` is agreed:
 
 ```bash
-git status --short
+git rev-parse -q --verify "v<version>"
+git ls-remote --tags origin "v<version>"
 ```
 
-If there are uncommitted changes, inform the user: "There are uncommitted changes. Commit or stash them first." and stop.
+If either command shows the tag already exists, inform the user and stop (do not retag or overwrite).
 
-If the working tree is clean, proceed.
-
-### 3. Push default branch to remote (if local is ahead)
+### 2. Push default branch to remote (if local is ahead)
 
 ```bash
 git fetch origin
@@ -84,9 +90,11 @@ If local `<default>` is **ahead** of `origin/<default>` (there are unpushed comm
 
 If local `<default>` is **behind** `origin/<default>`: inform the user "local `<default>` is behind origin/`<default>` — pull or rebase first" and stop.
 
-If local `<default>` is **up to date** with `origin/<default>`: proceed to step 4.
+If local `<default>` is **up to date** with `origin/<default>`: proceed to step 3.
 
-### 4. Wait for CI to pass on the default branch
+### 3. Wait for CI to pass on the default branch
+
+Requires `gh`. If `gh` is not available, stop here with a note — do not skip this step and continue to tag.
 
 ```bash
 gh run list --branch <default> --limit 5
@@ -96,23 +104,24 @@ Identify the latest run for the verify workflow (the one triggered by the push t
 
 - If the latest run is still in progress, watch it: `gh run watch <run-id> --exit-status`.
 - If the run **fails**, inform the user: "CI failed on `<default>`. Fix the issues before releasing." and stop.
-- If the run **succeeds**, proceed to step 5.
+- If the run **succeeds**, proceed to step 4.
 - If no verify workflow exists for this repo, skip this step with a note to the user.
 
-### 5. Update the CHANGELOG for release
+### 4. Update the CHANGELOG for release
 
-If no `CHANGELOG.md` exists, skip this step with a note.
+If no `CHANGELOG.md` exists, skip this step with a note (still apply any approved `package.json` reconciliation below if needed).
 
 Otherwise:
 
 - Find the latest unreleased heading (see variants in step 1). Date it for release:
   - Versioned unreleased (e.g. `## [3.0.0] — unreleased` / `- unreleased`) → `## [<version>] — <today's-date>` (ISO: `YYYY-MM-DD`), preserving the repo's heading style where practical.
   - Bare `## [Unreleased]` / `## Unreleased` → replace with a dated versioned heading such as `## [<version>] — <today's-date>` (or the repo's established pattern).
-- Present the changelog change to the user for approval.
-- On approval, apply the edit and commit:
+- Apply any approved `package.json` version reconciliation from step 1.
+- Present the changelog (and package.json, if changed) to the user for approval.
+- On approval, apply the edit(s) and commit, staging **both** files together when both changed (always include each file that was edited):
 
 ```bash
-git add CHANGELOG.md
+git add package.json CHANGELOG.md
 git commit -m "$(cat <<'EOF'
 docs: date <version> release in changelog
 
@@ -120,9 +129,13 @@ EOF
 )"
 ```
 
+(If only one of the two was edited, `git add` only that file; keep the same commit message style when the change is changelog dating.)
+
 - Push the commit: ask the user for approval to `git push origin <default>`, then push.
 
-### 6. Tag and push the tag
+**Post-CI commit policy:** this dating commit is **docs-only** (changelog markdown; `package.json` version string alignment only). Tagging without waiting for another CI cycle on this commit is acceptable. Alternatively, tag first on the already-green tip and verify publish/CI after — do not leave a behaviour-changing commit untagged between green CI and the release tag.
+
+### 5. Tag and push the tag
 
 ```bash
 git tag v<version>
@@ -140,18 +153,9 @@ gh run list --workflow=publish.yml --limit 1
 
 (Use the appropriate workflow name if not `publish.yml`.)
 
-### 7. Revisions
+### 6. Revisions
 
 If the user requests changes to the tag or version, revise and repeat from step 1.
-
-## Constraints
-
-- Do not push anything without explicit user approval for each push.
-- If CI fails on `<default>`, stop and inform the user. Do not tag until CI passes.
-- If local `<default>` is behind `origin/<default>`, stop and inform the user. Do not force-push or overwrite.
-- Do not push or tag unless on `<default>` (or after approved checkout to `<default>`).
-- Keep commit messages clean and user-authored — no AI co-author trailers or "Generated with …" lines.
-- Use [Conventional Commits](https://www.conventionalcommits.org/) for the changelog commit (`docs: date <version> release in changelog`).
 
 ## Safety (never)
 
@@ -159,4 +163,3 @@ If the user requests changes to the tag or version, revise and repeat from step 
 - `git push --force` to `<default>` (warn if requested)
 - Skip hooks (`--no-verify`) unless the user explicitly asks
 - Tag or push without explicit user approval
-- Create a GitHub Release (the publish workflow handles that; use `gh-draft-release` to draft one)

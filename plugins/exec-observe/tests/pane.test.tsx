@@ -2,13 +2,13 @@ import { expect, test } from 'claude-code/testing'
 
 import { emptyRun, reduceLine } from '../hooks/reduce'
 import { chromeRows } from '../hooks/view'
-import { generate } from '../scripts/generate.ts'
-import type { Run } from '../types'
+import { generate, generateLines } from '../scripts/generate.ts'
+import type { Backend, Run } from '../types'
 
 const PANE = {
-  plugin: 'evc-observe',
+  plugin: 'exec-observe',
   component: 'Pane',
-  requestId: 'evc-observe',
+  requestId: 'exec-observe',
   props: {
     title: 'Cursor run',
     isFocused: false,
@@ -19,10 +19,11 @@ const PANE = {
   },
 } as const
 
-const fold = (lines: string[]): Run =>
-  lines.reduce(reduceLine, { ...emptyRun(2), startedAt: 0, lastGrowthAt: 0 })
+const fold = (lines: string[], backend: Backend = 'cursor', n = 2): Run =>
+  lines.reduce(reduceLine, { ...emptyRun(n, backend), startedAt: 0, lastGrowthAt: 0 })
 
-const BIG = fold(generate({ events: 5000, seed: 1 }))
+const BIG = fold(generate({ events: 5000, seed: 1 }), 'cursor', 2)
+const BIG_AGY = fold(generateLines({ backend: 'agy', events: 5000, seed: 1 }), 'agy', 3)
 
 const isTimeline = (text: string | undefined): boolean =>
   !!text && /^(READ|SRCH|EDIT|SH  |TASK|TOOL|MSG |ERR |RES )/.test(text)
@@ -30,26 +31,47 @@ const isTimeline = (text: string | undefined): boolean =>
 const seedRun = (on: (event: string, handler: (...args: any[]) => unknown) => void, run: Run) => {
   on('state.get', async (_$, e, next) => {
     if (e.key === 'run') {
-      return { value: { value: { shape: 'run-2', value: run }, version: 1 } }
+      return { value: { value: { shape: 'run-3', value: run }, version: 1 } }
     }
     // view / showErr: let the harness own them so set invalidates the drawing.
     return next(e)
   })
 }
 
-test('the pane draws header and counters on every surface', async ($, on) => {
-  seedRun(on, BIG)
+test('the pane draws header and counters on every surface for cursor and agy', async ($, on) => {
+  let activeRun: Run = BIG
+  on('state.get', async (_$, e, next) => {
+    if (e.key === 'run') {
+      return { value: { value: { shape: 'run-3', value: activeRun }, version: 1 } }
+    }
+    return next(e)
+  })
   on('clock.now', () => ({ value: 30_000 }))
   on('ui.copy', () => ({ value: { isCopied: true } }))
 
   for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ ...PANE, surface })
-    expect((await ui.find({ type: 'Text', text: /RUNNING|PASSED|FAILED|STALLED/ }))?.text).toMatch(
+    activeRun = BIG
+    const cursorUi = await $.ui.mount({ ...PANE, surface })
+    expect((await cursorUi.find({ type: 'Text', text: /RUNNING|PASSED|FAILED|STALLED/ }))?.text).toMatch(
       /PASSED|RUNNING/,
     )
-    expect((await ui.find({ type: 'Text', text: /read \d+/ }))?.text).toMatch(/read \d+/)
-    expect((await ui.find({ type: 'Text', text: /^now:/ }))?.text).toMatch(/^now:/)
-    await ui.unmount()
+    expect((await cursorUi.find({ type: 'Text', text: /exec #2 \[cursor\]/ }))?.text).toContain(
+      '[cursor]',
+    )
+    expect((await cursorUi.find({ type: 'Text', text: /read \d+/ }))?.text).toMatch(/read \d+/)
+    expect((await cursorUi.find({ type: 'Text', text: /^now:/ }))?.text).toMatch(/^now:/)
+    await cursorUi.unmount()
+
+    activeRun = BIG_AGY
+    const agyUi = await $.ui.mount({ ...PANE, surface })
+    expect((await agyUi.find({ type: 'Text', text: /RUNNING|PASSED|FAILED|STALLED/ }))?.text).toMatch(
+      /PASSED|RUNNING/,
+    )
+    expect((await agyUi.find({ type: 'Text', text: /exec #3 \[agy\]/ }))?.text).toContain('[agy]')
+    expect((await agyUi.find({ type: 'Text', text: /gemini-2\.5-pro/ }))?.text).toContain(
+      'gemini-2.5-pro',
+    )
+    await agyUi.unmount()
   }
 })
 
@@ -146,6 +168,6 @@ test('with no run the pane says so', async ($, on) => {
   on('clock.now', () => ({ value: 30_000 }))
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
 
-  expect((await ui.find({ type: 'Text' }))?.text).toBe('No execute-via-cursor run yet.')
+  expect((await ui.find({ type: 'Text' }))?.text).toBe('No /exec run yet.')
   await ui.unmount()
 })

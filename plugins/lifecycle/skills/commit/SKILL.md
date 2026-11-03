@@ -12,25 +12,9 @@ disable-model-invocation: true
 
 Scan the current working-tree changes, update docs and version when appropriate, then create a [Conventional Commits](https://www.conventionalcommits.org/) commit after user review.
 
-## Session model (Haiku default)
+Session/Task tiers: [model-tiers.md](model-tiers.md) (`top`/`mid`/`low`). `/commit` defaults to `low` (use `mid` for large mixed trees or version + CHANGELOG judgment).
 
-`/commit` is intended to run on a **low-tier / Haiku-class** model (e.g. Haiku 5.5, or Cursor Luna if equivalent). It is a checklist workflow (inspect → classify → draft → approve → stage/commit), not a design or orchestration skill.
-
-- **Default:** Haiku (or Luna-class) for single-type / small–medium diffs.
-- **Bump to mid-tier (`auto`):** large mixed trees that need careful multi-commit splits, or repos with version + CHANGELOG bumps where judgment matters.
-- Do **not** require Opus / top-tier for routine `/commit`. Keep `/make-plan` and `/execute-plan` orchestration on stronger models.
-
-If the session is clearly mid- or top-tier, still follow this skill — no need to switch down mid-flight unless the user asks.
-
-## Delta over default Agent commit
-
-User rules / Agent already cover Conventional Commits style and git safety (no force-push, no secrets, no amend abuse). **This skill's added value:**
-
-1. Optional **version bump** + **CHANGELOG** / README updates when the repo uses them
-2. Never stage **`docs/plans/**`** or **`docs/brainstorms/**`** unless the user explicitly asks
-3. Explicit **approve / revise / cancel** before `git commit`
-
-Do not restate or contradict global git safety rules; follow them.
+**AskQuestion:** when available, use it for approvals; otherwise ask conversationally.
 
 ## Preconditions
 
@@ -73,8 +57,8 @@ Match the repo's recent commit style from `git log`.
 If the diff spans multiple distinct change types (e.g. `feat` + `chore` + `docs`), suggest splitting into multiple commits grouped by change type:
 
 - Present a commit plan as a list of proposed commits, each with its type, summary, and the files it covers.
-- Wait for user approval of the plan via `AskQuestion` when available (otherwise ask conversationally).
-- On approval, process each group sequentially through steps 4–9, then commit each group.
+- Wait for user approval of the plan via AskQuestion.
+- On approval, process each group through steps 4–9 (step 9 is the commit).
 - If the user requests changes to the plan, revise and re-present.
 
 If the diff is a single change type (or the user declines splitting), continue with one commit.
@@ -95,6 +79,7 @@ Generate a conventional commit message:
 - Summary ≤72 chars, no trailing period
 - Focus on **why**, not a file list
 - If the change spans multiple types and the user declined splitting, pick the most significant type
+- No AI co-author trailers or "Generated with …" lines
 
 **Invalid:** `Add feature`, `feat: Added thing.`, `fix: fixed the bug`
 
@@ -105,22 +90,32 @@ fix: correct contact deduplication in batch queries
 chore: bump node to 24 and update jest config
 ```
 
-### 5. Auto-bump package version
+### 5. Propose version bump
 
-If a `package.json` exists (or equivalent package manifest like `pyproject.toml`, `Cargo.toml`), bump the version according to the commit type using semantic versioning:
+If a `package.json` exists (or equivalent package manifest like `pyproject.toml`, `Cargo.toml`), compute **one** proposed version for the whole `/commit` session from the highest-priority commit type in the plan, using semantic versioning:
 
-- `BREAKING CHANGE` or `!:` → major bump (e.g. 1.2.3 → 2.0.0)
-- `feat:` → minor bump (e.g. 1.2.3 → 1.3.0)
-- `fix:` → patch bump (e.g. 1.2.3 → 1.2.4)
-- `chore:`, `refactor:`, `docs:`, `style:`, `perf:`, `test:`, `build:`, `ci:`, `revert:` → no bump
+- `BREAKING CHANGE` or `!:` → major (e.g. 1.2.3 → 2.0.0)
+- `feat:` → minor (e.g. 1.2.3 → 1.3.0)
+- `fix:` → patch (e.g. 1.2.3 → 1.2.4)
+- `chore:`, `refactor:`, `docs:`, `style:`, `perf:`, `test:`, `build:`, `ci:`, `revert:` → no version change
 
-Present the suggested version bump to the user for approval via `AskQuestion` when available (otherwise ask conversationally). If the user declines, skip the bump.
+**Apply rules:**
+1. Propose the version once for the session; apply it only on the **first** commit in a multi-commit plan.
+2. If CHANGELOG has a versioned unreleased heading (`## [x.y.z] — unreleased`), skip proposing/applying only when that `x.y.z` is already at or past the proposed version (from last tag via `git describe --tags --abbrev=0`). A bare `## [Unreleased]` does **not** skip — still propose when the commit type warrants a bump. If an existing versioned heading is below the proposed bump, propose the higher version (and update the heading).
+3. Skip if the package manifest version is already at or past the proposed version since the last tag (`git describe --tags --abbrev=0`).
+
+Present the suggested version to the user for approval via AskQuestion. If the user declines, skip the version change.
 
 ### 6. Update CHANGELOG
 
-If a `CHANGELOG.md` exists, prepend a new entry under a `## [Unreleased]` or `## [<new-version>]` section with:
+If a `CHANGELOG.md` exists, prepend a new entry under the canonical unreleased heading (reuse an existing top unreleased heading rather than duplicating it):
 
-- The commit type and summary as a bullet point.
+- Version change applied in Step 5, **or** `CHANGELOG.md` already has `## [x.y.z] — unreleased`: use `## [x.y.z] — unreleased` (when bumping, upgrade an existing bare `## [Unreleased]` or lower versioned unreleased heading in place).
+- Neither applies: use `## [Unreleased]` (prepend under an existing `## [Unreleased]` if present).
+
+Under that heading:
+
+- Add the commit type and summary as a bullet point.
 - Group by type if multiple changes are being committed together.
 
 If no `CHANGELOG.md` exists, skip this step — do not create one.
@@ -131,7 +126,7 @@ If the changes affect documented features, configuration options, usage examples
 
 ### 8. Present for review
 
-Present the proposed commit message, version bump, changelog diff, and README diff (if any) to the user for review via `AskQuestion` when available (approve / revise / cancel); otherwise ask conversationally. **Do not commit until the user approves.**
+Present the proposed commit message, proposed version (if any), changelog diff, and README diff (if any) to the user for review via AskQuestion (approve / revise / cancel). **Do not commit until the user approves.**
 
 If the user requests changes, revise and repeat this step.
 
@@ -152,42 +147,20 @@ EOF
 git status
 ```
 
-Stage from the repo root so approved changes are included (including any approved version/CHANGELOG/README edits). Prefer path-specific `git add` over `git add -A` when `docs/plans/**` or `docs/brainstorms/**` appear in the working tree — those paths must stay unstaged. Exclude secret files if any were flagged. If a version bump was applied, include it in the same commit.
+Stage from the repo root so approved changes are included (including any approved version/CHANGELOG/README edits). Exclude secret files if any were flagged. If a version change was applied, include it in the same commit.
 
-### 10. Hook failure
+### 10. Hook failure and amend
 
-If pre-commit fails:
+If pre-commit **rejects** the commit:
 
-- Fix the reported issues
-- Create a **new** commit — never `--amend` after a rejected hook
-- Only `--amend` when the user explicitly requested it, HEAD was created by you in this session, and the commit was not pushed
+1. Fix the reported issues.
+2. Create a **new** commit — never `--amend` after a rejected hook.
 
-## Constraints
+Use `git commit --amend` only when **all** of the following are true:
 
-- Do not commit if the working tree is clean — inform the user instead.
-- Do not amend previous commits unless explicitly asked (see Amend below).
-- Do not push — this skill only creates a local commit.
-- Never stage or commit `docs/plans/**` or `docs/brainstorms/**` unless the user explicitly requests it.
-- Only bump version for `feat`, `fix`, and `BREAKING CHANGE` / `!:` commit types.
-- Only update CHANGELOG and README if they exist or if changes warrant it — do not create a `CHANGELOG.md` if one doesn't exist.
-- Keep commit messages clean and user-authored — no AI co-author trailers or "Generated with …" lines.
-- Prefer `AskQuestion` when available for approvals (commit plan, version bump, final commit message); otherwise ask conversationally.
-
-## Safety (never)
-
-- Update git config
-- `git push --force` to main/master (warn if requested)
-- Skip hooks (`--no-verify`) unless the user explicitly asks
-- Commit when there are no changes
-- Push unless the user explicitly asks
-
-## Amend (rare)
-
-Use `git commit --amend` only when **all** are true:
-
-1. User explicitly requested amend, **or** commit succeeded but the hook auto-modified files
-2. HEAD commit was created by you in this conversation
-3. Commit has not been pushed
+1. The user explicitly requested amend, **or** the commit succeeded and a hook auto-modified files that must be included.
+2. HEAD was created by you in this conversation.
+3. The commit has not been pushed.
 
 If already pushed, never amend unless the user explicitly requests it (requires force push).
 
@@ -197,3 +170,9 @@ After a successful commit:
 - Done — stop here (local commit only).
 - **Open a PR** — suggest `/gh-create-pr` to create a branch (if needed), push, and open a PR.
 - **Review the change first** — suggest `/critique change` if the diff hasn't been reviewed yet.
+
+## Safety (never)
+
+- Skip hooks (`--no-verify`) unless the user explicitly asks
+- Update `git config`
+- Push or `git push --force` (local commits only unless the user explicitly asks)
