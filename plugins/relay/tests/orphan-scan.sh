@@ -2,6 +2,7 @@
 # Fixture harness for the relay orphan scan (format.md "Orphans").
 # The block between the BEGIN/END markers is the canonical scan; it is copied
 # byte-identically into the relay skills. Keep it self-contained.
+# Scans docs/relay and legacy docs/handoffs. The same slug in both is two files.
 
 # BEGIN relay_orphan_scan
 relay_slug() {
@@ -36,8 +37,8 @@ relay_orphan_scan() {
     else
       printf '%s' "$known" | grep -Fxq -- "$base" && continue
     fi
-    printf 'orphan %s\n' "$(basename "$f")"
-  done < <(find docs/handoffs -maxdepth 1 -type f -name '*.md' 2>/dev/null) | LC_ALL=C sort
+    printf 'orphan %s\n' "${f#./}"
+  done < <(find docs/relay docs/handoffs -maxdepth 1 -type f -name '*.md' 2>/dev/null) | LC_ALL=C sort
 }
 # END relay_orphan_scan
 
@@ -45,7 +46,7 @@ relay_orphan_scan() {
 # Harness
 # ---------------------------------------------------------------------------
 
-GIT=(git -c user.email=t@t -c user.name=t)
+GIT=(git -c user.email=t@t -c user.name=t -c commit.gpgsign=false)
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 PASS=0
@@ -57,10 +58,11 @@ commit_file() { # <repo> <file>
   "${GIT[@]}" -C "$1" commit -q -m "add $2"
 }
 
-write_handoff() { # <repo> <file-slug>
-  mkdir -p "$1/docs/handoffs"
+write_handoff() { # <repo> <file-slug> [dir]
+  local dir="${3:-docs/handoffs}"
+  mkdir -p "$1/$dir"
   printf -- '---\nid: %s\ntitle: t\norigin: code\nsaved-at: 2026-10-01T12:00:00Z\n---\nbody\n' \
-    "$2" >"$1/docs/handoffs/$2.md"
+    "$2" >"$1/$dir/$2.md"
 }
 
 # Bare origin plus a working clone on main with one commit pushed.
@@ -100,7 +102,7 @@ case_reachable() {
     write_handoff "$CLONE" "$s"
   done
   assert_scan "local, remote, gone and unresolvable detached" "$CLONE" \
-    $'stale=0\norphan detached-deadbeef.md\norphan feat--gone.md'
+    $'stale=0\norphan docs/handoffs/detached-deadbeef.md\norphan docs/handoffs/feat--gone.md'
 }
 
 case_ambiguous_detached() {
@@ -124,7 +126,7 @@ case_unreachable() {
   write_handoff "$CLONE" feat--gone
   git -C "$CLONE" remote set-url origin /nonexistent/x.git
   assert_scan "unreachable origin is stale" "$CLONE" \
-    $'stale=1\norphan feat--gone.md'
+    $'stale=1\norphan docs/handoffs/feat--gone.md'
 }
 
 case_no_origin() {
@@ -143,7 +145,7 @@ case_empty_remote() {
   write_handoff "$clone" main
   write_handoff "$clone" feat--gone
   assert_scan "empty reachable origin counts local only" "$clone" \
-    $'stale=0\norphan feat--gone.md'
+    $'stale=0\norphan docs/handoffs/feat--gone.md'
 }
 
 # Run the extracted canonical block under zsh and compare to bash, with empty stderr.
@@ -165,13 +167,29 @@ assert_zsh_matches() { # <label> <repo>
   fi
 }
 
+case_both_dirs() {
+  make_repo both
+  "${GIT[@]}" -C "$CLONE" branch feat/local
+  # Reachable slug in the new dir is not an orphan. Each dir has its own
+  # orphan, and one slug sits in both so the scan reports two files.
+  write_handoff "$CLONE" feat--local docs/relay
+  write_handoff "$CLONE" main docs/relay
+  write_handoff "$CLONE" feat--relay-gone docs/relay
+  write_handoff "$CLONE" feat--legacy-gone docs/handoffs
+  write_handoff "$CLONE" feat--both-gone docs/relay
+  write_handoff "$CLONE" feat--both-gone docs/handoffs
+  assert_scan "orphans in docs/relay and docs/handoffs" "$CLONE" \
+    $'stale=0\norphan docs/handoffs/feat--both-gone.md\norphan docs/handoffs/feat--legacy-gone.md\norphan docs/relay/feat--both-gone.md\norphan docs/relay/feat--relay-gone.md'
+}
+
 case_zsh() {
   command -v zsh >/dev/null 2>&1 || { echo "skip zsh (not installed)"; return 0; }
   assert_zsh_matches "zsh matches bash with handoffs" "$TMP/reach"
+  assert_zsh_matches "zsh matches bash with both relay dirs" "$TMP/both"
   make_repo nodir
-  assert_zsh_matches "zsh matches bash with no docs/handoffs" "$CLONE"
-  mkdir -p "$CLONE/docs/handoffs"
-  assert_zsh_matches "zsh matches bash with empty docs/handoffs" "$CLONE"
+  assert_zsh_matches "zsh matches bash with no relay dirs" "$CLONE"
+  mkdir -p "$CLONE/docs/relay" "$CLONE/docs/handoffs"
+  assert_zsh_matches "zsh matches bash with empty relay dirs" "$CLONE"
 }
 
 case_reachable
@@ -179,6 +197,7 @@ case_ambiguous_detached
 case_unreachable
 case_no_origin
 case_empty_remote
+case_both_dirs
 case_zsh
 
 echo "$PASS passed, $FAIL failed"

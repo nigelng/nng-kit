@@ -67,11 +67,15 @@ described below because they write the same plan audit metadata as `/execute-pla
 /commit                            low-tier default; classifies the diff, drafts a
   → local commit(s)                   Conventional Commit, optionally bumps
                                        version/CHANGELOG, commits only after approval
-                                       (use mid-tier for large mixed splits)
+                                       (use mid-tier for large mixed splits); may stage
+                                       tracked-eligible `docs/plans/**` with the feature
+                                       (`docs/brainstorms/**` never)
 
-/gh-create-pr                      ensures a feature branch, pushes, opens a PR via
-  → pull request                      `gh`, and watches CI (investigates failures,
-                                       does not auto-fix without approval)
+/gh-create-pr                      planning-artifacts gate (Keep/Drop per plan and relay
+  → pull request                      file on the branch), then ensures a feature branch,
+                                       pushes, opens a PR via `gh`, and watches CI
+                                       (investigates failures; does not auto-fix without
+                                       approval; never commits or deletes artifacts itself)
 
 /gh-draft-release                  drafts a GitHub Release with generated notes from
   → draft GitHub Release              unreleased commits; does not tag or publish
@@ -111,7 +115,9 @@ or "tag to trigger CI publish."
   artifact, interviews for Goal, requirements, non-goals, and constraints before
   drafting. Plans include an **Execution map** (waves + `haiku` / `auto` /
   `opus` tiers) for parallel, tiered execute — biased to smallest mechanical
-  units / prefer `haiku`.
+  units / prefer `haiku`. Plans may be committed with the feature (`/commit`
+  when tracked-eligible); `/gh-create-pr` asks **Keep/Drop** per plan on the
+  branch so `main` does not accumulate stale plans.
 - **Built-in Plan** (Cursor Plan mode / Claude Code `/plan`) — same "ready for
   steps" case, but product-owned artifacts under `~/.cursor/plans` or
   `~/.claude/plans` (not the fleet `docs/plans/**` contract). Claude `/plan`
@@ -198,12 +204,12 @@ companions ship with the skill.
 | Skill | Writes to | Commits/pushes? |
 | --- | --- | --- |
 | `brainstorm` | `docs/brainstorms/**` | Never |
-| `make-plan` | `docs/plans/**` | Never |
+| `make-plan` | `docs/plans/**` | Never (skill); plans committable via `/commit` when tracked-eligible |
 | `critique` | Plan file (plan mode) or working tree (change mode, via a fix subagent) | Never |
 | `execute-plan` | Working tree (via implementation subagent); plan audit metadata on `docs/plans/**` (frontmatter + Execution log) | Never (leaves changes uncommitted for review) |
 | `delegate:execute-via-cursor` | Working tree (via Cursor `agent` CLI; Claude reviews); plan audit metadata on `docs/plans/**` (frontmatter + Execution log) | Never (leaves changes uncommitted; Claude Code only, in the `delegate` plugin) |
 | `delegate:execute-via-agy` | Working tree (via Antigravity `agy` CLI; Claude reviews); plan audit metadata on `docs/plans/**` (frontmatter + Execution log) | Never (leaves changes uncommitted; Claude Code only, in the `delegate` plugin) |
 | `commit` | Local git history | Commits only, after approval; never pushes |
-| `gh-create-pr` | Remote branch + PR | Pushes + opens PR, after approval |
+| `gh-create-pr` | Remote branch + PR; runs planning-artifacts gate on branch plans/relay | Pushes + opens PR, after approval; Keep/Drop (plans) or Keep/Discard (relay) — user runs `/commit` if dropping |
 | `gh-draft-release` | Draft GitHub Release | Creates a draft release, after approval |
 | `gh-tag-release` | Git tag + publish CI trigger | Tags + pushes, after approval per step |

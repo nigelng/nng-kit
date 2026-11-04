@@ -2,7 +2,7 @@
 
 Shared contract for every relay front-end (claude.ai chat skill and Code plugin). Surfaces may differ in how they store and surface handoffs; they must agree on this format.
 
-Personal values (Dropbox root, space names) are **not** part of this spec. Code reads the root from `$RELAY_DROPBOX_ROOT`. Chat skills supply their own. Spaces are listed at runtime in `<root>/README.md`.
+Personal values (remote root, backend, space names) are **not** part of this spec. Code selects a backend with `$RELAY_BACKEND` and a root with `$RELAY_ROOT`. Chat skills supply their own. There is no default root and no default backend; resolution is in [storage.md](storage.md). Spaces are listed at runtime in `<root>/README.md`.
 
 ## Directive
 
@@ -32,13 +32,13 @@ Optional:
 | Key | Where | Notes |
 | --- | --- | --- |
 | `space` | any | Free-form tag. Prefer a name from `<root>/README.md` when that file lists spaces. Omit when unclear or the handoff is repo-only. |
-| `chat-title` | chat / Dropbox | Title of the source chat, when known. |
-| `search-keywords` | chat / Dropbox | 3–5 keywords for past-chat search. |
+| `chat-title` | chat / remote | Title of the source chat, when known. |
+| `search-keywords` | chat / remote | 3–5 keywords for past-chat search. |
 | `repo` | code-repo | `owner/name` |
 | `branch` | code-repo | Branch name at save. |
 | `sha` | code-repo | Short or full commit SHA at save. |
-| `cwd` | Dropbox copies only | Absolute local path. **Never** write `cwd` into a committed repo file. |
-| `rev` | Dropbox (and mirrored twins) | Integer starting at 1; bump on each Edit. |
+| `cwd` | remote copies only | Absolute local path. **Never** write `cwd` into a committed repo file. |
+| `rev` | remote (and mirrored twins) | Integer starting at 1; bump on each Edit. |
 | `mirror` | repo file when mirrored | `<id>__<slug>` only — no rev, no folder. Locate the twin by listing, never by a stored path. |
 | `deferred-at` | repo files only | ISO-8601 UTC; set by "Save for later" (snooze). |
 
@@ -69,7 +69,7 @@ mirror: 20261101T1200Z-a1b2__impl-feature
 
 ## Branch slug
 
-Used in repo paths (`docs/handoffs/<slug>.md`) and in Dropbox filenames.
+Used in repo paths (`docs/relay/<slug>.md`; legacy `docs/handoffs/<slug>.md`) and in remote filenames.
 
 1. Replace `/` with `--`.
 2. Replace any character outside `[A-Za-z0-9._-]` with `-`.
@@ -77,9 +77,9 @@ Used in repo paths (`docs/handoffs/<slug>.md`) and in Dropbox filenames.
 
 Accepted collisions (do not special-case): a literal `a--b` branch name; branches that differ only by case on case-insensitive filesystems; a detached slug that changes per commit.
 
-## Dropbox layout
+## Remote layout
 
-All paths are relative to a configurable `<root>`. There is no default root in this spec.
+All paths are relative to a configurable `<root>`. There is no default root in this spec. Role paths are the same on every backend; the calls are in [storage.md](storage.md).
 
 | Role | Path |
 | --- | --- |
@@ -94,32 +94,34 @@ All paths are relative to a configurable `<root>`. There is no default root in t
 
 ## Locks (source of truth for terminal state)
 
-Dropbox `move` and `delete` are asynchronous: they return immediately and are **not** a correctness signal. The only atomic primitive is `create_file`, which fails synchronously with `[ALREADY_EXISTS]` when the path already exists (no overwrite, no autorename).
+`move` and `delete` are eventual: they may return before the namespace updates and are **not** a correctness signal. The only atomic primitive is `create_if_absent`, which succeeds only when the path was absent (no overwrite, no autorename). On conflict it returns the backend's conflict signal. The per-backend signal, and which backends have `atomic_create`, are in [storage.md](storage.md). Claim-first verbs require `atomic_create`.
 
-Every terminal transition therefore **takes a lock first** via `create_file`:
+Every terminal transition therefore **takes a lock first** via `create_if_absent`:
 
 ### Terminal lock — `locks/<id>.lock`
 
-Body: one line, `<state> <surface> <iso-time>`, where `<state>` is `consumed`, `discarded`, or `expired`, and `<surface>` names the claiming surface (for example `chat` or `code`).
+Body: one line, `<state> <surface> <iso-time>`, where `<state>` is `consumed`, `discarded`, `expired`, or `superseded`, and `<surface>` names the claiming surface (for example `chat` or `code`).
+
+`superseded` is used only by straggler adoption in a legacy root ([Legacy locations](#legacy-locations)). It retires the id there and does not authorize acting on the directive. A conflict on that lock means the id is already retired in the legacy root; it does not by itself mean the copy reached the active root. For `consumed`, `discarded`, and `expired`, any conflict signal means already handled, whichever `<state>` the existing lock records.
 
 - Create succeeds → this surface owns the transition.
-- `[ALREADY_EXISTS]` → another surface got there first. Stop, report "already picked up elsewhere" (or "already handled"), and **never** act on the directive.
-- Once the terminal lock exists, the id is finished **for every rev**. Any remaining pending file for that id is leftover; readers move it to `archive/` lazily.
+- Conflict signal on `consumed`, `discarded`, or `expired` → another surface got there first. Stop, report "already picked up elsewhere" (or "already handled"), and **never** act on the directive. A legacy `superseded` conflict does not authorize acting either; the copy-only retry is in [Legacy locations](#legacy-locations).
+- Once the terminal lock exists, the id is finished **for every rev**. Any remaining pending file for that id is leftover; readers move it to `archive/` lazily. A legacy `superseded` lock is the exception: leave the legacy pending file in place until the active-root copy exists ([Legacy locations](#legacy-locations)).
 
 ### Cleanup is eventual
 
-After taking the lock, move pending file(s) to `archive/<state>-…`. Do not await or trust the move/delete result. Pickup and check repeat cleanup for any pending file whose id is locked.
+After taking the lock, move pending file(s) to `archive/<state>-…`. Do not await or trust the move/delete result. Pickup and check repeat cleanup for any pending file whose id is locked. Do not archive a legacy pending file on a `superseded` lock until the active-root copy exists.
 
 ### Claim-first verbs
 
-- **Execute**: create the terminal lock with `consumed`. On success, start the cleanup move, then act with judgement. A crash after the lock loses at most this one handoff; it can never run twice. On `[ALREADY_EXISTS]`, stop without acting.
+- **Execute**: create the terminal lock with `consumed`. On success, start the cleanup move, then act with judgement. A crash after the lock loses at most this one handoff; it can never run twice. On the conflict signal, stop without acting.
 - **Discard**: same pattern with `discarded`.
-- **Lazy expiry**: same pattern with `expired`. If create returns `[ALREADY_EXISTS]`, the id is already terminal — only clean up.
+- **Lazy expiry**: same pattern with `expired`. If create returns the conflict signal, the id is already terminal — only clean up.
 
-## Edit in Dropbox (no terminal state)
+## Edit on the remote (no terminal state)
 
-1. Take the rev lock `locks/<id>.r<rev>.lock` for the rev being edited. `[ALREADY_EXISTS]` means someone else is editing or has already superseded this rev — stop and re-read.
-2. Create `pending/<id>__<slug>.r<rev+1>.md`. Names are unique per rev, so `[ALREADY_EXISTS]` here also means a concurrent edit — stop.
+1. Take the rev lock `locks/<id>.r<rev>.lock` for the rev being edited, via `create_if_absent`. The conflict signal means someone else is editing or has already superseded this rev — stop and re-read.
+2. Create `pending/<id>__<slug>.r<rev+1>.md` with `create_if_absent`. Names are unique per rev, so the conflict signal here also means a concurrent edit — stop.
 3. List `locks/`. If `<id>.lock` exists, the handoff went terminal during the edit. Move the new file to `archive/discarded-…` and report "already picked up elsewhere".
 4. Otherwise, move the old rev to `archive/superseded-…` as eventual cleanup.
 
@@ -156,8 +158,10 @@ Example shape (placeholder names only):
 
 `pending` transitions to `consumed`, `discarded`, or `expired`.
 
-- **Dropbox:** the terminal lock decides the state; the `move` to `archive/` is cleanup.
+- **Remote:** the terminal lock decides the state; the `move` to `archive/` is cleanup.
 - **Repo:** consumed or discarded means delete the file; git history is the archive.
+
+`superseded` names a replaced rev in `archive/`, and a terminal-lock state only for straggler adoption. It is not a claim-first transition.
 
 ## Retention
 
@@ -171,9 +175,9 @@ Enforced lazily on pickup and check:
 
 Twins share an `id`. The repo copy records `mirror:`. A twin is gone if and only if `locks/<id>.lock` exists.
 
-`id`, `mirror` and `rev` are untrusted frontmatter. Validate them **before** building any lock path, pending match or archive name: `id` must match `^[0-9]{8}T[0-9]{4}Z-[0-9a-z]{4}$`, `mirror` must start with `<id>__`, and `rev` must match `^[0-9]+$` (a missing `rev` fails). If any check fails, refuse the mirrored path (report the twin identifiers as malformed) and fall back to the "mirrored but unreachable" confirm; never derive a Dropbox path from the unvalidated values.
+`id`, `mirror` and `rev` are untrusted frontmatter. Validate them **before** building any lock path, pending match or archive name: `id` must match `^[0-9]{8}T[0-9]{4}Z-[0-9a-z]{4}$`, `mirror` must start with `<id>__`, and `rev` must match `^[0-9]+$` (a missing `rev` fails). If any check fails, refuse the mirrored path (report the twin identifiers as malformed) and fall back to the "mirrored but unreachable" confirm; never derive a remote path from the unvalidated values.
 
-A surface that can see both sides deletes the leftover repo file (after confirming) or cleans up the Dropbox file. Otherwise it shows "possibly consumed elsewhere".
+A surface that can see both sides deletes the leftover repo file (after confirming) or cleans up the remote file. Otherwise it shows "possibly consumed elsewhere".
 
 ## Legacy import
 
@@ -213,7 +217,7 @@ Rules:
 
 ## Orphans
 
-A `docs/handoffs/<slug>.md` is an **orphan** when no local branch (`refs/heads/*`) and no branch on origin (`git ls-remote --heads origin`) maps to its slug under the [branch slug](#branch-slug) rule. A `detached-<sha>` slug is an orphan only when the sha no longer resolves.
+A `docs/relay/<slug>.md` or legacy `docs/handoffs/<slug>.md` is an **orphan** when no local branch (`refs/heads/*`) and no branch on origin (`git ls-remote --heads origin`) maps to its slug under the [branch slug](#branch-slug) rule. A `detached-<sha>` slug is an orphan only when the sha no longer resolves. Scan both directories (`*.md`, one level). The same slug in both is two files; report each.
 
 Collect branch names with this block. It captures remote output **before** any pipe, because a pipeline's status is the last command's and would hide an `ls-remote` failure:
 
@@ -230,10 +234,43 @@ remote_names="$(printf '%s\n' "${remote_out:-}" | awk 'NF{print $2}' | sed 's#^r
 ```
 
 - Never use short ref names from `refs/remotes/origin`: they include a bare `origin` for the HEAD symref.
-- `stale=1` (no origin, offline, auth failure, timeout, no `timeout` binary) means orphan status is **stale**: list the files, offer nothing.
+- `stale=1` (no origin, offline, auth failure, timeout, no `timeout` binary) means orphan status is **stale**: list the files in both directories, offer nothing.
 - An empty but reachable remote is not stale: `stale=0` with no remote names.
 - **check** reports orphans and stays read-only. **pickup** cleans them, only on the default branch.
-- Deleting a mirrored orphan: take the terminal lock `discarded`, start the cleanup move of the pending twin to `archive/discarded-…` (see [Locks](#locks-source-of-truth-for-terminal-state)), then delete the repo file. `[ALREADY_EXISTS]` means already handled: just delete the repo file.
+- Deleting a mirrored orphan: take the terminal lock `discarded` in the **active** root, start the cleanup move of the pending twin to `archive/discarded-…` (see [Locks](#locks-source-of-truth-for-terminal-state)), then delete the repo file. The conflict signal means already handled: just delete the repo file. Never take that lock in a legacy root.
+
+## Legacy locations
+
+Renamed storage stays readable. Adopting `.claude/handoff/active.md` is [Legacy import](#legacy-import).
+
+| Place | Current | Legacy |
+| --- | --- | --- |
+| Repo file | `docs/relay/<slug>.md` | `docs/handoffs/<slug>.md` |
+| Remote root | active root from [storage.md](storage.md) | `$RELAY_LEGACY_ROOT`, when set and different from the active root |
+
+When both repo files exist, use `docs/relay/<slug>.md` and note the duplicate.
+
+### Read and list only
+
+A legacy remote root accepts `list` and `read`, using the same filename rules as [Lookups](#lookups). Claim-first verbs run against the active root. Never take a `consumed`, `discarded`, or `expired` lock in the legacy root, and never act on a directive read from that root.
+
+A legacy repo file may be read. Pickup may Execute, Edit, or Discard it; a mirrored claim uses the active root. Edit and save-for-later rewrite the file to `docs/relay/<slug>.md` with `git mv`. Save writes only `docs/relay/<slug>.md`.
+
+### Migration
+
+**Repo.** When `docs/handoffs/<slug>.md` exists at save time, `git mv` it to `docs/relay/<slug>.md` before writing (no clobber). On the default branch, pickup may offer to move every `docs/handoffs/*.md` the same way (`git mv -k`). Those moves stay uncommitted.
+
+**Remote folder.** When the legacy root is set and has content, pickup may offer to move that folder onto the active root. The confirm states two preconditions: every machine has rebuilt (no relay 0.2 still claiming in the legacy root), and no chat pickup or save is mid-flight. If a finished `list` shows the active root absent and the legacy root has content, pickup offers that move **before** any `create_folder` or `create_if_absent` on the active root. Save and discard must not `create_folder` or `create_if_absent` there either; they tell the user to run pickup's folder move. Creating the active root blocks the move. If the active root does not exist, `move` the legacy folder to the active root after confirm. Verify by `list`: `pending/`, `locks/`, and `README.md` present at the destination, and the legacy root gone or empty. The move's return value is not a correctness signal. Remind the user to upload the updated chat skill now. If the active root already exists with content, refuse the whole-folder move and use straggler adoption.
+
+**Straggler adoption.** For each pending id in the legacy root that has no terminal lock in either root, offer **Adopt / Leave**. Adopt:
+
+1. `create_if_absent` the terminal lock with state `superseded` in the **legacy** root. A conflict means the lock is already there. Do not take a second lock. If that lock is `superseded` and the active root has no pending file for the id, continue with the copy. Any other state means already handled: skip the id, and do not act on the directive.
+2. `create_if_absent` that pending file in the active root, at the same relative path. When several pending files share the id, use the highest `rev` ([Highest rev wins](#highest-rev-wins)).
+3. Start the eventual move of the legacy pending file to the legacy `archive/superseded-…` only after the copy succeeds or that destination is already present. A failed copy leaves the legacy pending file in place.
+
+If a legacy `superseded` lock already exists and the active root has no pending file for that id, offer a copy-only retry (no second lock), then the same move rule.
+
+That `superseded` lock is the only lock relay takes in a legacy root. It retires the id there so an old surface cannot also act on it. Do not act on the directive.
 
 ## Untrusted data
 

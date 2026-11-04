@@ -79,7 +79,7 @@ relay_sha_ok() {
   [[ "$sha" =~ ^[0-9a-fA-F]{4,40}$ ]]
 }
 
-# Branch slug for docs/handoffs/<slug>.md.
+# Branch slug for docs/relay/<slug>.md (legacy: docs/handoffs/<slug>.md).
 # Optional arg: repo path (default: cwd). Detached HEAD → detached-<short-sha>.
 # Usage: relay_branch_slug [repo]
 relay_branch_slug() {
@@ -109,5 +109,55 @@ relay_branch_slug() {
   # `/` → `--`, then any char outside [A-Za-z0-9._-] → `-`.
   slug="$(printf '%s' "$branch" | sed -e 's|/|--|g' -e 's/[^A-Za-z0-9._-]/-/g')"
   printf '%s' "$slug"
+  return 0
+}
+
+# Resolve remote storage from the environment. No network.
+# Prints backend<TAB>root<TAB>legacy_root<TAB>status.
+# RELAY_ROOT wins; empty RELAY_BACKEND defaults to dropbox (status on).
+# Else RELAY_DROPBOX_ROOT → dropbox + deprecated-alias. Else off (repo-only).
+# onedrive → not-implemented; any other name → unknown-backend. Both are
+# repo-only: root is still printed, and the backend field names it.
+# RELAY_LEGACY_ROOT passes through unless it equals root.
+# A tab or newline in root or legacy root → invalid-root (repo-only): both
+# root fields print empty so the line still splits into four fields.
+# Usage: relay_resolve_remote
+relay_resolve_remote() {
+  local backend="" root="" legacy="" status=""
+
+  if [[ -n "${RELAY_ROOT:-}" ]]; then
+    root="$RELAY_ROOT"
+    backend="${RELAY_BACKEND:-}"
+    if [[ -z "$backend" ]]; then
+      backend="dropbox"
+    fi
+    if [[ "$backend" == "dropbox" ]]; then
+      status="on"
+    elif [[ "$backend" == "onedrive" ]]; then
+      status="not-implemented"
+    else
+      status="unknown-backend"
+    fi
+  elif [[ -n "${RELAY_DROPBOX_ROOT:-}" ]]; then
+    backend="dropbox"
+    root="$RELAY_DROPBOX_ROOT"
+    status="deprecated-alias"
+  else
+    status="off"
+  fi
+
+  legacy="${RELAY_LEGACY_ROOT:-}"
+  if [[ -n "$legacy" && "$legacy" == "$root" ]]; then
+    legacy=""
+  fi
+
+  # A tab or newline in either root would break the TSV fields.
+  if [[ "$root$legacy" == *[$'\t\n']* ]]; then
+    root=""
+    legacy=""
+    status="invalid-root"
+  fi
+
+  printf '%s\t%s\t%s\t%s\n' "$backend" "$root" "$legacy" "$status"
   return 0
 }

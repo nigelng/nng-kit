@@ -4,6 +4,30 @@ Notable changes to the nng-kit plugins, newest first. Each sync commit on
 nigelng/nng-kit quotes the lines added here since the previous sync, so write
 for plugin users. This file is public: keep private names and paths out.
 
+## 2026-11-04
+
+- relay 0.3.0: storage is configured with **`RELAY_BACKEND`** (`dropbox` or
+  `onedrive`, when supported) and **`RELAY_ROOT`**; optional **`RELAY_LEGACY_ROOT`**
+  for read/list on a previous remote root (no claims there). **`RELAY_DROPBOX_ROOT`**
+  remains a deprecated alias. New **`references/storage.md`** documents abstract
+  remote operations and per-backend mapping; skills and **`format.md`** use
+  backend-neutral “remote” wording. Repo handoffs live under **`docs/relay/`**;
+  **`docs/handoffs/`** is still read for pickup, check, SessionStart, and orphan
+  scan. **`/relay:save`** writes only the new path and can offer a local
+  **`git mv`** migration first; **`/relay:pickup`** can migrate all legacy repo
+  files and offers guarded remote folder migration plus straggler adoption.
+  OneDrive is documented but not implemented (repo-only until an adapter lands).
+  A tab or newline in a root env value resolves to `invalid-root` (repo-only).
+- lifecycle 0.3.0: **`docs/plans/**`** may be committed when the repo tracks that
+  path; **`/commit`** stages plan files only when they are not gitignored and
+  belong to the change. **`/gh-create-pr`** adds a **planning-artifacts gate**:
+  changed plans get Keep/Drop; changed **`docs/relay/**`** (and legacy
+  **`docs/handoffs/**`**) get Keep/Discard via **`/relay:discard`**; another
+  branch's relay file can be dropped only when it has no remote twin. Dropped
+  plans get a PR-body permalink before removal. **`LIFECYCLE.md`** and
+  **`/make-plan`** note that plans are committable and the gate decides what
+  ships.
+
 ## 2026-11-03
 
 - lifecycle 0.2.0: canonical **model-tiers** policy (`top` / `mid` / `low`

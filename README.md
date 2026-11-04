@@ -70,11 +70,13 @@ Plugin skills are namespaced: `/lifecycle:make-plan`, `/relay:save`,
 Both skills are Claude Code only. `exec-observe` is optional: without it, the
 delegated runs still work and report normally.
 
-### Optional Dropbox root for `relay`
+### Optional remote root for `relay`
 
-Code-side Dropbox mirroring reads `$RELAY_DROPBOX_ROOT` from the environment
-(set in the host `settings.json` `env` block). If unset, `relay` is repo-only
-(`docs/handoffs/<branch-slug>.md`). Spaces are listed at runtime in
+Code-side remote mirroring uses `$RELAY_BACKEND` and `$RELAY_ROOT` from the
+environment (set in the host `settings.json` `env` block). `$RELAY_DROPBOX_ROOT`
+remains a deprecated alias for `$RELAY_ROOT` on Dropbox. If no root is set,
+`relay` is repo-only (`docs/relay/<branch-slug>.md`, with legacy
+`docs/handoffs/` still readable). Spaces are listed at runtime in
 `<root>/README.md` (`## Spaces`). See [plugins/relay/README.md](plugins/relay/README.md).
 
 ## Install (Cursor, Devin, Windsurf)
@@ -88,10 +90,10 @@ Invoke as `/<name>`.
 
 | Plugin | Version | What it is |
 | --- | --- | --- |
-| `lifecycle` | 0.2.0 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
+| `lifecycle` | 0.3.0 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
 | `delegate` | 0.1.2 | Hands plan implementation to the Cursor (`agent`) or Antigravity (`agy`) CLI while Claude Code gates and reviews. See [README](plugins/delegate/README.md). |
 | `exec-observe` | 0.3.0 | Pane + status line for `/exec` runs of `delegate` (Cursor and Antigravity badges). Replaces the retired observe plugin. See [README](plugins/exec-observe/README.md). |
-| `relay` | 0.2.0 | Cross-surface handoff (save / pickup / check / discard + SessionStart). See [README](plugins/relay/README.md). |
+| `relay` | 0.3.0 | Cross-surface handoff (save / pickup / check / discard + SessionStart). See [README](plugins/relay/README.md). |
 
 ### `lifecycle` skills
 

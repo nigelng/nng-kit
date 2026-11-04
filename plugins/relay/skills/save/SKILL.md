@@ -2,7 +2,7 @@
 name: save
 description: >-
   Claude Code only (`/relay:save`). Capture this session's intent as a relay
-  handoff (repo file and optional Dropbox mirror). Use when the user says
+  handoff (repo file and optional remote mirror). Use when the user says
   "save handoff", "hand this off", or "continue later" inside Claude Code.
   Not for claude.ai chat (that surface uses the separate relay chat skill).
 ---
@@ -11,17 +11,20 @@ description: >-
 
 Capture session intent into a relay handoff for the next Claude surface.
 
-Contract: [format.md](../../references/format.md). Shell stays inline; read
-`$RELAY_DROPBOX_ROOT` from the environment when Dropbox features are needed.
+Contract: [format.md](../../references/format.md), [storage.md](../../references/storage.md). Shell stays inline; do not source plugin scripts. Name remote calls with the storage.md operations (`create_if_absent`, `read`, `create_folder`, and so on). The backend mapping and the conflict signal live in storage.md — do not hard-code a vendor tool name in place of those operations.
+
+This skill writes `docs/relay/<slug>.md` only. It never creates a file under `docs/handoffs/`.
 
 ## 1. Invocation mode
 
 | Trigger | Mode |
 | --- | --- |
-| User typed `/relay:save` | **Direct** — skip the Save now / Edit first / Cancel gate; continue from draft |
+| User typed `/relay:save` | **Direct** — skip the Save now / Edit first / Cancel gate; continue from the draft |
 | NL phrase ("save handoff", "continue later", …) | **Confirm** — run the confirm gate before drafting |
 
 If unsure, use **Confirm**.
+
+Direct mode does **not** skip the legacy migrate gate or the overwrite gate (step 5).
 
 ### Confirm gate (Confirm mode only)
 
@@ -33,9 +36,57 @@ Ask (single-select):
 
 **Cancel** → stop with no writes.
 **Save now** or **Edit first** → continue. If **Edit first**, show the draft
-directive after step 2 and iterate until the user approves before writing.
+directive after step 3 and iterate until the user approves before any write
+(including a legacy `git mv`).
 
-## 2. Draft
+## 2. Resolve remote
+
+Before any remote `read` or write, resolve from the environment. Pure env; no network. Same rules as `relay_resolve_remote` in `../../scripts/relay-lib.sh` (prints `backend<TAB>root<TAB>legacy_root<TAB>status`).
+
+```bash
+backend="" root="" legacy="" relay_status="off"
+if [ -n "${RELAY_ROOT:-}" ]; then
+  root="$RELAY_ROOT"
+  backend="${RELAY_BACKEND:-dropbox}"
+  case "$backend" in
+    dropbox) relay_status="on" ;;
+    onedrive) relay_status="not-implemented" ;;
+    *) relay_status="unknown-backend" ;;
+  esac
+elif [ -n "${RELAY_DROPBOX_ROOT:-}" ]; then
+  backend="dropbox"
+  root="$RELAY_DROPBOX_ROOT"
+  relay_status="deprecated-alias"
+fi
+legacy="${RELAY_LEGACY_ROOT:-}"
+if [ -n "$legacy" ] && [ "$legacy" = "$root" ]; then
+  legacy=""
+fi
+# A tab or newline in either root → invalid-root (repo-only; roots cleared).
+nl='
+'
+case "$root$legacy" in
+  *"$(printf '\t')"*|*"$nl"*) root="" legacy="" relay_status="invalid-root" ;;
+esac
+printf 'backend=%s status=%s root=%s legacy=%s\n' \
+  "${backend:-none}" "$relay_status" "${root:-unset}" "${legacy:-unset}"
+```
+
+Say the matching line once, then follow it for the rest of the skill. Remote calls are allowed only when `status` is `on` or `deprecated-alias`. Do not `read`, `create_if_absent`, `create_folder`, `move`, or `delete` under `$legacy`. The only exception is a `list` of `$legacy` for the absent-root gate in step 6.
+
+| `status` | What to tell the user | Remote |
+| --- | --- | --- |
+| `on` | nothing | mirror allowed on `<root>` |
+| `deprecated-alias` | one line: `Set RELAY_ROOT; RELAY_DROPBOX_ROOT is a deprecated alias.` | same as `on`, using the resolved root |
+| `not-implemented` | `Backend <backend> is not implemented; this save is repo-only (no remote mirror).` | no remote calls |
+| `unknown-backend` | `Backend <backend> is an unknown backend; this save is repo-only (no remote mirror).` | no remote calls |
+| `invalid-root` | `RELAY_ROOT or RELAY_LEGACY_ROOT contains a tab or newline; this save is repo-only (no remote mirror). Fix the env value.` | no remote calls |
+| `off`, `$legacy` empty | `No remote root set; this save is repo-only.` | no remote calls |
+| `off`, `$legacy` non-empty | `No active remote root, and a legacy root is set. Not mirroring. Run /relay:pickup to migrate.` | no remote mirror and no remote calls |
+
+Name `<backend>` from the resolver (for example `onedrive`). Do not print the legacy root path. Repo-only means: inside a git repo, write `docs/relay/<slug>.md` and skip every remote operation. Outside a git repo, follow step 8 (paste block, no invented path).
+
+## 3. Draft
 
 ### Directive
 
@@ -98,27 +149,14 @@ Required fields for a repo save:
 | `sha` | commit SHA |
 | `rev` | `1` |
 
-Omit `space` unless the user names one. If they name one **and**
-`$RELAY_DROPBOX_ROOT` is set, read `<root>/README.md` (`## Spaces`) and prefer
-a listed name; if the file or section is missing, treat as no list. Example
-placeholder names only: `work`, `home`. Leave `space` out when still unclear.
+Omit `space` when this save is repo-only (any status other than `on` or `deprecated-alias`) or the name is still unclear. When the user names one and remote calls are allowed, `read` `<root>/README.md` (`## Spaces`) and prefer a listed name; if the file or section is missing, treat as no list. Example placeholder names only: `work`, `home`.
 
 Do not set `deferred-at` on save. Do not set `mirror` until a twin is created
-(step 5). Absolute working directory: **`cwd` never in repo files**.
-
-## 3. Overwrite check
-
-If `docs/handoffs/<slug>.md` already exists, ask (single-select):
-
-- **Overwrite** *(Recommended)* — replace with this save
-- **Cancel** — keep the existing file; abort
-
-Do not silently replace.
+(step 6). Absolute working directory: **`cwd` never in repo files**.
 
 ## 4. Public-repo warning
 
-Before writing a repo file, state that it will be committed to `<owner/name>`
-(the `repo` field) with the next commit — this skill never runs `git commit`.
+Inside a git repo, before the step 5 asks and before any repo mutation, state that the file will be committed to `<owner/name>` (the `repo` field) with the next commit — this skill never runs `git commit`.
 
 Check visibility:
 
@@ -127,84 +165,129 @@ gh repo view --json visibility -q .visibility 2>/dev/null || echo UNKNOWN
 ```
 
 When the result is `PUBLIC`, or the command fails / returns unknown: warn the
-user to review the directive for private details before confirming the write.
+user to review the directive for private details before they answer step 5.
 
-## 5. Write (git repo)
+## 5. Legacy file, then overwrite
+
+Run this only inside a git work tree, after the draft is approved and after the step 4 warning, and before any repo mutation.
+
+### Legacy path first
+
+If `docs/handoffs/<slug>.md` exists and `docs/relay/<slug>.md` does not, ask (single-select) before the overwrite check:
+
+- **Migrate (git mv) then save** *(Recommended)* — move the legacy file onto `docs/relay/<slug>.md` (no clobber), then write this save over that path
+- **Cancel** — keep the legacy file; do not write
+
+**Cancel** → stop with no writes.
+
+There is no third choice. Do not write `docs/relay/<slug>.md` beside the legacy file.
+
+If both `docs/handoffs/<slug>.md` and `docs/relay/<slug>.md` exist, do not move (that would clobber). Note once that both exist, this save uses `docs/relay/<slug>.md` only, and the legacy file stays for `/relay:pickup`. Then the overwrite check below.
+
+### Overwrite check
+
+If `docs/relay/<slug>.md` already exists and the user did **not** just choose **Migrate (git mv) then save**, ask (single-select):
+
+- **Overwrite** *(Recommended)* — replace with this save
+- **Cancel** — keep the existing file; abort
+
+Do not silently replace. **Cancel** → stop with no writes.
+
+Skip this ask when they chose migrate: that choice already authorises the new body.
+
+## 6. Write (git repo)
+
+Perform the migrate only after **Migrate (git mv) then save**, and only when the destination is absent:
 
 ```bash
-mkdir -p docs/handoffs
+src="docs/handoffs/${slug}.md"
+dest="docs/relay/${slug}.md"
+mkdir -p docs/relay
+if [ -e "$dest" ]; then
+  echo "refusing to clobber ${dest}" >&2
+elif git ls-files --error-unmatch "$src" >/dev/null 2>&1; then
+  git mv "$src" "$dest"
+else
+  mv -n "$src" "$dest"
+fi
 ```
 
-Write `docs/handoffs/<slug>.md`: YAML frontmatter (step 2 fields) then the
+Tracked legacy file → `git mv` (this stages the rename; do not commit, and do not stage anything else). Untracked legacy file → `mv -n`. If the refuse line prints, the move fails, or the destination was not created, stop and do not write a second copy.
+
+```bash
+mkdir -p docs/relay
+```
+
+Write `docs/relay/<slug>.md`: YAML frontmatter (step 3 fields) then the
 directive body. Absolute working directory: **`cwd` never in repo files**.
 
-### Continue where? (only if `$RELAY_DROPBOX_ROOT` is set)
+### Continue where?
 
-Ask (single-select):
+Offer this only when `status` is `on` or `deprecated-alias`. Otherwise do not ask and do not create a twin (step 2 already said why).
 
-- **Here** — repo file only; no Dropbox twin
+**Absent-root gate.** When `$legacy` is non-empty, `list` `<root>` and `list` `<legacy>` to the end before the ask below, and before any `create_folder`, `create_if_absent`, or `dbxcli` pending write on `<root>`. This `list` is the only storage call this skill makes under `$legacy`.
+
+- A finished `list` shows `<root>` absent (not found) and `<legacy>` has content (that finished `list` is non-empty): do **not** `create_folder` or `create_if_absent` on `<root>`, and do not make a `dbxcli` pending write there. Do not offer **Chat** or **Anywhere**. Tell the user the handoffs still live in the legacy root and to run `/relay:pickup` — it moves the folder. Creating `<root>` here blocks that move. Leave `mirror` unset. The repo file this save already wrote stays. Stop the twin.
+- The `<root>` list is unfinished, or returns any error other than not-found: **unknown**. Do not bootstrap and do not write a twin. Stop the twin.
+- The `<legacy>` list is unfinished: **unknown**. Do not create `<root>` and do not write a twin. Stop the twin.
+- A finished `list` shows `<root>` exists and has zero entries, and the finished `<legacy>` `list` is non-empty: do **not** `create_folder`, `create_if_absent`, or make a `dbxcli` pending write on `<root>`. Do not offer **Chat** or **Anywhere**. The folder existing is not bootstrap permission. Writing here would put content in the empty root and block a later folder move (a folder move is only for an absent root). Tell the user to remove the empty active root outside this skill, then run `/relay:pickup`. Leave `mirror` unset. The repo file this save already wrote stays. Stop the twin.
+- Otherwise continue only when a finished `list` shows `<root>` has one or more entries, or a finished `list` shows `<legacy>` is absent or empty. Do not treat "the folder exists" as bootstrap permission.
+
+Ask (single-select), unless the gate just stopped the twin:
+
+- **Here** — repo file only; no remote twin
 - **Chat** — also mirror for claude.ai pickup
 - **Anywhere** — also mirror for any surface
 
-If not **Here**, create the twin at:
+If not **Here**, `create_if_absent` the twin at:
 
-`$RELAY_DROPBOX_ROOT/pending/<id>__<slug>.r1.md`
+`<root>/pending/<id>__<slug>.r1.md`
 
-Prefer the Dropbox MCP `create_file`. Fall back to `dbxcli` (discover via
-`dbxcli … --help --output=json`, then `--output=json` on the write) when MCP
-is unavailable — **only for writing the pending twin file and creating
-folders** (`pending/`, `archive/`, `locks/` directory itself). **Lock files
-(`locks/*.lock`) are created only with the Dropbox MCP `create_file`**,
-because `[ALREADY_EXISTS]` is the atomic claim signal and `dbxcli` upload
-semantics are not verified to fail on existing paths. If a later step needs a
-lock and the MCP is unavailable, stop (do not invent a lock via `dbxcli`).
+Look up that operation's call and its conflict signal in storage.md for `$backend`. The twin may record the absolute working directory; the repo file must not (**`cwd` never in repo files**). Twin frontmatter uses the same `id` / `rev: 1` and `origin: code-repo`.
 
-If `pending/`, `archive/`, or `locks/` under the root are missing, create the
-folders after a brief confirm (and seed `README.md` only if the user agrees —
-do not invent a space list). Folder creation may use MCP or `dbxcli`; lock
-*files* may not.
+A conflict signal on the twin means the path already existed: stop and report; do not overwrite; do not set `mirror`. The repo file already written stays as-is. `move` and `delete` are not a correctness signal.
 
-Conflict detection: trust **MCP `create_file` + `[ALREADY_EXISTS]` only**.
-Moves and deletes are eventual cleanup and are never a correctness signal. A
-twin create that returns `[ALREADY_EXISTS]` means stop and report; do not
-overwrite.
+When the mapped `create_if_absent` call is unavailable, storage.md allows a `dbxcli` write of that pending file only. Discover the subcommand with `dbxcli … --help --output=json`, then pass `--output=json`. A `dbxcli` write is not a conflict signal — do not overwrite; if you cannot show the path was absent, stop and report. This skill does not create `locks/*.lock`.
 
-After a successful twin create, set `mirror: <id>__<slug>` on the **repo**
-file (no rev, no folder). The Dropbox twin may record the absolute working
-directory; the repo file must not (**`cwd` never in repo files**). Twin
-frontmatter uses the same `id` / `rev: 1` and may use `origin: code-repo`.
+If the absent-root gate allows a write and `pending/`, `archive/`, or `locks/` under `<root>` are missing, `create_folder` after a brief confirm. An already-exists result from `create_folder` is ordinary, not a claim. Folder creation may use the storage.md `dbxcli` fallback. Seed `<root>/README.md` only if the user agrees, and only with `create_if_absent` (not `dbxcli`) — do not invent a space list. A conflict on that seed means the README is already there; leave it and continue. It is not a failed twin. If `create_if_absent` is unavailable, skip the seed. Do not `create_folder`, seed, or make a `dbxcli` pending write when the absent-root gate forbids a write, including when `<root>` exists and the finished `list` has zero entries while `<legacy>` has content.
 
-## 6. Report
+After a successful `create_if_absent` of the twin, set `mirror: <id>__<slug>` on the **repo** file (no rev, no folder).
+
+## 7. Report
 
 Tell the user (terse):
 
-- Path written: `docs/handoffs/<slug>.md`
-- Twin path if any
+- Path written: `docs/relay/<slug>.md`
+- Legacy path migrated, if this save moved `docs/handoffs/<slug>.md`
+- Twin path if any (`<root>/pending/<id>__<slug>.r1.md`)
 - The file rides with the **next** commit — **never commit** from this skill
 
-Do not dump the full directive back unless they chose Edit first.
+Do not dump the full directive back unless they chose Edit first. If the repo file was written and the twin was not, say that `mirror` was left unset. Do not repeat the step 2 status line.
 
-## 7. Outside a git repo
+## 8. Outside a git repo
 
-If `git rev-parse --is-inside-work-tree` fails:
+If `git rev-parse --is-inside-work-tree` fails, skip steps 4–7. Still run steps 1–3 (no `repo` / `branch` / `sha`; `origin: code`).
 
-1. **`$RELAY_DROPBOX_ROOT` set** — save only to Dropbox pending as
-   `<id>__<title-slug>.r1.md` with `origin: code` (not `code-repo`). No
-   `docs/handoffs/` write. Same confirm / Edit-first rules; skip overwrite of
-   a branch file and skip the public-repo commit warning (nothing is
-   committed). Still use create_file / `[ALREADY_EXISTS]` for conflicts.
-2. **Root unset** — print a copy-ready paste block (frontmatter + directive)
-   the user can paste into another surface. Do not invent a Dropbox path.
+1. **`on` or `deprecated-alias`** — save only to `<root>/pending/<id>__<title-slug>.r1.md` with `origin: code` (not `code-repo`). No `docs/relay/` write and no `git mv`. Do not use the step 3 branch slug for this filename. Title slug uses the branch-slug character rules; if the title sanitises to empty, use `untitled`. Same confirm / Edit-first rules. Use the step 6 twin rules only, including the absent-root gate: `create_if_absent`, its conflict signal (stop and report; do not overwrite), the `dbxcli` pending-file fallback (not a conflict signal), and `create_folder` when `pending/`, `archive/`, or `locks/` is missing. If the gate forbids the write, do not `create_folder`, `create_if_absent`, or make a `dbxcli` pending write on `<root>` — including when `<root>` already exists and the finished `list` has zero entries. Print the paste block and stop. Otherwise tell the user the pending path.
+2. **`not-implemented`, `unknown-backend`, or `invalid-root`** — no remote calls. The step 2 message names the backend. Then print a copy-ready paste block (frontmatter + directive). Do not invent a remote path.
+3. **`off` and `$legacy` non-empty** — no remote mirror. The step 2 line tells the user to run `/relay:pickup` to migrate. Then print the paste block. Do not invent a remote path and do not read the legacy root.
+4. **`off` and `$legacy` empty** — paste block only. Do not invent a remote path.
+
+Leave `cwd` out of the paste block.
 
 ## Key rules
 
 - Confirm mode always gets Save now / Edit first / Cancel before writes.
-- Repo saves name `<owner/name>` and harden the warning when visibility is
-  public or unknown.
-- Overwrite is explicit; never silent.
+- Write `docs/relay/<slug>.md` only. Never create `docs/handoffs/<slug>.md`.
+- When `docs/handoffs/<slug>.md` exists and `docs/relay/<slug>.md` does not, ask **Migrate (git mv) then save / Cancel** before overwrite and before any mutation. No clobber. Untracked source uses `mv -n`.
+- If both repo paths exist, do not `git mv`; note the duplicate; overwrite applies only to `docs/relay/<slug>.md`.
+- Repo saves name `<owner/name>` and harden the warning when visibility is public or unknown.
+- Overwrite of an existing `docs/relay/<slug>.md` is explicit, unless this save just migrated that path.
 - Absolute working directory: **`cwd` never in repo files**.
 - Never `git commit` from this skill.
-- Dropbox correctness = MCP `create_file` success vs `[ALREADY_EXISTS]`; treat
-  move/delete as eventual cleanup only. `dbxcli` is pending-file / folder
-  fallback only — never for `locks/*.lock`.
-- Keep shell inline; read `$RELAY_DROPBOX_ROOT` from the environment.
+- Resolve with `relay_resolve_remote` / the inline block above. `not-implemented` and `unknown-backend` are repo-only and name the backend; `invalid-root` is repo-only and names the bad env var. `deprecated-alias` gets one nudge to set `RELAY_ROOT`. No active root plus a legacy root means no mirror; point at `/relay:pickup`.
+- Remote operations use storage.md names. `create_if_absent` is the only conflict signal. `create_folder` already-exists is not a claim. A `dbxcli` pending write is not `create_if_absent`.
+- **Absent root.** When a finished `list` shows `<root>` absent and `<legacy>` has content, do not `create_folder` or `create_if_absent` on `<root>`, and do not make a `dbxcli` pending write there. Tell the user to run `/relay:pickup` for the folder move. Creating `<root>` blocks that move.
+- **Empty root.** When a finished `list` shows `<root>` exists with zero entries and `<legacy>` has content, do not `create_folder`, `create_if_absent`, or make a `dbxcli` pending write there. The folder existing is not bootstrap permission. Tell the user to remove the empty active root outside this skill, then run `/relay:pickup`.
+- Do not write under the legacy remote root. `list` it only for the absent-root gate.
+- No personal remote paths or space names in this skill's prose. Use `<root>` from the resolver.

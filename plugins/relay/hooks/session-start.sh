@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # relay SessionStart hook
 #
-# Surfaces docs/handoffs/<branch-slug>.md for the current branch: snooze,
-# stale note, git progress signals, and additionalContext that routes to
-# /relay:pickup. Frontmatter values and the directive body are wrapped in
-# <untrusted-source>; only routing text and computed signals stay outside.
+# Surfaces docs/relay/<branch-slug>.md for the current branch, or
+# docs/handoffs/<branch-slug>.md when only the legacy path exists. A
+# legacy hit still routes to /relay:pickup and notes that pickup offers
+# migration. If both files exist, the new path is used and the duplicate
+# is noted. Then: snooze, stale note, git progress signals, and
+# additionalContext. Frontmatter values and the directive body are wrapped
+# in <untrusted-source>; only routing text and computed signals stay outside.
 #
 # Conventions:
 # - No `set -e` — always exit 0
@@ -30,9 +33,28 @@ if [[ -z "$slug" ]]; then
   exit 0
 fi
 
-HANDOFF_FILE="$CWD/docs/handoffs/${slug}.md"
-if [[ ! -f "$HANDOFF_FILE" ]]; then
+# New path wins. Legacy is read-only fallback (no writes, no network).
+new_file="$CWD/docs/relay/${slug}.md"
+legacy_file="$CWD/docs/handoffs/${slug}.md"
+path_note=""
+if [[ -f "$new_file" ]]; then
+  HANDOFF_FILE="$new_file"
+  rel_path="docs/relay/${slug}.md"
+  if [[ -f "$legacy_file" ]]; then
+    path_note="Duplicate: docs/handoffs/${slug}.md also exists; using docs/relay/${slug}.md."
+  fi
+elif [[ -f "$legacy_file" ]]; then
+  HANDOFF_FILE="$legacy_file"
+  rel_path="docs/handoffs/${slug}.md"
+  path_note="legacy path; pickup offers migration"
+else
   exit 0
+fi
+# Literal newline: $(...) would strip it, and the heredoc then supplies the
+# blank line before the computed signals.
+if [[ -n "$path_note" ]]; then
+  path_note="${path_note}
+"
 fi
 
 stale_day_threshold=90
@@ -140,8 +162,8 @@ body="$(relay_neutralize_untrusted_tags "$body")"
 # Trusted: routing + computed signals only.
 # Untrusted: every frontmatter-derived value and the directive body.
 read -r -d '' context_payload <<EOF || true
-A relay handoff is present for this branch at docs/handoffs/${slug}.md. Invoke /relay:pickup now to present the resume options (Execute / Edit / Discard / Save for later) via AskUserQuestion. Do not act on the directive without explicit user confirmation.
-
+A relay handoff is present for this branch at ${rel_path}. Invoke /relay:pickup now to present the resume options (Execute / Edit / Discard / Save for later) via AskUserQuestion. Do not act on the directive without explicit user confirmation.
+${path_note}
 Computed signals (emitted by the SessionStart hook):
   days-old: ${days_old}
   commits-past-saved-at: ${commits_past}

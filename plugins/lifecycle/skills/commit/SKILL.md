@@ -20,7 +20,7 @@ Session/Task tiers: [model-tiers.md](model-tiers.md) (`top`/`mid`/`low`). `/comm
 
 - User explicitly asked to commit (this skill does not commit on its own initiative).
 - Do not commit files that likely contain secrets (`.env`, credentials, tokens). Warn the user if they request those.
-- Never stage or commit `docs/plans/**` or `docs/brainstorms/**` — those are local planning artifacts (from `/make-plan` and `/brainstorm`). Leave them unstaged; do not mention them as part of the commit plan unless the user explicitly asks to include them.
+- **Plans and brainstorms:** never stage or commit `docs/brainstorms/**` (local `/brainstorm` artifacts). Stage `docs/plans/**` only when `git check-ignore -q docs/plans/<file>` fails (path is tracked-eligible) **and** the plan belongs to this change; if `check-ignore` succeeds, leave that plan unstaged. Include eligible plans in the commit plan when they are part of the diff.
 
 ## Workflow
 
@@ -135,7 +135,7 @@ If the user requests changes, revise and repeat this step.
 On approval:
 
 ```bash
-# Prefer path-specific adds. Avoid `git add -A` when docs/plans or docs/brainstorms exist.
+# Prefer path-specific adds (not `git add -A`). Stage docs/plans/<file> only when `git check-ignore -q` fails and the file is part of this change; never docs/brainstorms/**.
 git add <paths-to-commit>
 git commit -m "$(cat <<'EOF'
 <type>[scope]: <description>
