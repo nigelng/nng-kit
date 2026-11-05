@@ -19,7 +19,7 @@
       "name": "delegate",
       "source": "./plugins/delegate",
       "description": "Delegate fleet plan implementation to headless Cursor CLI or Google Antigravity CLI while Claude Code gates, reviews, and drives the verdict loop: /delegate:execute-via-cursor, /delegate:execute-via-agy",
-      "version": "0.1.2"
+      "version": "0.1.3"
     },
     {
       "name": "relay",

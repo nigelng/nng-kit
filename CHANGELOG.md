@@ -4,6 +4,14 @@ Notable changes to the nng-kit plugins, newest first. Each sync commit on
 nigelng/nng-kit quotes the lines added here since the previous sync, so write
 for plugin users. This file is public: keep private names and paths out.
 
+## 2026-11-05
+
+- delegate 0.1.3: contract tests under `plugins/delegate/tests/` (help-fixture
+  flag inventory, stub NDJSON predicates, skill predicate-string guard).
+  README documents Long runs (`safe` / `no-force` in tmux as the interim) and
+  the local smoke / version-check scripts. Source-of-truth wording no longer
+  names the private repo.
+
 ## 2026-11-04
 
 - relay 0.3.0: storage is configured with **`RELAY_BACKEND`** (`dropbox` or

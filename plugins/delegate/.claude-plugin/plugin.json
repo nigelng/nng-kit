@@ -1,6 +1,6 @@
 {
   "name": "delegate",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "author": { "name": "nigelng" },
   "description": "Delegate fleet plan implementation to headless Cursor CLI (/delegate:execute-via-cursor) or Google Antigravity CLI (/delegate:execute-via-agy); Claude Code gates preflight, reviews the diff, and drives the verdict loop"
 }

@@ -68,6 +68,26 @@ your active sign-in. Briefs quote only plan text and file paths. They never
 include secrets or `.env` contents. Review the plan and the repo before you
 delegate it.
 
+## Long runs
+
+Headless background runs need the Claude Code session to stay open. For a run
+that must outlive the session, use `safe` / `no-force` and start the printed
+CLI command inside a user-started tmux (or similar) session. A dedicated
+tmux/herdr wrapper is deferred until runs are lost more than twice in a month.
+
+## Parallel runs
+
+Runs are sequential: one `impl/*` branch in the main checkout, one set of
+`.claude/tmp` files per backend. Running in parallel across separate repos
+needs nothing extra. Worktree support is decided later, when two delegated
+plans must run in the same repo at once.
+
+## Tests and smoke
+
+Run `tests/contract.sh` (skill flags vs committed help fixtures; stub CLI
+NDJSON predicates; predicate-string guard). Maintainers also run a live version/flag check and an authenticated smoke
+outside this repo.
+
 ## Install
 
 ```bash
