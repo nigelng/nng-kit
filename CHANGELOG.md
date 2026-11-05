@@ -6,6 +6,11 @@ for plugin users. This file is public: keep private names and paths out.
 
 ## 2026-11-05
 
+- lifecycle 0.3.1: the `/make-plan` template's Rollback section now asks
+  steps that force-push, rewrite history or delete remote refs to check
+  repository rulesets (`gh api repos/<owner>/<repo>/rulesets`) as well as
+  classic branch protection. Rulesets can block force-pushes or require signed
+  commits even when branch protection returns 404.
 - delegate 0.1.3: contract tests under `plugins/delegate/tests/` (help-fixture
   flag inventory, stub NDJSON predicates, skill predicate-string guard).
   README documents Long runs (`safe` / `no-force` in tmux as the interim) and

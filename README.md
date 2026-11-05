@@ -89,7 +89,7 @@ Invoke as `/<name>`.
 
 | Plugin | Version | What it is |
 | --- | --- | --- |
-| `lifecycle` | 0.3.0 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
+| `lifecycle` | 0.3.1 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
 | `delegate` | 0.1.3 | Hands plan implementation to the Cursor (`agent`) or Antigravity (`agy`) CLI while Claude Code gates and reviews. See [README](plugins/delegate/README.md). |
 | `exec-observe` | 0.3.0 | Pane + status line for `/exec` runs of `delegate` (Cursor and Antigravity badges). Replaces the retired observe plugin. See [README](plugins/exec-observe/README.md). |
 | `relay` | 0.3.0 | Cross-surface handoff (save / pickup / check / discard + SessionStart). See [README](plugins/relay/README.md). |

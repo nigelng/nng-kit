@@ -77,6 +77,7 @@ execution:
 
 ## Rollback / reversibility
 - <what can be undone cleanly and how; what's NOT reversible>
+- If a step force-pushes, rewrites history, or deletes a branch/tag on a remote: check **both** classic branch protection (`gh api repos/<owner>/<repo>/branches/<branch>/protection`; 404 = none) **and** repository rulesets (`gh api repos/<owner>/<repo>/rulesets`, then `gh api repos/<owner>/<repo>/rules/branches/<branch>` for the rules in effect). Rulesets can block force-push (`non_fast_forward`), require signed commits (`required_signatures`), or block deletion, even when branch protection returns 404. Record the result and the bypass path (bypass actor, or a temporary disable and re-enable) in the step.
 
 ## Risks & considerations
 - <edge case, tradeoff, backwards-compat, or "None identified">
