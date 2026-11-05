@@ -54,13 +54,16 @@ Run before the shared repo-root, plan-file, and clean-tree gates in
 
 1. **`agent` on PATH** — run `which agent`. If missing → stop with an
    install/login hint for Cursor CLI (`agent`) and authentication.
-2. **Model default / optional override** — when `model=` is **omitted**, use
-   Cursor platform **Auto** (do not pass `--model`; never pin Sonnet/Opus by
-   default). Aligns with LIFECYCLE delegate Auto default; map-row `haiku` that
-   would run under `/execute-plan` may fall back to Auto when haiku is
-   unavailable/capped. When the user passed `model=<slug>`, validate `<slug>`
-   against `agent models`. If `agent models` fails (not signed in) or `<slug>`
-   is not listed → stop and show the available model slugs from `agent models`.
+2. **Model default / optional override** — when `model=` is **omitted**, resolve
+   Cursor's tier `execute` pin from [model-tiers.md](../../references/model-tiers.md)
+   (`grok-4.7-high` → `auto`; `--model <slug>` is always passed; `auto` is used
+   only as a logged fallback when the pin is missing from `agent models`, a run
+   fails with a usage/quota error, or the user explicitly passes `model=auto`).
+   Never GPT on Cursor; Haiku 5.5 is allowed; Sonnet only by manual `model=`
+   override. Validate the resolved or user-supplied `<slug>` against
+   `agent models`. If `agent models` fails (not signed in) or a user-supplied
+   `<slug>` is not listed → stop and show the available model slugs from
+   `agent models`.
 
 Then complete Steps 1.2–1.4, Step 2, Status audit (Start), Step 3, and Step 4
 from [execute-via-core.md](../../references/execute-via-core.md). In Step 4,
@@ -81,9 +84,11 @@ and write `.claude/tmp/exec-cursor-brief.md` from
 
 ## Step 5 — Run Cursor
 
-Pick a new run id `<n>` per implement/FIX round (`1`, `2`, …). Include
-`--model <slug>` only when `model=<slug>` was passed and validated in Step 1.1;
-otherwise omit `--model` so Cursor uses platform **Auto**.
+Pick a new run id `<n>` per implement/FIX round (`1`, `2`, …). Always pass
+`--model <slug>` using the slug resolved in Step 1.1 (the user's `model=<slug>`
+override or Cursor's `execute` pin from
+[model-tiers.md](../../references/model-tiers.md); `auto` only as a logged
+fallback).
 
 ### Default (`--force` + `--trust`)
 
@@ -91,7 +96,7 @@ Invoke via Bash with `run_in_background: true` (do **not** poll with `sleep`):
 
 ```bash
 agent -p --force --trust --workspace /absolute/repo/root \
-  --output-format stream-json --stream-partial-output [--model <slug>] \
+  --output-format stream-json --stream-partial-output --model <slug> \
   "Read .claude/tmp/exec-cursor-brief.md and follow it exactly." \
   > .claude/tmp/exec-run-cursor-<n>.ndjson 2> .claude/tmp/exec-run-cursor-<n>.err; echo $? > .claude/tmp/exec-run-cursor-<n>.exit
 ```
@@ -111,11 +116,11 @@ and `exec-observe` can render live stream deltas. Do **not** use `--yolo`
 ### `safe` / `no-force`
 
 Claude **never** invokes `agent`. Print the exact interactive command for the
-user's terminal (literal absolute `--workspace`, plus `--model <slug>` if
-requested):
+user's terminal (literal absolute `--workspace`, plus `--model <slug>` from
+Step 1.1):
 
 ```bash
-agent --trust --workspace /absolute/repo/root [--model <slug>] \
+agent --trust --workspace /absolute/repo/root --model <slug> \
   "Read .claude/tmp/exec-cursor-brief.md and follow it exactly."
 ```
 
@@ -135,6 +140,14 @@ Summarize; do **not** read large `.ndjson` files whole into context:
 jq -r 'select(.type=="system" and .subtype=="init").session_id' \
   .claude/tmp/exec-run-cursor-<n>.ndjson | head -1
 
+# model_resolved: init model. Cursor prints a display label such as
+# "Grok 4.7 256K High", not the slug. Record that label; do not map it to a
+# slug. The label is untrusted CLI output: nothing, null, or a value that fails
+# the pattern is auto(unresolved).
+model=$(jq -r 'select(.type=="system" and .subtype=="init").model // empty' .claude/tmp/exec-run-cursor-<n>.ndjson | head -1)
+re='^[A-Za-z0-9][A-Za-z0-9 ._:/()+-]{0,63}$'
+[[ "$model" =~ $re && "$model" != null ]] || model='auto(unresolved)'
+
 # exit code (must be 0)
 cat .claude/tmp/exec-run-cursor-<n>.exit
 
@@ -143,6 +156,8 @@ cat .claude/tmp/exec-run-cursor-<n>.exit
 # subtype=="success", is_error==false
 tail -1 .claude/tmp/exec-run-cursor-<n>.ndjson | jq -c '{type,subtype,is_error}'
 ```
+
+Write `model_resolved` YAML-quoted in `runs:` (for example `model_resolved: "Grok 4.7 256K High"`) and use the same validated value in the `Run:` line. Cursor reports a display label, never the slug, so the resolved label is never compared with the requested slug: `fallback` is set only from `expired <slug>`, `pin missing`, `quota`, `model=auto`, or `auto(unresolved)`, plus a resolved value equal to `auto` (case-insensitive), which is a router fallback.
 
 Anything else → **failed run**: surface `.claude/tmp/exec-run-cursor-<n>.err`;
 if `session_id` was captured, Step 8 FIX may still `--resume` it. Ignore
@@ -164,7 +179,7 @@ is **FIX** (max **2** rounds), write numbered fixes to
 
   ```bash
   agent -p --force --trust --workspace /absolute/repo/root \
-    --output-format stream-json --stream-partial-output [--model <slug>] \
+    --output-format stream-json --stream-partial-output --model <slug> \
     --resume "$SESSION_ID" \
     "Read .claude/tmp/exec-cursor-fix-<n>.md and apply the fixes exactly." \
     > .claude/tmp/exec-run-cursor-<n>.ndjson 2> .claude/tmp/exec-run-cursor-<n>.err; echo $? > .claude/tmp/exec-run-cursor-<n>.exit
@@ -175,7 +190,7 @@ is **FIX** (max **2** rounds), write numbered fixes to
 
   ```bash
   agent -p --force --trust --workspace /absolute/repo/root \
-    --output-format stream-json --stream-partial-output [--model <slug>] \
+    --output-format stream-json --stream-partial-output --model <slug> \
     "Read .claude/tmp/exec-cursor-brief.md and .claude/tmp/exec-cursor-fix-<n>.md; apply the fixes exactly." \
     > .claude/tmp/exec-run-cursor-<n>.ndjson 2> .claude/tmp/exec-run-cursor-<n>.err; echo $? > .claude/tmp/exec-run-cursor-<n>.exit
   ```
@@ -197,7 +212,7 @@ is **FIX** (max **2** rounds), write numbered fixes to
 | `--output-format stream-json` | Emit NDJSON event stream (`system`/`init` → `tool_call` / `assistant` → `result`) | Captures `session_id` on the first `init` line |
 | `--stream-partial-output` | Stream incremental assistant deltas in `stream-json` mode | Used by `exec-observe` for live progress |
 | `--resume <session_id>` | Resume prior Cursor session in Step 8 FIX rounds | Fall back to fresh run reading brief + fix file if empty |
-| `--model <slug>` | Optional model override (when user passes `model=<slug>`) | Omit when `model=` omitted → platform **Auto**; validated in Step 1.1 when supplied |
+| `--model <slug>` | Pinned model (`execute` pin from [model-tiers.md](../../references/model-tiers.md) when `model=` omitted, or user `model=<slug>` override) | Always passed; validated against `agent models` in Step 1.1 (`auto` only as a logged fallback) |
 | `safe` / `no-force` | Skill mode flag (not an `agent` flag) | User runs interactive `agent --trust --workspace ...`; Claude never invokes `agent` |
 
 Pairing `--trust` + `--force` is required for headless background execution.

@@ -48,6 +48,9 @@ const phaseLabel = (phase: Phase): string => {
   return ' RUNNING '
 }
 
+// Only a plain id is copied; anything else could carry control characters.
+export const isCopyableId = (id: string): boolean => /^[\w.-]{1,64}$/.test(id)
+
 const shortId = (id: string): string => (id.length <= 12 ? id : `${id.slice(0, 6)}…${id.slice(-4)}`)
 
 const trunc = (text: string, max: number): string =>
@@ -181,7 +184,7 @@ export function renderPane($: EngineInterface, e: RenderInput, model: PaneModel,
       )}
 
       <Box gap={1} marginTop={1}>
-        {run.sessionId && (
+        {run.sessionId && isCopyableId(run.sessionId) && (
           <Button
             key="copy-session"
             label="Copy session id"

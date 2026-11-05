@@ -1,6 +1,8 @@
-// Shared core reducer and helpers over Cursor (`agent`) and Antigravity (`agy`)
-// `stream-json` lines. Tolerant by design: unknown events and missing fields
-// are ignored, since CLI schemas drift across versions.
+// Shared core reducer and helpers. Cursor (`agent`) and Antigravity (`agy`)
+// are `stream-json` lines. Devin is not a stream: its run file is
+// `exec-run-devin-<n>.out`, and the ATIF export is folded separately when the
+// run ends. Tolerant by design: unknown events and missing fields are ignored,
+// since CLI schemas drift across versions.
 import type { Backend, KindCounts, Run, TimelineEntry, TimelineKind } from '../types'
 import { classifyAgyTool, reduceAgyEvent } from './adapters/agy'
 import { kindOf, reduceCursorEvent } from './adapters/cursor'
@@ -12,7 +14,9 @@ export const FILES = 6
 export const TIMELINE_MAX = 200
 export const MSG_MAX = 200
 export const STALL_MS = 90_000
-export const RUN_FILE = /^exec-run-(cursor|agy)-(\d+)\.ndjson$/
+// Cursor and agy stream `.ndjson` from launch. Devin's `.out` exists from
+// launch; `.json` / `.err` / `.exit` are not run anchors.
+export const RUN_FILE = /^exec-run-(cursor|agy)-(\d+)\.ndjson$|^exec-run-devin-(\d+)\.out$/
 
 export type Obj = Record<string, unknown>
 
@@ -86,9 +90,17 @@ export function completeLines(chunk: string): { lines: string[]; bytes: number }
   }
 }
 
+const CONTROL_CHARS = /[\x00-\x1f\x7f-\x9f]/g
+
+// Strips control characters and caps the length. For strings that come from a
+// run's own output and are drawn in the pane, status line or toast.
+export function sanitize(text: string, max: number): string {
+  const clean = text.replace(CONTROL_CHARS, '').trim()
+  return clean.length > max ? `${clean.slice(0, Math.max(0, max - 1))}…` : clean
+}
+
 export function oneLine(text: string, max = SNIPPET): string {
-  const flat = text.replace(/\s+/g, ' ').trim()
-  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
+  return sanitize(text.replace(/\s+/g, ' '), max)
 }
 
 export function baseName(path: string): string {
@@ -163,6 +175,9 @@ export function applyLine(run: Run, line: string): Run {
       return reduceCursorEvent(next, event)
     case 'agy':
       return reduceAgyEvent(next, event)
+    case 'devin':
+      // Not a stream. register.tsx folds the ATIF export when the run ends.
+      return next
     default: {
       const _exhaustive: never = run.backend
       return _exhaustive
@@ -210,12 +225,37 @@ export function paneTitle(backend: Backend): string {
       return 'Cursor run'
     case 'agy':
       return 'Antigravity run'
+    case 'devin':
+      return 'Devin run'
     default: {
       const _exhaustive: never = backend
       return _exhaustive
     }
   }
 }
+
+// A new run id or backend, or a shrunken `.out` (the skill cleared tmp and
+// rewrote it), means start over.
+// Open the pane for a run only while it is still going, or when its anchor file
+// changed recently. A finished run that becomes the newest again (for example
+// after a later run's files are deleted) updates the status line but does not
+// pop the pane open.
+export const ANNOUNCE_FRESH_MS = 60_000
+
+export const shouldAnnounce = (run: Run, anchorMtimeMs: number, now: number): boolean => {
+  const phase = phaseOf(run, now)
+  return phase === 'running' || phase === 'stalled' || now - anchorMtimeMs <= ANNOUNCE_FRESH_MS
+}
+
+export const isSwitchedRun = (
+  current: { n: number; backend: Backend } | null,
+  newest: { n: number; backend: Backend; size: number },
+  offset: number,
+): boolean =>
+  current === null ||
+  current.n !== newest.n ||
+  current.backend !== newest.backend ||
+  newest.size < offset
 
 export type RunFileEntry = {
   name: string
@@ -242,8 +282,8 @@ export function pickNewestRunFile<T extends RunFileEntry>(entries: readonly T[])
   for (const entry of entries) {
     const m = RUN_FILE.exec(entry.name)
     if (!m) continue
-    const backend = m[1] as Backend
-    const n = Number(m[2])
+    const backend = (m[1] ?? 'devin') as Backend
+    const n = Number(m[1] !== undefined ? m[2] : m[3])
     if (!Number.isFinite(n)) continue
     const mtimeMs = mtimeOfEntry(entry)
     const size = typeof entry.size === 'number' ? entry.size : 0

@@ -4,8 +4,49 @@ Notable changes to the nng-kit plugins, newest first. Each sync commit on
 nigelng/nng-kit quotes the lines added here since the previous sync, so write
 for plugin users. This file is public: keep private names and paths out.
 
+## 2026-11-06
+
+- lifecycle 0.6.0: skills can be vendored into consumer repos (Devin Cloud
+  workspaces, other machines) via `plugins/lifecycle/scripts/vendor-skills.sh`.
+  It copies `plugins/lifecycle/skills/*` from a `lifecycle-v*` tag into
+  `<repo>/.agents/skills/` and stamps `.nng-kit-version`; `--check` fails on any
+  drift from the stamped tag. The `plugins/lifecycle/ci/vendor-check` composite
+  action runs the check in consumer-repo CI
+  (`nigelng/nng-kit/plugins/lifecycle/ci/vendor-check@lifecycle-vX.Y.Z`).
+
 ## 2026-11-05
 
+- lifecycle 0.5.0: plan execution status gains per-run records. Each finished
+  `/execute-plan` or `delegate` run appends a `runs:` entry to the plan's
+  `execution:` frontmatter (backend, requested and resolved model, effort,
+  start/end, review findings, FIX loops, fallback, outcome) and a matching
+  `Run:` line in its `### Run` stanza. A model the CLI does not report is
+  recorded as `auto(unresolved)`.
+- delegate 0.4.0: `execute-via-cursor`, `execute-via-agy` and
+  `execute-via-devin` read the model each CLI actually reports and write it to
+  the run record verbatim.
+- exec-observe 0.4.0: the pane shows Devin runs. Devin does not stream, so the
+  pane shows the run as running until it exits, then reads the conversation
+  export and shows the summary.
+- delegate 0.3.0: `/delegate:execute-via-devin` hands implementation to the Devin CLI with an exact pinned model (never Adaptive or Fusion). Headless runs use print mode and a conversation export; a resolved model that differs from the requested slug fails the run. Repository contents go to Cognition. The skill deletes Devin's run files (which can hold secrets) once the verdict is final, and the README now warns that headless runs auto-approve every tool and, for Devin, skip the workspace-trust check.
+- lifecycle 0.4.0: `model-tiers.md` adds per-row `status: active|parked` and
+  `until: YYYY-MM-DD` metadata plus a new `execute` tier (per-backend delegate
+  default pin). Cursor sets `execute` to `grok-4.7-high` → `auto` (logged
+  fallback only), `low` to `claude-haiku-5-5-high` → `composer-2.5`, and `mid`
+  to none (escalates to `claude-code`). Devin pins `top` (`gpt-6-astra-medium`),
+  `execute` (`swe-2-high` until 2026-11-30 → `gpt-6-1-terra-high`), `mid`
+  (`gpt-6-1-sol-high` → `gemini-4-argon-medium` until 2026-12-01), and `low`
+  (`gpt-6-1-terra-high`), with guidance for standalone Fusion/Adaptive tasks.
+  Antigravity (`agy`) rows are marked `status: parked (agy-ai-pro)` unless
+  `AGY_ENABLED=1`. Resolver rules skip expired `until:` rows (logging
+  `fallback: expired <slug>`) and forbid unlogged router (`auto`, `adaptive`)
+  runs in review loops.
+- delegate 0.2.0: when `model=` is omitted, `/delegate:execute-via-cursor` and
+  `/delegate:execute-via-agy` now resolve the backend's `execute` pin from
+  `model-tiers.md` and always pass `--model <slug>`; platform Auto is used only
+  as a logged fallback. `delegate` now ships its own synced copy of
+  `model-tiers.md` under `plugins/delegate/references/model-tiers.md`.
+  `/delegate:execute-via-agy` stops unless `AGY_ENABLED=1`, reports "agy is parked; set AGY_ENABLED=1 to re-enable", and writes nothing.
 - lifecycle 0.3.1: the `/make-plan` template's Rollback section now asks
   steps that force-push, rewrite history or delete remote refs to check
   repository rulesets (`gh api repos/<owner>/<repo>/rulesets`) as well as

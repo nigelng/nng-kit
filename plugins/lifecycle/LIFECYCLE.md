@@ -11,6 +11,7 @@ Editing a skill means editing it **here**, never in an installed copy.
 | Claude Code (local or cloud) | `claude plugin marketplace add nigelng/nng-kit` then `claude plugin install lifecycle@nng-kit` | `/lifecycle:<name>` |
 | Cursor, Devin, Windsurf | Each skill dir symlinked into `~/.agents/skills/<name>/` and the tool's own skills dir (the private source repo's Home Manager kit does this) | `/<name>` |
 | Antigravity | Kit links each skill into `~/.gemini/config/skills/<name>/` when `antigravity-cli` is in the host's Homebrew casks (same HM kit as Cursor/Devin/Windsurf) | `/<name>` |
+| Devin Cloud / consumer repos | Vendored real files under `<repo>/.agents/skills/` from a `lifecycle-v*` tag: `bash plugins/lifecycle/scripts/vendor-skills.sh <repo>` (in an nng-kit checkout). Drift is gated by the `nigelng/nng-kit/plugins/lifecycle/ci/vendor-check@lifecycle-vX.Y.Z` composite action — it fails CI when a vendored copy differs from its stamped tag. Re-vendor after a new tag. | `/<name>` |
 
 The SKILL.md files use only relative links to sibling files and no plugin-only
 syntax, so the same directory works on every surface.
@@ -44,16 +45,18 @@ described below because they write the same plan audit metadata as `/execute-pla
                                        final pass, until clean
 
 /delegate:execute-via-cursor <path>  Claude Code–only alternative (`delegate` plugin):
-  → uncommitted working-tree diff     Cursor `agent` CLI implements (default Auto when
-                                       `model=` omitted); Claude gates, briefs, reviews
+  → uncommitted working-tree diff     Cursor `agent` CLI implements (default tier
+                                       `execute` pin when `model=` omitted; Auto only as a
+                                       logged fallback); Claude gates, briefs, reviews
                                        (bounded FIX loop). Not an L0 multi-consumer skill —
                                        see Claude-only install note below. Prefer when you
                                        want Cursor to code and Claude to review; keep
                                        `/execute-plan` for in-process Task waves.
 
 /delegate:execute-via-agy <path>    Claude Code–only alternative (`delegate` plugin):
-  → uncommitted working-tree diff     Antigravity `agy` CLI implements (default Auto when
-                                       `model=` omitted); Claude gates, briefs, reviews
+  → uncommitted working-tree diff     Antigravity `agy` CLI implements (default tier
+                                       `execute` pin when `model=` omitted; Auto only as a
+                                       logged fallback); Claude gates, briefs, reviews
                                        (bounded FIX loop). Same contract as
                                        `/delegate:execute-via-cursor`, different backend.
 
@@ -96,13 +99,14 @@ or "tag to trigger CI publish."
   skill.
 - **`/delegate:execute-via-cursor`** — Claude Code–only, in the `delegate` plugin:
   hands the plan to Cursor's `agent` CLI for implementation (when `model=` is
-  omitted, backend **Auto**); Claude writes the brief, reviews against Base SHA +
+  omitted, resolves the Cursor `execute` pin from [model-tiers.md](model-tiers.md);
+  Auto only as a logged fallback); Claude writes the brief, reviews against Base SHA +
   Verification, and may FIX-resume ≤2 times. Never commits (offer `/commit`).
   Not linked into `~/.agents/skills` or Cursor/Devin/Windsurf.
 - **`/delegate:execute-via-agy`** — Claude Code–only, in the `delegate` plugin:
   same contract as `/delegate:execute-via-cursor`, but Google's Antigravity `agy`
-  CLI does the implementing (default **Auto** when `model=` omitted). Never
-  commits.
+  CLI does the implementing (default `execute` pin from [model-tiers.md](model-tiers.md)
+  when `model=` omitted; Auto only as a logged fallback). Never commits.
 
 ## Ideate vs plan (three-way split)
 
@@ -167,13 +171,15 @@ codebase.
 - **No unapproved commits or pushes.** `/commit` and `/gh-create-pr`/`/gh-tag-release`
   always present the exact change (message, branch, tag) for approval before acting.
 - **No scope creep past the plan.** Execute skills (`/execute-plan`,
-  `/delegate:execute-via-cursor`, `/delegate:execute-via-agy`) implement only what `docs/plans/**` specifies; they do
+  `/delegate:execute-via-cursor`, `/delegate:execute-via-agy`, `/delegate:execute-via-devin`) implement only what `docs/plans/**` specifies; they do
   not re-plan or expand scope.
 - **Execute skills persist progress on the plan.** `/execute-plan`,
-  `/delegate:execute-via-cursor`, and `/delegate:execute-via-agy` record row status and run history in the plan file
-  (frontmatter + `## Execution log`) per `skills/execute-plan/execution-status.md`.
+  `/delegate:execute-via-cursor`, `/delegate:execute-via-agy`, and `/delegate:execute-via-devin` record row status and
+  run history in the plan file (frontmatter + `## Execution log`) per `skills/execute-plan/execution-status.md`. Each
+  finished run also appends a `runs:` record: backend, requested and resolved model (`auto(unresolved)` when the
+  CLI reports none), effort, start/end, review findings, FIX loops and any fallback.
 - **Refuse, don't guess, when a plan is unsafe to execute.** Execute skills
-  (`/execute-plan`, `/delegate:execute-via-cursor`, `/delegate:execute-via-agy`) stop (do not proceed, do not ask a
+  (`/execute-plan`, `/delegate:execute-via-cursor`, `/delegate:execute-via-agy`, `/delegate:execute-via-devin`) stop (do not proceed, do not ask a
   soft clarifying question) if the plan has an unresolved "Blocked on" note or
   is missing a Success criteria or Verification section entirely.
 - **Independent review is never self-review** for `/critique change` and
@@ -209,6 +215,7 @@ companions ship with the skill.
 | `execute-plan` | Working tree (via implementation subagent); plan audit metadata on `docs/plans/**` (frontmatter + Execution log) | Never (leaves changes uncommitted for review) |
 | `delegate:execute-via-cursor` | Working tree (via Cursor `agent` CLI; Claude reviews); plan audit metadata on `docs/plans/**` (frontmatter + Execution log) | Never (leaves changes uncommitted; Claude Code only, in the `delegate` plugin) |
 | `delegate:execute-via-agy` | Working tree (via Antigravity `agy` CLI; Claude reviews); plan audit metadata on `docs/plans/**` (frontmatter + Execution log) | Never (leaves changes uncommitted; Claude Code only, in the `delegate` plugin) |
+| `delegate:execute-via-devin` | Working tree (via Devin `devin` CLI; Claude reviews); plan audit metadata on `docs/plans/**` (frontmatter + Execution log) | Never (leaves changes uncommitted; Claude Code only, in the `delegate` plugin) |
 | `commit` | Local git history | Commits only, after approval; never pushes |
 | `gh-create-pr` | Remote branch + PR; runs planning-artifacts gate on branch plans/relay | Pushes + opens PR, after approval; Keep/Drop (plans) or Keep/Discard (relay) — user runs `/commit` if dropping |
 | `gh-draft-release` | Draft GitHub Release | Creates a draft release, after approval |

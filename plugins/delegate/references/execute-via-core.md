@@ -1,10 +1,10 @@
 # execute-via shared core
 
-Backend-neutral flow shared by `/delegate:execute-via-cursor` (`<backend> = cursor`)
-and `/delegate:execute-via-agy` (`<backend> = agy`). In both skills, **the
-delegated backend CLI implements** the plan on a branch while **Claude gates,
-briefs, reviews**, and may propose commit text. Never commit without a separate
-`/commit`.
+Backend-neutral flow shared by `/delegate:execute-via-cursor` (`<backend> = cursor`),
+`/delegate:execute-via-agy` (`<backend> = agy`), and `/delegate:execute-via-devin`
+(`<backend> = devin`). In each skill, **the delegated backend CLI implements**
+the plan on a branch while **Claude gates, briefs, reviews**, and may propose
+commit text. Never commit without a separate `/commit`.
 
 **References:** [brief-template.md](brief-template.md) ·
 [execution-status.md](execution-status.md)
@@ -21,17 +21,17 @@ that root for all `git` / `mkdir` / `rm` / CLI / tmp work.
 
 ## Parameterised contract
 
-Each skill binds `<backend>` (`cursor` or `agy`) and `<last_skill>`
-(`execute-via-cursor` or `execute-via-agy`):
+Each skill binds `<backend>` (`cursor`, `agy`, or `devin`) and `<last_skill>`
+(`execute-via-cursor`, `execute-via-agy`, or `execute-via-devin`):
 
 | Placeholder | Pattern | Purpose |
 | --- | --- | --- |
-| `<backend>` | `cursor` \| `agy` | Backend tag used in all `.claude/tmp/` filenames |
-| `<last_skill>` | `execute-via-cursor` \| `execute-via-agy` | Value written to `execution.last_skill` and `## Execution log` |
+| `<backend>` | `cursor` \| `agy` \| `devin` | Backend tag used in all `.claude/tmp/` filenames |
+| `<last_skill>` | `execute-via-cursor` \| `execute-via-agy` \| `execute-via-devin` | Value written to `execution.last_skill` and `## Execution log` |
 | `<brief>` | `.claude/tmp/exec-<backend>-brief.md` | Implementation brief written by Claude in Step 4 |
 | `<fix-n>` | `.claude/tmp/exec-<backend>-fix-<n>.md` | Numbered fix list written by Claude in Step 8 FIX round `<n>` |
 | `<questions>` | `.claude/tmp/exec-<backend>-questions.md` | Blocking questions written by the backend if it stops mid-run |
-| `<run-n>` | `.claude/tmp/exec-run-<backend>-<n>.{ndjson,err,exit}` | Per-round event stream (`ndjson`), stderr (`err`), and exit status (`exit`) |
+| `<run-n>` | `.claude/tmp/exec-run-<backend>-<n>.{ndjson,err,exit}` | Per-round event stream (`ndjson`), stderr (`err`), and exit status (`exit`). Devin uses `{json,out,err,exit}` (export JSON and stdout) instead of `ndjson` |
 
 ## Relationship to `/execute-plan`
 
@@ -39,6 +39,7 @@ Each skill binds `<backend>` (`cursor` or `agy`) and `<last_skill>`
 | --- | --- | --- |
 | **`/delegate:execute-via-cursor`** | Cursor `agent` CLI (headless or user terminal) | Claude in this session |
 | **`/delegate:execute-via-agy`** | Google Antigravity `agy` CLI (headless or user terminal) | Claude in this session |
+| **`/delegate:execute-via-devin`** | Devin CLI (headless or user terminal) | Claude in this session |
 | **`/execute-plan`** | In-process Task orchestrator (waves) | Independent review (final pass top-tier) |
 
 Keep `/execute-plan` unchanged. Prefer a `/delegate:execute-via-*` skill when
@@ -63,15 +64,20 @@ Signature: `[plan-file] [step-scope] [safe|no-force] [model=<slug>]`
 
 ### Model default (when `model=` is omitted)
 
-For Cursor / agy / Devin **implement** backends: when `model=` is **omitted**, use
-backend **Auto** — do **not** pass `--model`, and do **not** pin Sonnet/Opus.
-Same mid-tier bar as Execution-map row `auto` (see LIFECYCLE Execution tiers).
+For Cursor / agy / Devin **implement** backends: when `model=` is **omitted**,
+resolve the backend's tier `execute` pin from [model-tiers.md](model-tiers.md)
+(first available non-expired, non-parked slug in the backend's `execute` chain)
+and always pass `--model <slug>`. If `model=` is omitted and no `execute` slug
+resolves (every row expired, parked without its enable flag such as
+`AGY_ENABLED=1`, or missing from the CLI's model list), **stop and ask the user
+for `model=<slug>`**; never fall back to **Auto** silently (**Auto** is used
+only as a logged fallback, `fallback: <reason>`, per
+[model-tiers.md](model-tiers.md)).
 
-Map rows that would use `haiku` on in-process `/execute-plan` may fall back to
-**Auto** when a haiku pin is unavailable or usage-capped (LIFECYCLE /
-`/execute-plan` haiku→Auto); these delegate skills still default to Auto when
-`model=` is omitted (no separate haiku pin path unless the user passes
-`model=<slug>`).
+Map rows that would use `haiku` on in-process `/execute-plan` fall back to `mid`
+when a `low` pin is unavailable or usage-capped; these delegate skills still
+default to the backend's tier `execute` pin when `model=` is omitted (no
+separate `low` pin path unless the user passes `model=<slug>`).
 
 ## Step 1 — Preflight / gates
 
@@ -79,8 +85,8 @@ Stop and report on any failure. **Never stash for the user.**
 
 1. **Backend CLI & auth preflight (skill hook)** — run the calling skill's
    CLI check (`which agent` for `cursor`; `which agy` + auth/model check for
-   `agy`). Missing or unauthenticated → stop with the skill's install/login
-   hint.
+   `agy`; `which devin` + `devin auth status` for `devin`). Missing or
+   unauthenticated → stop with the skill's install/login hint.
 2. **Repo root** — resolve, record, then `cd` (shell vars do **not** persist
    across Bash tool calls; `cwd` does):
 
@@ -161,8 +167,8 @@ Only after validation passes:
 schema, `%` formula, placement, and dual-write rule — do **not** paste the full
 contract into skill bodies. **Claude** (never the delegated backend CLI)
 dual-writes YAML frontmatter + `## Execution log` in **one edit** at each
-locked timing below, setting `last_skill: <last_skill>` (`execute-via-cursor`
-or `execute-via-agy`).
+locked timing below, setting `last_skill: <last_skill>` (`execute-via-cursor`,
+`execute-via-agy`, or `execute-via-devin`).
 
 **Row set:** Execution-map rows when present; otherwise Implementation-step
 fallback IDs (`I1`…`In` or the plan's existing step numbers) per the SoT.
@@ -184,7 +190,21 @@ Rows outside the current `step-scope` → `skipped` with Notes
 3. **Terminal** — on Step 8 verdict (**PASS**, **FAIL** after FIX budget,
    or user **abort**): set overall `status` (`completed` / `partial` /
    `failed` / `aborted`), `completed_at` iff `completed`, final `%`, one
-   `### Run …` stanza. **Scoped terminal PASS:** overall is `partial`
+   `### Run …` stanza with its `Run:` line, and append one `runs:` entry
+   (fields in [execution-status.md](execution-status.md) § Run records):
+   `backend` = `<backend>`; `model_requested` = the slug passed to `--model`;
+   `model_resolved` from the skill's Step 6 model extraction (after the
+   skill's pattern check; `auto(unresolved)` when the CLI reports none or the
+   value fails the check; write it YAML-quoted); `effort` from the requested
+   slug; `review_findings` = `blocking` + `important` findings from every Step 7
+   review this run; `fix_loops` = FIX rounds used; `fallback` = `null` or the
+   reason. Devin reports exact slugs, so a resolved model that differs from the
+   pin is already a FAIL there (`model mismatch <requested>→<resolved>`). Cursor
+   reports a display label that never equals the slug, and agy's resolved value
+   is not compared either, so for Cursor and agy `fallback` is set only from
+   launch-side triggers (`expired <slug>`, `pin missing`, `quota`, `model=auto`,
+   `auto(unresolved)`), plus a resolved value equal to `auto`
+   (case-insensitive), which is a router fallback. Write the record on FAIL and abort too. **Scoped terminal PASS:** overall is `partial`
    unless every row is actually `done` — rows that are only `skipped`
    solely because `out of step-scope` do **not** count toward `completed`.
 
@@ -228,7 +248,7 @@ rm -f .claude/tmp/exec-<backend>-brief.md \
 Then write `.claude/tmp/exec-<backend>-brief.md` from
 [brief-template.md](brief-template.md) (or
 `../../references/brief-template.md` from `skills/<name>/SKILL.md`),
-replacing `{{BACKEND}}` (`cursor` or `agy`), `{{PLAN_PATH}}`, `{{REPO_ROOT}}`,
+replacing `{{BACKEND}}` (`cursor`, `agy`, or `devin`), `{{PLAN_PATH}}`, `{{REPO_ROOT}}`,
 `{{STEP_SCOPE}}`, and `{{QUESTIONS_PATH}}`
 (`.claude/tmp/exec-<backend>-questions.md`). Prefer `.claude/tmp/` even if not
 gitignored; warn not to commit briefs/questions (check `.gitignore` if unsure).
@@ -247,8 +267,9 @@ meeting these interface requirements before entering Step 7:
   `run_in_background: true` (do **not** poll with `sleep`), redirecting stdout
   to `.claude/tmp/exec-run-<backend>-<n>.ndjson`, stderr to
   `.claude/tmp/exec-run-<backend>-<n>.err`, and exit code to
-  `.claude/tmp/exec-run-<backend>-<n>.exit`. Wait for Claude Code's
-  **background-task completion notification**.
+  `.claude/tmp/exec-run-<backend>-<n>.exit`. Devin (`<backend> = devin`) writes
+  the export to `.json` and stdout to `.out` instead of `ndjson`. Wait for
+  Claude Code's **background-task completion notification**.
 - **`safe` / `no-force` (interactive user terminal):** Claude **never** invokes
   the backend CLI. Print the exact interactive command for the user's terminal
   pointing at `.claude/tmp/exec-<backend>-brief.md`. Wait for the user to say
@@ -261,9 +282,10 @@ meeting these interface requirements before entering Step 7:
   missing logs in `safe` / `no-force` mode as a failed run).
 - Summarize via `jq` / `head` / `tail` / `grep`; do **not** read large
   `.ndjson` files whole into context.
-- Extract and record the **resume handle** (`session_id` for `cursor`;
-  `conversation_id` for `agy`) from the stream's init event so Step 8 FIX
-  rounds can resume the conversation even if the run failed.
+- Extract and record the **resume handle** (`session_id` for `cursor`, from
+  the stream's init event; `conversation_id` for `agy`, from the stream's init
+  event; `session_id` for `devin`, from the export JSON) so Step 8 FIX rounds
+  can resume the conversation even if the run failed.
 - Check run-level completion: verify `.claude/tmp/exec-run-<backend>-<n>.exit`
   is `0`, the terminal `.ndjson` `result` event meets the backend's success
   predicate, and `.claude/tmp/exec-run-<backend>-<n>.err` has no fatal error
@@ -310,7 +332,8 @@ a successful scoped batch when `step-scope` ≠ all — see Status audit §2).
   backend using the skill's FIX command shape:
   - **Default (with resume handle from prior run):** invoke the backend CLI in
     background resuming that session (`--resume <session_id>` for `cursor`;
-    `--conversation <conversation_id>` for `agy`) with prompt
+    `--conversation <conversation_id>` for `agy`; `--resume=<session_id>` for
+    `devin`) with prompt
     `"Read .claude/tmp/exec-<backend>-fix-<n>.md and apply the fixes exactly."`,
     writing to `.claude/tmp/exec-run-<backend>-<n>.{ndjson,err,exit}`.
   - **If resume handle is empty/missing:** fresh background run (no resume

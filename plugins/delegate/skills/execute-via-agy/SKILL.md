@@ -35,9 +35,19 @@ Follow every step in [execute-via-core.md](../../references/execute-via-core.md)
 | `<questions>` | `.claude/tmp/exec-agy-questions.md` |
 | `<run-n>` | `.claude/tmp/exec-run-agy-<n>.{ndjson,err,exit}` |
 
+## Step 1.0 — Parked gate (`AGY_ENABLED`)
+
+Before Step 1 preflight, and before any brief, tmp file, plan audit write, or call to `agy`:
+
+If the environment variable `AGY_ENABLED` is not exactly `1`, stop immediately and report this message only:
+
+`agy is parked; set AGY_ENABLED=1 to re-enable`
+
+Write nothing (no brief, no tmp files, no plan audit write) and do not call `agy`.
+
 ## Step 1 — Backend preflight (`agy` CLI, auth & model check)
 
-Run these checks at Step 1.1 of [execute-via-core.md](../../references/execute-via-core.md) before proceeding to repo-root and plan checks. Stop and report on any failure.
+Run these checks at Step 1.1 of [execute-via-core.md](../../references/execute-via-core.md) only after Step 1.0 has passed, before proceeding to repo-root and plan checks. Stop and report on any failure.
 
 1. **`agy` on `PATH`:**
 
@@ -62,7 +72,7 @@ Run these checks at Step 1.1 of [execute-via-core.md](../../references/execute-v
    - **Folder trust note:** `agy` does not document a headless `--trust` flag. If a first headless run in a never-trusted repository reports an untrusted workspace error or stalls on trust, stop and tell the user to open `agy` once interactively in that repository root to grant folder trust.
 
 3. **Model default / optional override:**
-   When `model=` is **omitted**, use agy backend **Auto** (do not pass `--model`; never pin Sonnet/Opus by default). Aligns with LIFECYCLE delegate Auto default; map-row `haiku` under `/execute-plan` may fall back to Auto when haiku is unavailable/capped. When `model=<slug>` is supplied, verify that `<slug>` appears in the `agy models` output before launching. If `<slug>` is not recognized, stop, show the available models from `agy models`, and ask the user to pick a valid slug.
+   When `model=` is **omitted**, resolve agy's tier `execute` pin from [model-tiers.md](../../references/model-tiers.md) (`gemini-4-argon-medium` → `claude-sonnet-5-5-high`, parked unless `AGY_ENABLED=1`; `--model <slug>` is always passed; Auto only as a logged fallback). If `model=` is omitted and no `execute` slug resolves (every row expired, parked without its enable flag such as `AGY_ENABLED=1`, or missing from the CLI's model list), **stop and ask the user for `model=<slug>`**; never fall back to Auto silently. Verify that the resolved or user-supplied `<slug>` appears in the `agy models` output before launching. If `<slug>` is not recognized, stop, show the available models from `agy models`, and ask the user to pick a valid slug.
 
 Then continue with Step 1.2–1.4 (repo root `cd`, plan file check, clean working tree), Step 2 (plan validation, branch divert, Base SHA), Status audit (start write with `last_skill: execute-via-agy`), Step 3 (background runtime gates unless `safe` / `no-force`), and Step 4 (clear stale `agy`-only tmp files and write `.claude/tmp/exec-agy-brief.md`) per [execute-via-core.md](../../references/execute-via-core.md).
 
@@ -78,14 +88,14 @@ Invoke via Bash with `run_in_background: true` (do **not** poll with `sleep`):
 
 ```bash
 cd /abs/root && agy --dangerously-skip-permissions \
-  --output-format stream-json [--model <slug>] \
+  --output-format stream-json --model <slug> \
   -p "Read .claude/tmp/exec-agy-brief.md and follow it exactly." \
   > .claude/tmp/exec-run-agy-<n>.ndjson 2> .claude/tmp/exec-run-agy-<n>.err; \
   echo $? > .claude/tmp/exec-run-agy-<n>.exit
 ```
 
 - Replace `/abs/root` with the **literal** absolute repo root recorded in Step 1.2 (never rely on `$REPO_ROOT` across Bash calls).
-- Include `--model <slug>` only when the user passed `model=<slug>`; otherwise omit `--model` so agy uses backend **Auto**.
+- Always pass `--model <slug>` using the slug resolved in Step 1 (`model=<slug>` override or agy's `execute` pin from [model-tiers.md](../../references/model-tiers.md); Auto only as a logged fallback).
 - Remind the user they can open `/exec` (from the companion `exec-observe` plugin) to watch the live Antigravity run in the side pane.
 - Wait for Claude Code's **background-task completion notification** — never sleep-poll.
 
@@ -96,7 +106,7 @@ Do **not** pass `--dangerously-skip-permissions` and do **not** invoke `agy` fro
 Print the exact interactive command for the user to run in their own terminal:
 
 ```bash
-cd /abs/root && agy [--model <slug>] "Read .claude/tmp/exec-agy-brief.md and follow it exactly."
+cd /abs/root && agy --model <slug> "Read .claude/tmp/exec-agy-brief.md and follow it exactly."
 ```
 
 Wait for the user to confirm completion, then proceed directly to **Step 7** in [execute-via-core.md](../../references/execute-via-core.md) (skipping Step 6 log parsing since interactive mode does not write `.ndjson` or `.exit` files).
@@ -112,6 +122,16 @@ Run only for Claude-invoked background runs (`safe` / `no-force` skips straight 
    ```
 
    Record this `conversation_id` so Step 8 FIX rounds (or question resumes) can pass `--conversation <id>` even if the run stopped early.
+
+   Resolved model for the run record's `model_resolved` (`model`, otherwise `init.model`). The value is untrusted CLI output: nothing, `null`, or a value that fails the pattern is `auto(unresolved)`:
+
+   ```bash
+   model=$(jq -r 'select(.event=="init") | (.model // .init.model // empty)' .claude/tmp/exec-run-agy-<n>.ndjson | head -1)
+   re='^[A-Za-z0-9][A-Za-z0-9 ._:/()+-]{0,63}$'
+   [[ "$model" =~ $re && "$model" != null ]] || model='auto(unresolved)'
+   ```
+
+   Write `model_resolved` YAML-quoted in `runs:` (for example `model_resolved: "gemini-4-argon-medium"`) and use the same validated value in the `Run:` line. `fallback` is set only from `expired <slug>`, `pin missing`, `quota`, `model=auto`, or `auto(unresolved)`, plus a resolved value equal to `auto` (case-insensitive), which is a router fallback; the resolved model is not compared with the requested slug.
 
 2. **Check blocking questions first:**
    If `.claude/tmp/exec-agy-questions.md` exists and is non-empty, read it, relay the questions to the user via `AskUserQuestion`, and once answered, resume the same conversation (`--conversation <id>`) with the user's answers (or fold into the next round).
@@ -159,7 +179,7 @@ When the verdict is **FIX** (max **2** rounds):
 
    ```bash
    cd /abs/root && agy --dangerously-skip-permissions \
-     --output-format stream-json [--model <slug>] \
+     --output-format stream-json --model <slug> \
      --conversation "$CONVERSATION_ID" \
      -p "Read .claude/tmp/exec-agy-fix-<round>.md and fix every issue listed." \
      > .claude/tmp/exec-run-agy-<n>.ndjson 2> .claude/tmp/exec-run-agy-<n>.err; \
@@ -171,7 +191,7 @@ When the verdict is **FIX** (max **2** rounds):
 
    ```bash
    cd /abs/root && agy --dangerously-skip-permissions \
-     --output-format stream-json [--model <slug>] \
+     --output-format stream-json --model <slug> \
      -p "Read .claude/tmp/exec-agy-brief.md and .claude/tmp/exec-agy-fix-<round>.md and fix every issue listed." \
      > .claude/tmp/exec-run-agy-<n>.ndjson 2> .claude/tmp/exec-run-agy-<n>.err; \
      echo $? > .claude/tmp/exec-run-agy-<n>.exit
@@ -189,7 +209,7 @@ When the verdict is **FIX** (max **2** rounds):
 | `-p "<prompt>"` | Non-interactive print/headless execution of `<prompt>` | Required for headless runs |
 | `--output-format stream-json` | Emits NDJSON events (`init`, `step_update`, `result`) on stdout so `conversation_id` is captured on the first `init` line | Required for headless runs and `exec-observe` |
 | `--conversation <id>` | Resumes the exact conversation captured from `init.conversation_id` | Required for Step 8 FIX resume |
-| `--model <slug>` | Overrides the model (validated against `agy models`) | Omit when `model=` omitted → backend **Auto**; optional (`model=<slug>` arg) |
+| `--model <slug>` | Pinned model (`execute` pin from [model-tiers.md](../../references/model-tiers.md) when `model=` omitted, or user `model=<slug>` override) | Always passed; validated against `agy models` in Step 1 (Auto only as a logged fallback) |
 | `cwd` (no `--workspace`) | `agy` uses the current working directory as workspace (`--add-dir` only adds extra dirs) | Always `cd /abs/root` before invoking `agy` |
 
 ## Agy-specific constraints

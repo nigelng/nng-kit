@@ -21,7 +21,7 @@ export type TimelineEntry = {
 
 export type KindCounts = Record<TimelineKind, number>
 
-export type Backend = 'cursor' | 'agy'
+export type Backend = 'cursor' | 'agy' | 'devin'
 
 export type Run = {
   n: number

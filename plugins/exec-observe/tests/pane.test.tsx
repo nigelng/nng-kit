@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
+import { applyDevinExport } from '../hooks/adapters/devin'
 import { emptyRun, reduceLine } from '../hooks/reduce'
 import { chromeRows } from '../hooks/view'
 import { generate, generateLines } from '../scripts/generate.ts'
@@ -141,6 +142,15 @@ test('Copy session id calls ui.copy', async ($, on) => {
   await ui.unmount()
 })
 
+test('Copy session id is absent for an id that is not plain', async ($, on) => {
+  seedRun(on, { ...BIG, sessionId: 'bad id; with spaces' })
+  on('clock.now', () => ({ value: 30_000 }))
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ key: 'copy-session' })).toBeUndefined()
+  await ui.unmount()
+})
+
 test('stderr button is absent without errTail', async ($, on) => {
   seedRun(on, { ...BIG, errTail: null })
   on('clock.now', () => ({ value: 30_000 }))
@@ -161,6 +171,22 @@ test('stderr button toggles the tail into view', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: /^stderr:/ })).toBeUndefined()
   await ui.press({ key: 'toggle-err' })
   expect((await ui.find({ type: 'Text', text: /^stderr:/ }))?.text).toMatch(/^stderr: boom/)
+  await ui.unmount()
+})
+
+test('the pane draws a devin summary when the run has ended', async ($, on) => {
+  const text = generateLines({ backend: 'devin', events: 12, seed: 1 }).join('\n')
+  const run = applyDevinExport({ ...emptyRun(8, 'devin'), startedAt: 0 }, text, 0)
+  seedRun(on, run)
+  on('clock.now', () => ({ value: 30_000 }))
+  on('ui.copy', () => ({ value: { isCopied: true } }))
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /PASSED/ }))?.text).toMatch(/PASSED/)
+  expect((await ui.find({ type: 'Text', text: /exec #8 \[devin\]/ }))?.text).toContain('[devin]')
+  expect((await ui.find({ type: 'Text', text: /gpt-6-1-terra-high/ }))?.text).toContain(
+    'gpt-6-1-terra-high',
+  )
   await ui.unmount()
 })
 

@@ -1,13 +1,25 @@
 import { expect, test } from 'claude-code/testing'
 
 import {
+  applyDevinExport,
+  DEVIN_EXPORT_MAX_BYTES,
+  devinExitCode,
+  EXPORT_TOO_LARGE,
+  resolveDevinRun,
+} from '../hooks/adapters/devin'
+import {
   classifyAgyTool,
   completeLines,
   emptyRun,
+  isSwitchedRun,
+  oneLine,
   paneTitle,
   phaseOf,
   pickNewestRunFile,
   reduceLine,
+  sanitize,
+  shouldAnnounce,
+  STALL_MS,
   statusLine,
   utf8Bytes,
 } from '../hooks/reduce'
@@ -641,4 +653,385 @@ test('pickNewestRunFile prefers newer mtime, tiebreaks by higher n, and ignores 
 
   expect(paneTitle('cursor')).toBe('Cursor run')
   expect(paneTitle('agy')).toBe('Antigravity run')
+  expect(paneTitle('devin')).toBe('Devin run')
+})
+
+const DEVIN_EXPORT = {
+  schema_version: 'ATIF-v1.7',
+  session_id: 'sess-devin-1',
+  agent: { name: 'devin', model_name: 'ignored-when-steps-have-a-model' },
+  steps: [
+    { source: 'user', message: 'do the step' },
+    {
+      source: 'agent',
+      model_name: 'gpt-6-1-terra-high',
+      message: 'Editing app.ts now.',
+      tool_calls: [
+        { tool_call_id: 'a', function_name: 'read_file', arguments: { path: '/repo/src/app.ts' } },
+        { tool_call_id: 'b', function_name: 'grep', arguments: { pattern: 'TODO' } },
+        { tool_call_id: 'c', function_name: 'edit_file', arguments: { path: '/repo/src/app.ts' } },
+        {
+          tool_call_id: 'd',
+          function_name: 'edit_file',
+          arguments: '{"path":"/repo/src/lib.ts"}',
+        },
+        { tool_call_id: 'e', function_name: 'shell', arguments: { command: 'yarn test' } },
+        { tool_call_id: 'f', function_name: 'task', arguments: { description: 'review' } },
+        { tool_call_id: 'g', function_name: 'shell', arguments: { command: 'false' } },
+      ],
+      observation: {
+        results: [{ source_call_id: 'g', content: 'failed', error: 'exit 1' }],
+      },
+    },
+  ],
+  final_metrics: { total_prompt_tokens: 20, total_completion_tokens: 8 },
+}
+
+test('a devin export folds session, model, tool kinds, and edited files', async () => {
+  const text = JSON.stringify(DEVIN_EXPORT, null, 2)
+  const run = applyDevinExport(emptyRun(1, 'devin'), text, 0)
+
+  expect(run.backend).toBe('devin')
+  expect(run.sessionId).toBe('sess-devin-1')
+  expect(run.model).toBe('gpt-6-1-terra-high')
+  expect(run.tools).toBe(7)
+  expect(run.counts.read).toBe(1)
+  expect(run.counts.search).toBe(1)
+  expect(run.counts.edit).toBe(2)
+  expect(run.counts.shell).toBe(2)
+  expect(run.counts.task).toBe(1)
+  expect(run.failedTools).toBe(1)
+  expect(run.counts.error).toBe(1)
+  expect(run.files).toEqual(['lib.ts', 'app.ts'])
+  expect(run.snippet).toBe('Editing app.ts now.')
+  expect(run.result).toEqual({ isOk: true, subtype: 'success', durationMs: null })
+  expect(phaseOf(run, 0)).toBe('passed')
+  expect(statusLine(run, 0)).toBe('exec #1 [devin] ✓ done · 7 tools · 2 files')
+
+  const mismatched = applyDevinExport(emptyRun(1, 'devin'), text, 1)
+  expect(mismatched.result?.isOk).toBe(false)
+  expect(phaseOf(mismatched, 0)).toBe('failed')
+
+  const stopped = {
+    ...DEVIN_EXPORT,
+    steps: [...DEVIN_EXPORT.steps, { source: 'user', message: 'wait' }],
+  }
+  const userLast = applyDevinExport(emptyRun(1, 'devin'), JSON.stringify(stopped), 0)
+  expect(userLast.result?.isOk).toBe(false)
+  expect(userLast.result?.subtype).toBe('user')
+
+  const fromAgent = applyDevinExport(
+    emptyRun(1, 'devin'),
+    JSON.stringify({
+      session_id: 'sess-agent-only',
+      agent: { model_name: 'swe-2-high' },
+      steps: [{ source: 'agent', message: 'no step model' }],
+    }),
+    0,
+  )
+  expect(fromAgent.model).toBe('swe-2-high')
+
+  const joined = applyDevinExport(
+    emptyRun(1, 'devin'),
+    JSON.stringify({
+      session_id: 'sess-two',
+      steps: [
+        { source: 'agent', model_name: 'gpt-6-1-terra-low', message: 'first' },
+        { source: 'agent', model_name: 'gpt-6-1-terra-high', message: 'second' },
+      ],
+    }),
+    0,
+  )
+  expect(joined.model).toBe('gpt-6-1-terra-low, gpt-6-1-terra-high')
+})
+
+test('a devin run with no export yet stays running and lines are not a stream', async () => {
+  const waiting = { ...emptyRun(2, 'devin'), startedAt: 0, lastGrowthAt: 1_000 }
+  expect(waiting.result).toBeNull()
+  expect(waiting.exitCode).toBeNull()
+  expect(phaseOf(waiting, 2_000)).toBe('running')
+
+  const lined = reduceLine(waiting, '{"session_id":"x"}')
+  expect(lined.result).toBeNull()
+  expect(lined.backend).toBe('devin')
+  expect(lined.lines).toBe(1)
+})
+
+test('a missing or unparseable devin export is a failed result', async () => {
+  const base = emptyRun(1, 'devin')
+  const missing = applyDevinExport(base, null, 0)
+  expect(missing.result).toEqual({ isOk: false, subtype: 'missing export', durationMs: null })
+  expect(missing.exitCode).toBe(0)
+  expect(phaseOf(missing, 0)).toBe('failed')
+  expect(statusLine(missing, 0)).toBe('exec #1 [devin] ✗ missing export')
+
+  const bad = applyDevinExport(base, '{not json', 0)
+  expect(bad.result?.subtype).toBe('unparseable')
+  expect(bad.result?.isOk).toBe(false)
+  expect(phaseOf(bad, 0)).toBe('failed')
+  expect(applyDevinExport(base, 'null', 0).result?.subtype).toBe('unparseable')
+  expect(() => applyDevinExport(base, '', null)).not.toThrow()
+})
+
+test('pickNewestRunFile picks a devin .out among mixed backends and ignores the export', async () => {
+  const picked = pickNewestRunFile([
+    { name: 'exec-run-devin-1.json', mtimeMs: 9_000, size: 400 },
+    { name: 'exec-run-devin-1.err', mtimeMs: 9_000, size: 20 },
+    { name: 'exec-run-devin-1.exit', mtimeMs: 9_000, size: 2 },
+    { name: 'exec-run-cursor-1.out', mtimeMs: 8_000, size: 100 },
+    { name: 'exec-run-devin-3.ndjson', mtimeMs: 8_000, size: 100 },
+    { name: 'exec-run-agy-2.ndjson', mtimeMs: 1_000, size: 80 },
+    { name: 'exec-run-cursor-4.ndjson', mtimeMs: 1_500, size: 90 },
+    { name: 'exec-run-devin-3.out', mtimeMs: 2_000, size: 10 },
+  ])
+  expect(picked?.name).toBe('exec-run-devin-3.out')
+  expect(picked?.backend).toBe('devin')
+  expect(picked?.n).toBe(3)
+})
+
+test('a generated devin document folds to a summary when the run ends', async () => {
+  const lines = generateLines({ backend: 'devin', events: 12, seed: 1 })
+  const text = lines.join('\n')
+  const doc = JSON.parse(text) as { schema_version: string }
+  expect(doc.schema_version).toBe('ATIF-v1.7')
+
+  const run = applyDevinExport(emptyRun(4, 'devin'), text, 0)
+  expect(run.sessionId).toBe('sess-fake-1')
+  expect(run.model).toBe('gpt-6-1-terra-high')
+  expect(run.tools).toBeGreaterThan(0)
+  expect(run.files.length).toBeGreaterThan(0)
+  expect(run.counts.read).toBeGreaterThan(0)
+  expect(run.counts.search).toBeGreaterThan(0)
+  expect(run.counts.edit).toBeGreaterThan(0)
+  expect(run.counts.shell).toBeGreaterThan(0)
+  expect(run.counts.task).toBeGreaterThan(0)
+  expect(run.failedTools).toBeGreaterThan(0)
+  expect(run.result?.isOk).toBe(true)
+  expect(phaseOf(run, 0)).toBe('passed')
+  const toolKinds =
+    run.counts.read +
+    run.counts.search +
+    run.counts.edit +
+    run.counts.shell +
+    run.counts.task +
+    run.counts.tool
+  expect(toolKinds).toBe(run.tools)
+
+  const failedText = generateLines({ backend: 'devin', events: 12, seed: 2, outcome: 'fail' }).join('\n')
+  const failed = applyDevinExport(emptyRun(4, 'devin'), failedText, 0)
+  expect(failed.result?.isOk).toBe(false)
+  expect(phaseOf(failed, 0)).toBe('failed')
+})
+
+// Devin run decisions: pure functions that register.tsx feeds from the files.
+const GOOD_EXPORT = JSON.stringify(DEVIN_EXPORT)
+const decide = (exitText: string | null, exportText: string | null, exportSize?: number) =>
+  resolveDevinRun(
+    { ...emptyRun(1, 'devin'), startedAt: 0, lastGrowthAt: 0 },
+    {
+      exitText,
+      exportText,
+      exportSize: exportText === null ? null : (exportSize ?? utf8Bytes(exportText)),
+    },
+    5_000,
+  )
+
+test('devin exit text: absent, empty or non-numeric is not yet exited', async () => {
+  expect(devinExitCode(null)).toBeNull()
+  expect(devinExitCode('')).toBeNull()
+  expect(devinExitCode(' \n')).toBeNull()
+  expect(devinExitCode('abc')).toBeNull()
+  expect(devinExitCode('0')).toBe(0)
+  expect(devinExitCode('1\n')).toBe(1)
+})
+
+test('a devin run is running until .exit holds a number, then passed or failed', async () => {
+  const absent = decide(null, GOOD_EXPORT)
+  expect(absent.result).toBeNull()
+  expect(absent.exitCode).toBeNull()
+  expect(absent.lastGrowthAt).toBe(5_000)
+  expect(phaseOf(absent, 5_000)).toBe('running')
+
+  const empty = decide('', GOOD_EXPORT)
+  expect(empty.result).toBeNull()
+  expect(phaseOf(empty, 5_000)).toBe('running')
+
+  const passed = decide('0\n', GOOD_EXPORT)
+  expect(phaseOf(passed, 5_000)).toBe('passed')
+  expect(passed.result?.subtype).toBe('success')
+
+  const failed = decide('1', GOOD_EXPORT)
+  expect(phaseOf(failed, 5_000)).toBe('failed')
+  expect(statusLine(failed, 5_000)).toContain('exit 1')
+
+  const unparseable = decide('0', '{not json')
+  expect(phaseOf(unparseable, 5_000)).toBe('failed')
+  expect(unparseable.result?.subtype).toBe('unparseable')
+
+  const missing = decide('0', null)
+  expect(missing.result?.subtype).toBe('missing export')
+  expect(phaseOf(missing, 5_000)).toBe('failed')
+})
+
+test('an oversize devin export is decided by the exit code alone', async () => {
+  const size = DEVIN_EXPORT_MAX_BYTES + 1
+  const ok = decide('0', '{', size)
+  expect(ok.result).toEqual({ isOk: true, subtype: EXPORT_TOO_LARGE, durationMs: null })
+  expect(phaseOf(ok, 5_000)).toBe('passed')
+  expect(ok.timeline[ok.timeline.length - 1]?.label).toBe(EXPORT_TOO_LARGE)
+
+  const atCap = decide('0', GOOD_EXPORT, DEVIN_EXPORT_MAX_BYTES)
+  expect(atCap.result?.subtype).toBe('success')
+
+  const bad = decide('2', '{', size)
+  expect(bad.result?.isOk).toBe(false)
+  expect(phaseOf(bad, 5_000)).toBe('failed')
+  expect(statusLine(bad, 5_000)).toContain('exit 2')
+})
+
+test('a latched devin result is kept on later ticks', async () => {
+  const first = decide('0', GOOD_EXPORT)
+  const again = resolveDevinRun(first, { exitText: '0', exportSize: null, exportText: null }, 9_000)
+  expect(again.result).toEqual(first.result)
+  expect(again.timeline).toEqual(first.timeline)
+})
+
+test('a devin step source outside the allowlist maps to failed', async () => {
+  const last = (source: string) =>
+    applyDevinExport(
+      emptyRun(1, 'devin'),
+      JSON.stringify({ steps: [{ source: 'agent', message: 'x' }, { source }] }),
+      0,
+    )
+  expect(last('system').result?.subtype).toBe('system')
+  expect(last('user').result?.subtype).toBe('user')
+  const evil = last('\u001b[31mowned\nlong'.repeat(500))
+  expect(evil.result?.subtype).toBe('failed')
+  expect(statusLine(evil, 0)).toBe('exec #1 [devin] ✗ failed')
+  expect(last('').result?.subtype).toBe('failed')
+})
+
+test('sanitize strips control characters and caps length; oneLine uses it', async () => {
+  expect(sanitize('a\u0000b\u001b[2Jc\u007f\u009dd', 64)).toBe('ab[2Jcd')
+  expect(sanitize('x'.repeat(10_000), 64)).toHaveLength(64)
+  expect(sanitize('x'.repeat(10_000), 64).endsWith('…')).toBe(true)
+  expect(oneLine('a\u001bb\n  c')).toBe('ab c')
+})
+
+test('devin model, session, tool and file strings are sanitised and capped', async () => {
+  const run = applyDevinExport(
+    emptyRun(1, 'devin'),
+    JSON.stringify({
+      session_id: `s\u001b]0;pwn\u0007${'i'.repeat(10_000)}`,
+      steps: [
+        {
+          source: 'agent',
+          model_name: `m\u001b[31m${'x'.repeat(10_000)}`,
+          message: 'hi',
+          tool_calls: [
+            {
+              function_name: `\u001b[2Jedit_${'t'.repeat(10_000)}`,
+              arguments: { path: `/a/\u001b[31m${'f'.repeat(10_000)}` },
+            },
+          ],
+        },
+      ],
+    }),
+    0,
+  )
+  const dirty = /[\x00-\x1f\x7f-\x9f]/
+  expect(run.model).not.toMatch(dirty)
+  expect(run.model!.length).toBeLessThanOrEqual(64)
+  expect(run.sessionId).not.toMatch(dirty)
+  expect(run.sessionId!.length).toBeLessThanOrEqual(64)
+  expect(run.timeline.some(e => e.kind === 'edit')).toBe(true)
+  for (const entry of run.timeline) {
+    expect(entry.label).not.toMatch(dirty)
+    expect(entry.label.length).toBeLessThanOrEqual(200)
+    if (entry.kind === 'edit') {
+      expect(entry.label.length).toBeLessThanOrEqual(40)
+      expect(entry.detail!.length).toBeLessThanOrEqual(60)
+    }
+  }
+  expect(run.files[0]!.length).toBeLessThanOrEqual(60)
+  expect(run.files[0]).not.toMatch(dirty)
+})
+
+test('1000 distinct devin models stay at five', async () => {
+  const steps = Array.from({ length: 1000 }, (_, i) => ({ source: 'agent', model_name: `model-${i}` }))
+  const run = applyDevinExport(emptyRun(1, 'devin'), JSON.stringify({ steps }), 0)
+  expect(run.model).toBe('model-0, model-1, model-2, model-3, model-4')
+  const dupes = Array.from({ length: 50 }, () => ({ source: 'agent', model_name: 'same' }))
+  expect(applyDevinExport(emptyRun(1, 'devin'), JSON.stringify({ steps: dupes }), 0).model).toBe('same')
+})
+
+test('the newest run is picked across .ndjson and .out by mtime', async () => {
+  const picked = pickNewestRunFile([
+    { name: 'exec-run-cursor-7.ndjson', mtimeMs: 1_000, size: 10 },
+    { name: 'exec-run-devin-2.out', mtimeMs: 3_000, size: 0 },
+    { name: 'exec-run-agy-9.ndjson', mtimeMs: 2_000, size: 10 },
+  ])
+  expect(picked?.name).toBe('exec-run-devin-2.out')
+  const later = pickNewestRunFile([
+    { name: 'exec-run-devin-2.out', mtimeMs: 3_000, size: 0 },
+    { name: 'exec-run-cursor-1.ndjson', mtimeMs: 4_000, size: 10 },
+  ])
+  expect(later?.backend).toBe('cursor')
+  expect(later?.n).toBe(1)
+})
+
+test('switching from a devin run to a newer cursor run starts over', async () => {
+  const devin = emptyRun(2, 'devin')
+  expect(isSwitchedRun(null, { n: 2, backend: 'devin', size: 0 }, 0)).toBe(true)
+  expect(isSwitchedRun(devin, { n: 2, backend: 'devin', size: 5 }, 5)).toBe(false)
+  expect(isSwitchedRun(devin, { n: 2, backend: 'cursor', size: 90 }, 5)).toBe(true)
+  expect(isSwitchedRun(devin, { n: 3, backend: 'devin', size: 90 }, 5)).toBe(true)
+  expect(isSwitchedRun(devin, { n: 2, backend: 'devin', size: 3 }, 5)).toBe(true)
+})
+
+test('a killed devin task with no .exit goes stalled once process and files go quiet', async () => {
+  const run = { ...emptyRun(1, 'devin'), startedAt: 0, lastGrowthAt: 0 }
+  const input = (activityAt?: number) => ({ exitText: null, exportSize: null, exportText: null, activityAt })
+
+  // Liveness unknown: the clock is refreshed as before.
+  const unknown = resolveDevinRun(run, input(undefined), 200_000)
+  expect(phaseOf(unknown, 200_000)).toBe('running')
+
+  // Process alive: activity is now, so a long silent run is not stalled.
+  const alive = resolveDevinRun(run, input(200_000), 200_000)
+  expect(phaseOf(alive, 200_000)).toBe('running')
+
+  // Process gone, files last touched at 1s: stalled after STALL_MS.
+  const killed = resolveDevinRun(run, input(1_000), 1_000 + STALL_MS + 1)
+  expect(killed.lastGrowthAt).toBe(1_000)
+  expect(phaseOf(killed, 1_000 + STALL_MS + 1)).toBe('stalled')
+  expect(phaseOf(killed, 1_000 + STALL_MS - 1)).toBe('running')
+
+  // A run first seen after its files went quiet is timed from when the pane first saw it.
+  const lateSeen = { ...emptyRun(2, 'devin'), startedAt: 150_000, lastGrowthAt: 150_000 }
+  const quiet = resolveDevinRun(lateSeen, input(0), 200_000)
+  expect(quiet.lastGrowthAt).toBe(150_000)
+  expect(phaseOf(quiet, 200_000)).toBe('running')
+  expect(phaseOf(quiet, 150_000 + STALL_MS + 1)).toBe('stalled')
+
+  // An mtime in the future is clamped to now.
+  expect(resolveDevinRun(run, input(999_999), 5_000).lastGrowthAt).toBe(5_000)
+
+  // Once .exit holds a number, activity is irrelevant.
+  const exited = resolveDevinRun(run, { ...input(1_000), exitText: '0', exportSize: null, exportText: null }, 500_000)
+  expect(exited.exitCode).toBe(0)
+})
+
+test('a finished run that becomes newest again is not re-announced', async () => {
+  const finished = { ...emptyRun(3, 'cursor'), exitCode: 0, result: { isOk: true, subtype: 'success', durationMs: null } }
+  const running = { ...emptyRun(4, 'cursor'), startedAt: 0, lastGrowthAt: 0 }
+  const now = 1_000_000
+  // Stale finished run: anchor untouched for an hour.
+  expect(shouldAnnounce(finished, now - 3_600_000, now)).toBe(false)
+  // Run that just finished (anchor changed seconds ago) is still announced.
+  expect(shouldAnnounce(finished, now - 5_000, now)).toBe(true)
+  // A run still going is announced whatever its anchor age.
+  expect(shouldAnnounce({ ...running, lastGrowthAt: now }, now - 3_600_000, now)).toBe(true)
+  // A stalled run is still announced.
+  expect(shouldAnnounce(running, now - 3_600_000, now)).toBe(true)
 })

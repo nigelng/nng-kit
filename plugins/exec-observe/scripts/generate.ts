@@ -1,8 +1,8 @@
-// Pure, seeded fake Cursor (`agent`) and Antigravity (`agy`) stream-json
-// generator. No imports, no process — `claude plugin test` loads this from
-// tests, and refuses any node: import.
+// Pure, seeded fake Cursor (`agent`), Antigravity (`agy`) stream-json, and
+// Devin ATIF export generator. No imports, no process — `claude plugin test`
+// loads this from tests, and refuses any node: import.
 
-export type GenerateBackend = 'cursor' | 'agy'
+export type GenerateBackend = 'cursor' | 'agy' | 'devin'
 export type GenerateOutcome = 'pass' | 'fail' | 'print_timeout'
 /** Live Antigravity streams nest step fields under `step_update`; `flat` keeps the legacy fixture shape. */
 export type AgyEnvelope = 'nested' | 'flat'
@@ -564,10 +564,85 @@ const generateAgy = (
     : combined
 }
 
+// One pretty-printed ATIF-v1.7 document, split into lines. Not a live stream.
+const generateDevin = (events: number, seed: number, outcome: GenerateOutcome): string[] => {
+  const rng = mulberry32(seed >>> 0)
+  const model = 'gpt-6-1-terra-high'
+  const sessionId = `sess-fake-${seed}`
+  const calls: Record<string, unknown>[] = [
+    {
+      tool_call_id: 't-read',
+      function_name: 'read_file',
+      arguments: { path: '/repo/docs/plans/x.md' },
+    },
+    { tool_call_id: 't-grep', function_name: 'grep', arguments: { pattern: 'TODO' } },
+    {
+      tool_call_id: 't-edit',
+      function_name: 'edit_file',
+      arguments: { path: '/repo/src/app.ts' },
+    },
+    {
+      tool_call_id: 't-task',
+      function_name: 'task',
+      arguments: { description: 'explore reducer' },
+    },
+  ]
+  const extra = Math.max(0, events - calls.length - 1)
+  for (let i = 0; i < extra; i++) {
+    const path = pick(rng, FILES)
+    calls.push({
+      tool_call_id: `t-x${i}`,
+      function_name: i % 2 === 0 ? 'read_file' : 'edit_file',
+      arguments: { path },
+    })
+  }
+  calls.push({
+    tool_call_id: 't-shell',
+    function_name: 'shell',
+    arguments: { command: 'false' },
+    error: 'exit 1',
+  })
+
+  const steps: Record<string, unknown>[] = [
+    { step_id: 1, source: 'user', message: 'Implement the step.' },
+    {
+      step_id: 2,
+      source: 'agent',
+      model_name: model,
+      message: 'Working through the export.',
+      tool_calls: calls,
+    },
+  ]
+  if (outcome === 'pass') {
+    steps.push({
+      step_id: 3,
+      source: 'agent',
+      model_name: model,
+      message: 'All fake steps complete.',
+    })
+  } else {
+    // Devin has no print_timeout. A non-pass outcome ends on a user step.
+    steps.push({ step_id: 3, source: 'user', message: 'stopped' })
+  }
+
+  const doc = {
+    schema_version: 'ATIF-v1.7',
+    session_id: sessionId,
+    agent: { name: 'devin', model_name: model },
+    steps,
+    final_metrics: {
+      total_prompt_tokens: 1000 + seed,
+      total_completion_tokens: 200 + seed,
+    },
+  }
+  return JSON.stringify(doc, null, 2).split('\n')
+}
+
 /**
  * Build a realistic Cursor (`agent`) or Antigravity (`agy`) `stream-json`
- * NDJSON as an array of lines. Two entries are deliberately malformed (not
- * JSON). Aimed size at `--events 5000` is roughly 2.5–3.5 MB.
+ * NDJSON as an array of lines, or one pretty-printed Devin ATIF-v1.7 document
+ * split into lines. Streaming backends include two malformed lines. Aimed size
+ * at `--events 5000` for cursor/agy is roughly 2.5–3.5 MB.
  */
 export const generateLines = (options: GenerateOptions = {}): string[] => {
   const events = Math.max(10, Math.floor(options.events ?? 100))
@@ -581,6 +656,8 @@ export const generateLines = (options: GenerateOptions = {}): string[] => {
       return generateCursor(events, seed, outcome, options.finishReason)
     case 'agy':
       return generateAgy(events, seed, outcome, options.finishReason, agyEnvelope)
+    case 'devin':
+      return generateDevin(events, seed, outcome)
     default: {
       const _exhaustive: never = backend
       return _exhaustive

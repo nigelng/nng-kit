@@ -80,7 +80,7 @@ Re-run validation after confirm/persist (or when the map was already present); f
 
 1. **Start** — after Step 3 (and map validation) pass, before or as Step 4 begins: ensure frontmatter + log exist; `status: in-progress`; `started_at` if unset; scoped rows `pending` (leave prior `done` on resume). Confirm with the user before resetting an already-`completed` plan.
 2. **After each wave** (success or wave-failure stop): update those row statuses + frontmatter `%` / `updated_at`.
-3. **Terminal** — at Step 6 (or earlier abort/hard stop): set overall `status` (`completed` / `partial` / `failed` / `aborted`), `completed_at` iff `completed`, final `%`, one `### Run …` stanza.
+3. **Terminal** — at Step 6 (or earlier abort/hard stop): set overall `status` (`completed` / `partial` / `failed` / `aborted`), `completed_at` iff `completed`, final `%`, one `### Run …` stanza with its `Run:` line, and append one `runs:` entry (fields in [execution-status.md](execution-status.md) § Run records): `backend: claude-code`; `model_requested` / `model_resolved` = the distinct implementer models in run order (resolved = what the Tasks actually ran on); `effort` = their tier efforts; `review_findings` = `blocking` + `important` findings from every review pass this run; `fix_loops` = fix rounds after review; `fallback` = `null` or the reason (for example a `haiku` row that fell back to `mid`).
 
 ## Step 4 — Delegate implementation by waves
 

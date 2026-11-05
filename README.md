@@ -24,8 +24,8 @@ claude plugin install lifecycle@nng-kit
 claude plugin install relay@nng-kit
 ```
 
-Optional, local only (needs the Cursor `agent` CLI and/or the Antigravity
-`agy` CLI, see [Prerequisites](#prerequisites-for-delegate)):
+Optional, local only (needs the Cursor `agent` CLI, the Antigravity `agy`
+CLI, and/or the Devin CLI, see [Prerequisites](#prerequisites-for-delegate)):
 
 ```bash
 claude plugin install delegate@nng-kit
@@ -56,7 +56,7 @@ Plugin skills are namespaced: `/lifecycle:make-plan`, `/relay:save`,
 
 ### Prerequisites for `delegate`
 
-`delegate` needs only the CLI for the backend you use. Both are optional.
+`delegate` needs only the CLI for the backend you use. Each is optional.
 
 - **Cursor** (`/delegate:execute-via-cursor`): the Cursor CLI `agent`,
   installed and signed in.
@@ -65,8 +65,11 @@ Plugin skills are namespaced: `/lifecycle:make-plan`, `/relay:save`,
   once in a terminal to sign in with your Google account (manual, not
   automated). Optionally set `AGY_CLI_DISABLE_AUTO_UPDATE=true` so Homebrew
   stays the only updater.
+- **Devin** (`/delegate:execute-via-devin`): the Devin CLI `devin`, signed in,
+  and a plan that can run the pinned models. Install it with
+  `brew install --cask devin-cli`, then run `devin auth login`.
 
-Both skills are Claude Code only. `exec-observe` is optional: without it, the
+These skills are Claude Code only. `exec-observe` is optional: without it, the
 delegated runs still work and report normally.
 
 ### Optional remote root for `relay`
@@ -89,9 +92,9 @@ Invoke as `/<name>`.
 
 | Plugin | Version | What it is |
 | --- | --- | --- |
-| `lifecycle` | 0.3.1 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
-| `delegate` | 0.1.3 | Hands plan implementation to the Cursor (`agent`) or Antigravity (`agy`) CLI while Claude Code gates and reviews. See [README](plugins/delegate/README.md). |
-| `exec-observe` | 0.3.0 | Pane + status line for `/exec` runs of `delegate` (Cursor and Antigravity badges). Replaces the retired observe plugin. See [README](plugins/exec-observe/README.md). |
+| `lifecycle` | 0.5.0 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
+| `delegate` | 0.4.0 | Hands plan implementation to the Cursor (`agent`), Antigravity (`agy`), or Devin (`devin`) CLI while Claude Code gates and reviews. See [README](plugins/delegate/README.md). |
+| `exec-observe` | 0.4.0 | Pane + status line for `/exec` runs of `delegate` (Cursor, Antigravity and Devin badges). Replaces the retired observe plugin. See [README](plugins/exec-observe/README.md). |
 | `relay` | 0.3.0 | Cross-surface handoff (save / pickup / check / discard + SessionStart). See [README](plugins/relay/README.md). |
 
 ### `lifecycle` skills
