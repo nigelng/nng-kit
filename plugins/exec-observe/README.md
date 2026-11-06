@@ -50,23 +50,49 @@ Antigravity `agy`, or Devin `devin`) must be installed for that run. See
 
 Desktop and terminal share the same tree (`Box` / `Text` / `Button` only):
 
-- **Header card**: status badge (running / stalled / passed / failed),
-  `exec #n [<backend>]`, elapsed, model, shortened session id
-- **Counters**: `read · search · edit · shell · task · ✗`, plus an
-  activity strip (not percent done)
-- **Now** and **files** rows (up to 6 files, then `+k more`)
-- **Timeline**: newest last. Compact shows the last rows that fit
-  `bodyRows`; Full shows every stored entry (with `… N earlier entries
-  dropped` when the bound trimmed history)
+- **Header**: status badge (running / stalled / passed / failed), backend and
+  run number (`Cursor #n`, `Antigravity #n`), elapsed, model
+- **task**: plan name and step scope, read from
+  `.claude/tmp/exec-<backend>-brief.md` (`**Plan path:**`, `**Step scope:**`)
+- **now**: `⚙ <tool> <file>` while a tool runs, `✎ writing a reply`,
+  `… thinking`, or `waiting for the model`; after 10 s without growth it adds
+  `quiet Ns (stall at 1m30s)`
+- **says**: the tail of the latest agent message
+- **Counters**: total tool calls and only the kinds that happened; failures in
+  red
+- **edited**: files written so far (up to 6, then `+k more`)
+- **Meta**: session id, events read, time since the last event
+- **Timeline**: newest last. Compact shows the last rows that fit `bodyRows`;
+  Full shows every stored entry, wrapped (with `… N earlier entries dropped`
+  when the bound trimmed history)
 - **stderr**: behind a button when `.err` has content
+
+### Color and motion
+
+- The RUNNING badge carries a braille spinner and the elapsed time ticks,
+  redrawn every 150 ms only while the run is actively running (`frame` atom; not
+  while stalled or orphaned); finished runs show a static `✓ PASSED` /
+  `✗ FAILED`, stalls `⚠ STALLED`.
+- Timeline tags take a theme color per kind: READ `suggestion`, SRCH `ide`,
+  EDIT `success`, SH `bashBorder`, TASK `planMode`, TOOL `subtle`, errors
+  `error`; agent messages are dim italic. The **now** row takes the color of
+  the tool running.
+- A sparkline (`▁…█`, one cell per 2 s poll, last 16) shows how busy the stream
+  is; blanks are idle polls.
+- After 10 s quiet, a gauge `▰▰▰▱▱▱▱▱▱▱ quiet 25s` fills toward the 90 s stall,
+  amber past half.
 
 ### Buttons
 
-| Button | Action |
-| --- | --- |
-| **Copy session id** | `$.ui.copy` of the run's session id |
-| **Compact / Full** | toggles the timeline view atom |
-| **Show / Hide stderr** | toggles the stderr panel (only when `errTail` is set) |
+Hotkeys work while the pane has focus.
+
+| Button | Key | Action |
+| --- | --- | --- |
+| **Full / Compact** | `v` | toggles the timeline view |
+| **Show: all / msgs / tools / errors** | `f` | cycles the timeline filter |
+| **Copy session id** | `c` | `$.ui.copy` of the run's session id (shown only for a plain id) |
+| **Copy resume cmd** | `r` | copies `agent --resume <id>` (Cursor) or `agy --conversation <id>` (Antigravity); shown only for a plain id |
+| **Show / Hide stderr** | `e` | toggles the stderr panel (only when `errTail` is set) |
 
 `/exec` reopens the pane. A toast fires when the run finishes. The pane opens
 by itself only for a run that is still going or whose file changed in the last
@@ -85,6 +111,17 @@ clock follows the newest `.out` / `.err` change, so a killed run shows as
 stalled after 90 s. If `pgrep` cannot run, a Devin run without `.exit` stays
 running. Unknown event types are ignored, since the stream schema
 drifts.
+
+Times come from the run, not from when this session started watching it:
+
+- **Start**: the earliest event `timestamp_ms` (Cursor). Antigravity events
+  carry no times, so its start is the `.err` file's mtime while that file is
+  still empty (the skill's shell creates it at launch); otherwise the moment
+  the pane first saw the run.
+- **End**: the backend's reported duration, else the `.exit` file's mtime,
+  else the last event time, so a finished run's clock stops.
+- **Growth**: the `.ndjson` file's mtime, so a dead run found at session start
+  reads as stalled at once instead of looking fresh for 90 s.
 
 ## Fake stream / replay
 

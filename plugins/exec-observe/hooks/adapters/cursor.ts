@@ -5,9 +5,16 @@ import {
   appendMessage,
   baseName,
   bumpCount,
+  closeMessage,
+  durationMsOf,
+  finishMessage,
   isObj,
+  MODEL_MAX,
   oneLine,
   pushEntry,
+  sanitize,
+  SESSION_MAX,
+  TOOL_MAX,
   type Obj,
 } from '../reduce'
 
@@ -39,7 +46,7 @@ const toolOf = (call: unknown): { name: string; args: Obj; result: unknown } | n
   const body = call[key]
   const args = isObj(body) && isObj(body.args) ? body.args : {}
   const result = isObj(body) ? body.result : undefined
-  return { name: key.replace(/ToolCall$/, '') || key, args, result }
+  return { name: oneLine(key.replace(/ToolCall$/, '') || key, TOOL_MAX) || 'tool', args, result }
 }
 
 const detailOf = (args: Obj): string | null => {
@@ -76,8 +83,8 @@ const onSystem = (run: Run, event: Obj): Run => {
   if (event.subtype !== 'init') return run
   return {
     ...run,
-    sessionId: typeof event.session_id === 'string' ? event.session_id : run.sessionId,
-    model: typeof event.model === 'string' ? event.model : run.model,
+    sessionId: typeof event.session_id === 'string' ? sanitize(event.session_id, SESSION_MAX) || run.sessionId : run.sessionId,
+    model: typeof event.model === 'string' ? sanitize(event.model, MODEL_MAX) || run.model : run.model,
   }
 }
 
@@ -85,7 +92,8 @@ const onToolStarted = (run: Run, name: string, args: Obj): Run => {
   const kind = kindOf(name)
   const detail = detailOf(args)
   const withTool: Run = {
-    ...run,
+    ...closeMessage(run),
+    doing: null,
     tool: name,
     toolDetail: detail,
     tools: run.tools + 1,
@@ -152,17 +160,18 @@ const onToolCall = (run: Run, event: Obj): Run => {
 
 const onResult = (run: Run, event: Obj): Run => {
   const isOk = event.subtype === 'success' && event.is_error !== true
-  const subtype = typeof event.subtype === 'string' ? event.subtype : 'unknown'
+  const subtype = (typeof event.subtype === 'string' ? oneLine(event.subtype, TOOL_MAX) : '') || 'unknown'
   const snippet =
     typeof event.result === 'string' && event.result.trim() !== '' ? oneLine(event.result) : run.snippet
   const withResult: Run = {
-    ...run,
+    ...closeMessage(run),
+    doing: null,
     tool: null,
     toolDetail: null,
     result: {
       isOk,
       subtype,
-      durationMs: typeof event.duration_ms === 'number' ? event.duration_ms : null,
+      durationMs: durationMsOf(event.duration_ms),
     },
     snippet,
     counts: bumpCount(run, 'result'),
@@ -182,8 +191,13 @@ export const reduceCursorEvent = (run: Run, event: Obj): Run => {
       return onSystem(run, event)
     case 'assistant': {
       const text = textOf(event.message)
-      return text ? appendMessage(run, text) : run
+      if (!text) return run
+      // With --stream-partial-output, deltas carry no model_call_id and the
+      // closing full message does; without it, every message is whole.
+      return typeof event.model_call_id === 'string' ? finishMessage(run, text) : appendMessage(run, text)
     }
+    case 'thinking':
+      return { ...closeMessage(run), doing: 'thinking' }
     case 'tool_call':
       return onToolCall(run, event)
     case 'result':

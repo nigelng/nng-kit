@@ -1,6 +1,6 @@
 {
   "name": "exec-observe",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "author": { "name": "nigelng" },
   "description": "Live status for /exec runs of Cursor, Antigravity (agy) and Devin fleet plans, in a pane and status line, never in model context",
   "types": "./types/index.d.ts"

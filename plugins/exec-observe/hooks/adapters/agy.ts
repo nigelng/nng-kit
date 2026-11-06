@@ -3,11 +3,17 @@ import type { Run, TimelineKind } from '../../types'
 import {
   addFile,
   appendMessage,
+  closeMessage,
   baseName,
+  durationMsOf,
   bumpCount,
   isObj,
+  MODEL_MAX,
   oneLine,
   pushEntry,
+  sanitize,
+  SESSION_MAX,
+  TOOL_MAX,
   type Obj,
 } from '../reduce'
 
@@ -95,28 +101,33 @@ const onInit = (run: Run, event: Obj): Run => {
       : nested && typeof nested.model === 'string'
         ? nested.model
         : run.model
-  return { ...run, sessionId, model }
+  return {
+    ...run,
+    sessionId: sessionId ? sanitize(sessionId, SESSION_MAX) || run.sessionId : sessionId,
+    model: model ? sanitize(model, MODEL_MAX) || run.model : model,
+  }
 }
 
-const nameOf = (info: Obj, nameHint: string | null): string => {
-  if (typeof info.name === 'string' && info.name.trim() !== '') return info.name.trim()
-  if (nameHint && nameHint.trim() !== '') return nameHint.trim()
-  return 'tool'
-}
+// Names are classified at full length (an MCP tool's kind word can sit past
+// the display cap), then capped at TOOL_MAX where they are shown.
+const NAME_SCAN_MAX = 200
+
+// A name counts only if something is left once it is cleaned: one made only of
+// control or invisible characters falls through to the next source.
+const cleanName = (value: unknown): string => (typeof value === 'string' ? oneLine(value, NAME_SCAN_MAX) : '')
+
+const nameOf = (info: Obj, nameHint: string | null): string =>
+  cleanName(info.name) || cleanName(nameHint) || 'tool'
 
 const subagentNameOf = (info: Obj, nameHint: string | null): string => {
-  if (typeof info.name === 'string' && info.name.trim() !== '') return info.name.trim()
-  if (nameHint && nameHint.trim() !== '') return nameHint.trim()
+  const named = cleanName(info.name) || cleanName(nameHint)
+  if (named) return named
   const subagents = info.subagents
   if (Array.isArray(subagents)) {
     for (const entry of subagents) {
       if (!isObj(entry)) continue
-      if (typeof entry.type_name === 'string' && entry.type_name.trim() !== '') {
-        return entry.type_name.trim()
-      }
-      if (typeof entry.role === 'string' && entry.role.trim() !== '') {
-        return entry.role.trim()
-      }
+      const label = cleanName(entry.type_name) || cleanName(entry.role)
+      if (label) return label
     }
   }
   return 'subagent'
@@ -127,10 +138,11 @@ const onToolStep = (
   info: Obj,
   opts: { forceKind?: TimelineKind; nameHint?: string | null } = {},
 ): Run => {
-  const name =
+  const fullName =
     opts.forceKind === 'task' ? subagentNameOf(info, opts.nameHint ?? null) : nameOf(info, opts.nameHint ?? null)
+  const name = oneLine(fullName, TOOL_MAX)
   const params = isObj(info.parameters) ? info.parameters : isObj(info.args) ? info.args : {}
-  const kind = opts.forceKind ?? classifyAgyTool(name)
+  const kind = opts.forceKind ?? classifyAgyTool(fullName)
   const file = filePathOf(params)
   const detail = detailOfParams(params)
   const failed = hasToolError(info.error)
@@ -162,8 +174,10 @@ const onToolActive = (
   info: Obj,
   opts: { forceKind?: TimelineKind; nameHint?: string | null } = {},
 ): Run => {
-  const name =
-    opts.forceKind === 'task' ? subagentNameOf(info, opts.nameHint ?? null) : nameOf(info, opts.nameHint ?? null)
+  const name = oneLine(
+    opts.forceKind === 'task' ? subagentNameOf(info, opts.nameHint ?? null) : nameOf(info, opts.nameHint ?? null),
+    TOOL_MAX,
+  )
   const params = isObj(info.parameters) ? info.parameters : isObj(info.args) ? info.args : {}
   return {
     ...run,
@@ -175,7 +189,8 @@ const onToolActive = (
 const toolNameHint = (step: Obj): string | null =>
   typeof step.tool_name === 'string' ? step.tool_name : null
 
-const applyToolOrSubagent = (run: Run, step: Obj, count: boolean): Run => {
+const applyToolOrSubagent = (open: Run, step: Obj, count: boolean): Run => {
+  const run: Run = { ...closeMessage(open), doing: null }
   const nameHint = toolNameHint(step)
   if (isObj(step.tool_info)) {
     return count
@@ -205,7 +220,7 @@ const onStepUpdate = (run: Run, event: Obj): Run => {
   }
 
   if (step.step_type === 'agent_response') {
-    return typeof step.text_delta === 'string' && step.text_delta.trim() !== ''
+    return typeof step.text_delta === 'string' && step.text_delta !== ''
       ? appendMessage(run, step.text_delta)
       : run
   }
@@ -218,9 +233,7 @@ const resolveResultField = (event: Obj, nested: Obj | null, key: string): unknow
 const subtypeOfResult = (isOk: boolean, status: string, finishedReason: string): string => {
   if (isOk) return 'success'
   if (BAD_FINISH_REASONS.has(finishedReason)) return finishedReason
-  if (status !== '') return status
-  if (finishedReason !== '') return finishedReason
-  return 'failed'
+  return oneLine(status, TOOL_MAX) || oneLine(finishedReason, TOOL_MAX) || 'failed'
 }
 
 const onResult = (run: Run, event: Obj): Run => {
@@ -230,9 +243,9 @@ const onResult = (run: Run, event: Obj): Run => {
   const rawDuration = resolveResultField(event, nested, 'duration_seconds')
 
   const status = typeof rawStatus === 'string' ? rawStatus : ''
-  const finishedReason = String(rawReason ?? '')
+  const finishedReason = typeof rawReason === 'string' ? rawReason : ''
   const isOk = status === 'SUCCESS' && !BAD_FINISH_REASONS.has(finishedReason)
-  const durationMs = typeof rawDuration === 'number' ? Math.round(rawDuration * 1000) : 0
+  const durationMs = typeof rawDuration === 'number' ? durationMsOf(Math.round(rawDuration * 1000)) : null
   const subtype = subtypeOfResult(isOk, status, finishedReason)
 
   const withResult: Run = {

@@ -6,6 +6,25 @@ for plugin users. This file is public: keep private names and paths out.
 
 ## 2026-11-06
 
+- exec-observe 0.5.0: the run pane says what is running and lets you act on it.
+  A **task** row shows the plan and step scope from the run's brief; **now**
+  says `⚙ <tool> <file>`, `✎ writing a reply`, `… thinking` or `waiting for the
+  model`, and how long the stream has been quiet before the 90 s stall; **says**
+  shows the latest agent message. Counters hide zero kinds and show failures in
+  red; the meaningless activity strip is replaced by events and time since the
+  last event. Buttons gain hotkeys (`v` Full/Compact, `f` Show filter
+  all/msgs/tools/errors, `c` copy session id, `r` copy resume command, `e`
+  stderr), and Full view wraps rows. Fixes Cursor messages being shown twice
+  (streamed deltas plus the final message) and spaced punctuation (`7 , 8 .`).
+  Visuals: the RUNNING badge spins while the run is running and the elapsed time
+  ticks live; timeline tags are colored by kind (read blue, search cyan, edit
+  green, shell pink, task purple, errors red); a sparkline shows events per
+  poll; a quiet gauge fills toward the stall and turns amber past half.
+  Elapsed time comes from the run itself (Cursor event timestamps, else the
+  `.err` file's creation) and stops at `.exit`, so it no longer resets when a
+  session starts; a dead run found at session start shows as stalled at once.
+  Text from the stream is stripped of control characters before it is drawn,
+  and `r` offers a resume command only for a plain session id.
 - lifecycle 0.6.0: skills can be vendored into consumer repos (Devin Cloud
   workspaces, other machines) via `plugins/lifecycle/scripts/vendor-skills.sh`.
   It copies `plugins/lifecycle/skills/*` from a `lifecycle-v*` tag into

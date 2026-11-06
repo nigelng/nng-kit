@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { applyDevinExport } from '../hooks/adapters/devin'
 import { emptyRun, reduceLine } from '../hooks/reduce'
-import { chromeRows } from '../hooks/view'
+import { chromeRows, KIND_COLOR, spinnerAt } from '../hooks/view'
 import { generate, generateLines } from '../scripts/generate.ts'
 import type { Backend, Run } from '../types'
 
@@ -32,7 +32,7 @@ const isTimeline = (text: string | undefined): boolean =>
 const seedRun = (on: (event: string, handler: (...args: any[]) => unknown) => void, run: Run) => {
   on('state.get', async (_$, e, next) => {
     if (e.key === 'run') {
-      return { value: { value: { shape: 'run-3', value: run }, version: 1 } }
+      return { value: { value: { shape: 'run-7', value: run }, version: 1 } }
     }
     // view / showErr: let the harness own them so set invalidates the drawing.
     return next(e)
@@ -43,7 +43,7 @@ test('the pane draws header and counters on every surface for cursor and agy', a
   let activeRun: Run = BIG
   on('state.get', async (_$, e, next) => {
     if (e.key === 'run') {
-      return { value: { value: { shape: 'run-3', value: activeRun }, version: 1 } }
+      return { value: { value: { shape: 'run-7', value: activeRun }, version: 1 } }
     }
     return next(e)
   })
@@ -56,9 +56,7 @@ test('the pane draws header and counters on every surface for cursor and agy', a
     expect((await cursorUi.find({ type: 'Text', text: /RUNNING|PASSED|FAILED|STALLED/ }))?.text).toMatch(
       /PASSED|RUNNING/,
     )
-    expect((await cursorUi.find({ type: 'Text', text: /exec #2 \[cursor\]/ }))?.text).toContain(
-      '[cursor]',
-    )
+    expect((await cursorUi.find({ type: 'Text', text: /Cursor #2/ }))?.text).toContain('Cursor #2')
     expect((await cursorUi.find({ type: 'Text', text: /read \d+/ }))?.text).toMatch(/read \d+/)
     expect((await cursorUi.find({ type: 'Text', text: /^now:/ }))?.text).toMatch(/^now:/)
     await cursorUi.unmount()
@@ -68,7 +66,7 @@ test('the pane draws header and counters on every surface for cursor and agy', a
     expect((await agyUi.find({ type: 'Text', text: /RUNNING|PASSED|FAILED|STALLED/ }))?.text).toMatch(
       /PASSED|RUNNING/,
     )
-    expect((await agyUi.find({ type: 'Text', text: /exec #3 \[agy\]/ }))?.text).toContain('[agy]')
+    expect((await agyUi.find({ type: 'Text', text: /Antigravity #3/ }))?.text).toContain('Antigravity #3')
     expect((await agyUi.find({ type: 'Text', text: /gemini-2\.5-pro/ }))?.text).toContain(
       'gemini-2.5-pro',
     )
@@ -105,9 +103,14 @@ test('Compact budgets every row, not just timeline rows', async ($, on) => {
     const ui = await $.ui.mount({ ...PANE, surface })
     const texts = await ui.findAll({ type: 'Text' })
     const timeline = texts.filter(n => isTimeline(n.text))
-    // Badge and title share one row; the timeline and button rows each sit
+    // Badge and title share one row (as do counters and failures); the timeline and button rows each sit
     // under a one-row margin, and the buttons take one row.
-    const headerRows = texts.length - timeline.length - 1
+    // Texts that sit beside another on its row: failures by the counters,
+    // the quiet gauge by "now", the sparkline by the meta row.
+    const sharedRows =
+      1 + texts.filter(n => /^(· \d+ failed|[▰▱]+ quiet|[▁-█ ]+$)/.test(n.text ?? '')).length
+    // Each timeline row is a tag Text and a body Text.
+    const headerRows = texts.length - 2 * timeline.length - sharedRows
     expect(chromeRows(BIG, false, false)).toBe(headerRows + 1 + 2)
     expect(timeline.length + chromeRows(BIG, false, false)).toBeLessThan(PANE.props.scroll.bodyRows)
     expect(texts.every(n => n.props.wrap === 'truncate-end')).toBe(true)
@@ -183,7 +186,7 @@ test('the pane draws a devin summary when the run has ended', async ($, on) => {
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect((await ui.find({ type: 'Text', text: /PASSED/ }))?.text).toMatch(/PASSED/)
-  expect((await ui.find({ type: 'Text', text: /exec #8 \[devin\]/ }))?.text).toContain('[devin]')
+  expect((await ui.find({ type: 'Text', text: /Devin #8/ }))?.text).toContain('Devin #8')
   expect((await ui.find({ type: 'Text', text: /gpt-6-1-terra-high/ }))?.text).toContain(
     'gpt-6-1-terra-high',
   )
@@ -195,5 +198,84 @@ test('with no run the pane says so', async ($, on) => {
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
 
   expect((await ui.find({ type: 'Text' }))?.text).toBe('No /exec run yet.')
+  await ui.unmount()
+})
+
+test('now row names the work, task row shows plan and scope, quiet time is shown', async ($, on) => {
+  const run: Run = {
+    ...emptyRun(4, 'cursor'),
+    sessionId: 'abcdef-1234-5678',
+    startedAt: 0,
+    lastGrowthAt: 0,
+    lines: 10,
+    tool: 'edit',
+    toolDetail: 'view.tsx',
+    tools: 3,
+    task: { plan: 'agent-workflow-consolidation', scope: 'S7, S8, S10' },
+    lastMessage: 'Now editing the view.',
+  }
+  seedRun(on, run)
+  on('clock.now', () => ({ value: 25_000 }))
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /^task:/ }))?.text).toBe(
+    'task: agent-workflow-consolidation · S7, S8, S10',
+  )
+  const now = (await ui.find({ type: 'Text', text: /^now:/ }))?.text ?? ''
+  expect(now).toContain('⚙ edit view.tsx')
+  expect((await ui.find({ type: 'Text', text: /quiet 25s$/ }))?.text).toBe('▰▰▰▱▱▱▱▱▱▱ quiet 25s')
+  expect((await ui.find({ type: 'Text', text: /^says:/ }))?.text).toBe('says: Now editing the view.')
+  await ui.unmount()
+})
+
+test('Show filter cycles all → msgs → tools → errors and narrows the timeline', async ($, on) => {
+  seedRun(on, BIG)
+  on('clock.now', () => ({ value: 30_000 }))
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ key: 'filter' }))?.text).toBe('Show: all')
+
+  await ui.press({ key: 'filter' })
+  expect((await ui.find({ key: 'filter' }))?.text).toBe('Show: msgs')
+  const msgRows = (await ui.findAll({ type: 'Text' })).map(n => n.text).filter(isTimeline)
+  expect(msgRows.length).toBeGreaterThan(0)
+  expect(msgRows.every(t => t?.startsWith('MSG'))).toBe(true)
+
+  await ui.press({ key: 'filter' })
+  await ui.press({ key: 'filter' })
+  expect((await ui.find({ key: 'filter' }))?.text).toBe('Show: errors')
+  expect((await ui.find({ type: 'Text', text: /^showing errors:/ }))?.text).toMatch(/of \d+/)
+  await ui.unmount()
+})
+
+test('Copy resume cmd copies the backend resume command', async ($, on) => {
+  const copies: string[] = []
+  on('ui.copy', (_$, e) => {
+    copies.push(String(e.text))
+    return { value: { isCopied: true } }
+  })
+  on('clock.now', () => ({ value: 30_000 }))
+
+  seedRun(on, BIG_AGY)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'copy-resume' })
+  expect(copies).toEqual([`agy --conversation ${BIG_AGY.sessionId}`])
+  await ui.unmount()
+})
+
+test('running badge spins with the frame, tags carry their kind color, sparkline shows', async ($, on) => {
+  const run: Run = { ...BIG, result: null, exitCode: null, lastGrowthAt: 29_000, spark: [0, 3, 9, 1] }
+  on('state.get', async (_$, e, next) => {
+    if (e.key === 'run') return { value: { value: { shape: 'run-7', value: run }, version: 1 } }
+    if (e.key === 'frame') return { value: { value: 2, version: 1 } }
+    return next(e)
+  })
+  on('clock.now', () => ({ value: 30_000 }))
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /RUNNING/ }))?.text).toBe(` ${spinnerAt(2)} RUNNING `)
+  const read = await ui.find({ type: 'Text', text: /^READ$/ })
+  expect(read?.props.color).toBe(KIND_COLOR.read)
+  expect((await ui.find({ type: 'Text', text: /^[ ▁-█]+$/ }))?.text).toBe(' ▃█▁')
   await ui.unmount()
 })
