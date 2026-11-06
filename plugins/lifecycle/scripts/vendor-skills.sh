@@ -122,7 +122,9 @@ list_skills() {
 # require_valid_skills <names...> -> die on any unsafe name (stamp is PR-editable)
 require_valid_skills() {
   local s
-  for s in $1; do
+  local -a names=()
+  read -ra names <<<"$1"
+  for s in ${names[@]+"${names[@]}"}; do
     valid_skill "$s" || die "unsafe skill name: '$s'"
   done
 }
@@ -199,7 +201,9 @@ mkdir -p "$SKILLS_DEST"
 if [[ -f "$STAMP_FILE" ]]; then
   old_skills=$(stamp_field "$STAMP_FILE" skills)
   require_valid_skills "$old_skills"
-  for skill in $old_skills; do
+  old_skill_list=()
+  read -ra old_skill_list <<<"$old_skills"
+  for skill in ${old_skill_list[@]+"${old_skill_list[@]}"}; do
     case " $tag_skills " in
       *" $skill "*) ;;
       *)
