@@ -6,6 +6,12 @@ for plugin users. This file is public: keep private names and paths out.
 
 ## 2026-11-09
 
+- lifecycle 0.12.2: Cursor plugin manifests (`.cursor-plugin/`) so the
+  plugin can be imported as a Cursor team marketplace and used in Cursor
+  Cloud Agents.
+- relay 0.4.1: Cursor plugin manifest plus a Cursor-format `sessionStart`
+  hook (`hooks/cursor-hooks.json`) for Cursor installs; Cursor Cloud
+  Agents don't run plugin hooks, so use `/relay:pickup` there.
 - lifecycle 0.12.1: `/conduct` now downgrades to no-commit when the Stage 5
   review base (fetch or merge-base) cannot be resolved, and stops without
   pushing or opening a PR when there is nothing to commit, unless a reused

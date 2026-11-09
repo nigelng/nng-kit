@@ -7,7 +7,7 @@
       "name": "lifecycle",
       "source": "./plugins/lifecycle",
       "description": "Idea-to-shipped skill chain: conduct, brainstorm, make-plan, critique, execute-plan, commit, gh-create-pr, gh-draft-release, gh-tag-release",
-      "version": "0.12.1"
+      "version": "0.12.2"
     },
     {
       "name": "exec-observe",
@@ -25,7 +25,7 @@
       "name": "relay",
       "source": "./plugins/relay",
       "description": "Cross-surface handoff: save session intent in a git repo or a remote root, pick it up on any Claude surface",
-      "version": "0.4.0"
+      "version": "0.4.1"
     }
   ]
 }

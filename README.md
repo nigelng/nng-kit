@@ -81,7 +81,62 @@ remains a deprecated alias for `$RELAY_ROOT` on Dropbox. If no root is set,
 `docs/handoffs/` still readable). Spaces are listed at runtime in
 `<root>/README.md` (`## Spaces`). See [plugins/relay/README.md](plugins/relay/README.md).
 
-## Install (Cursor, Devin, Windsurf)
+## Install (Devin)
+
+In <https://app.devin.ai> → **Customize → Plugins**, add these as personal
+plugins:
+
+```text
+nigelng/nng-kit#plugins/lifecycle
+nigelng/nng-kit#plugins/relay
+```
+
+They load in cloud sessions and on every machine you sign in to. Run this
+on a signed-in machine to pull the account plugins:
+
+```bash
+devin plugins update
+```
+
+For a machine-only install, use a local plugin directory instead:
+
+```bash
+devin plugins install --local <dir>
+```
+
+Recommendation: use the web app for cloud + multi-machine delivery;
+`--local` is for one machine only.
+
+## Install (Cursor)
+
+For Teams/Enterprise, an admin imports this repo (or a fork) under
+**Dashboard → Plugins & MCPs → Team Marketplaces → Add Marketplace → Import
+from Repo**. The `.cursor-plugin/marketplace.json` lists lifecycle and relay.
+A fork gives the team change control; direct import tracks this repo's
+public `main`.
+
+Cloud Agents install marketplace plugins at start and keep those versions
+for the run. Plugin hooks don't run in Cloud Agents, so invoke
+`/relay:pickup` manually. Local installs of the Cursor plugin use relay's
+`hooks/cursor-hooks.json` (`sessionStart`).
+
+Per-repo alternative on every plan: from a checkout of this repo, vendor
+lifecycle skills from an existing published tag. Replace `X.Y.Z` and `<repo>`:
+
+```bash
+bash plugins/lifecycle/scripts/vendor-skills.sh --tag lifecycle-vX.Y.Z <repo>
+```
+
+Commit `<repo>/.agents/skills/`, including its `.nng-kit-version` stamp.
+This installs lifecycle only, with plain `/<name>` commands, not namespaced
+plugin commands. Use the
+`nigelng/nng-kit/plugins/lifecycle/ci/vendor-check@lifecycle-vX.Y.Z` action in
+consumer CI to catch drift from the stamped tag.
+
+Recommendation: use the team marketplace for lifecycle + relay, or vendor
+lifecycle when a team marketplace isn't available.
+
+## Install (Windsurf / plain skills)
 
 Symlink each `plugins/lifecycle/skills/<name>/` directory into
 `~/.agents/skills/<name>/` and into the tool's skills directory
@@ -92,10 +147,10 @@ Invoke as `/<name>`.
 
 | Plugin | Version | What it is |
 | --- | --- | --- |
-| `lifecycle` | 0.5.0 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
+| `lifecycle` | 0.12.2 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
 | `delegate` | 0.4.0 | Hands plan implementation to the Cursor (`agent`), Antigravity (`agy`), or Devin (`devin`) CLI while Claude Code gates and reviews. See [README](plugins/delegate/README.md). |
 | `exec-observe` | 0.4.0 | Pane + status line for `/exec` runs of `delegate` (Cursor, Antigravity and Devin badges). Replaces the retired observe plugin. See [README](plugins/exec-observe/README.md). |
-| `relay` | 0.3.0 | Cross-surface handoff (save / pickup / check / discard + SessionStart). See [README](plugins/relay/README.md). |
+| `relay` | 0.4.1 | Cross-surface handoff (save / pickup / check / discard + SessionStart). See [README](plugins/relay/README.md). |
 
 ### `lifecycle` skills
 
