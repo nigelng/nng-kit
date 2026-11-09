@@ -111,7 +111,8 @@ Recommendation: use the web app for cloud + multi-machine delivery;
 
 For Teams/Enterprise, an admin imports this repo (or a fork) under
 **Dashboard → Plugins & MCPs → Team Marketplaces → Add Marketplace → Import
-from Repo**. The `.cursor-plugin/marketplace.json` lists lifecycle and relay.
+from Repo**, pasting the full URL `https://github.com/nigelng/nng-kit` (or
+the fork's). The `.cursor-plugin/marketplace.json` lists lifecycle and relay.
 A fork gives the team change control; direct import tracks this repo's
 public `main`.
 
@@ -119,6 +120,12 @@ Cloud Agents install marketplace plugins at start and keep those versions
 for the run. Plugin hooks don't run in Cloud Agents, so invoke
 `/relay:pickup` manually. Local installs of the Cursor plugin use relay's
 `hooks/cursor-hooks.json` (`sessionStart`).
+
+On a personal plan, in the Cursor app open **Customize → From GitHub
+Repository** and paste the full URL `https://github.com/nigelng/nng-kit`
+(`nigelng/nng-kit` alone fails with `{invalid_argument} Error`). Open the
+marketplace and **Install** `lifecycle` and `relay`; your Cloud Agents then
+have the plugins.
 
 Per-repo alternative on every plan: from a checkout of this repo, vendor
 lifecycle skills from an existing published tag. Replace `X.Y.Z` and `<repo>`:
@@ -133,8 +140,9 @@ plugin commands. Use the
 `nigelng/nng-kit/plugins/lifecycle/ci/vendor-check@lifecycle-vX.Y.Z` action in
 consumer CI to catch drift from the stamped tag.
 
-Recommendation: use the team marketplace for lifecycle + relay, or vendor
-lifecycle when a team marketplace isn't available.
+Recommendation: the personal import covers your own Cloud Agents, the team
+marketplace covers a team, and vendoring covers repos used by others or
+automations.
 
 ## Install (Windsurf / plain skills)
 
