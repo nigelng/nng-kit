@@ -135,6 +135,7 @@ Set **`finish=none`**, stop before commit, preserve the working tree, and report
 - The final top-tier execution review is `dirty` or `deferred`.
 - Critique change leaves any `blocking` or unresolved `important` finding.
 - The plan's Verification fails after critique fixes.
+- Stage 5 cannot resolve its review base (failed `git fetch` or `git merge-base`), so the whole branch was not reviewed.
 - A commit hook rejects the commit: no retry, amend, or hook bypass.
 - The current branch is the default branch at Stage 6.
 

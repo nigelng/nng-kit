@@ -35,13 +35,13 @@ Build the staging set from every changed path, tracked or untracked, in `git sta
 - Include `docs/plans/**` only for `plan=keep`, only when the file belongs to this change, and only when `git check-ignore -q <path>` returns 1 (not ignored). Apply the same choice and ignore check to the plan's sibling `.notes.md` file (replace `.md` with `.notes.md`).
 - For `plan=drop`, leave the plan and its notes uncommitted; do not delete them or create a removal commit.
 
-Use path-specific adds from the repo root, not `git add -A` or `git add .`. Check the staged-path list before commit so excluded content cannot ride along in the index. If excluded paths are already staged, downgrade and report rather than committing or silently unstaging someone else's work. If no eligible changes remain, report that there is nothing to commit; do not create an empty commit.
+Use path-specific adds from the repo root, not `git add -A` or `git add .`. Check the staged-path list before commit so excluded content cannot ride along in the index. If excluded paths are already staged, downgrade and report rather than committing or silently unstaging someone else's work. If no eligible changes remain, do not create an empty commit. Continue to **Push** only when Step 0.6 approved reusing a branch with commits ahead of `origin/<default>`; otherwise report that there is nothing to commit and stop (no push, no PR).
 
 A rejecting hook overrides Step 10 **Hook failure and amend**: do not fix and retry, amend, or use `--no-verify`. Downgrade, report the hook output, and do not push or open a PR.
 
 ## Push
 
-Only for `finish=push` or `finish=pr`, after the commit step succeeds (or reports no eligible changes), re-read the current branch. Refuse to push if it equals the default branch; stop and report.
+Only for `finish=push` or `finish=pr`, after the commit step creates a commit, or when a Step 0.6-approved reused branch has commits to ship, re-read the current branch. Refuse to push if it equals the default branch; stop and report.
 
 ```bash
 git push -u origin HEAD

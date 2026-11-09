@@ -6,6 +6,10 @@ for plugin users. This file is public: keep private names and paths out.
 
 ## 2026-11-09
 
+- lifecycle 0.12.1: `/conduct` now downgrades to no-commit when the Stage 5
+  review base (fetch or merge-base) cannot be resolved, and stops without
+  pushing or opening a PR when there is nothing to commit, unless a reused
+  branch with approved existing commits still has work to ship.
 - lifecycle 0.12.0: new `/lifecycle:conduct` skill — drives brainstorm →
   make-plan → critique plan → execute-plan → full critique change, then
   branch/commit/push or a PR per an up-front finish mode; hands-off after
