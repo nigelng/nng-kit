@@ -9,17 +9,22 @@ Editing a skill means editing it **here**, never in an installed copy.
 | Surface | How it gets the skills | Invoke as |
 | --- | --- | --- |
 | Claude Code (local or cloud) | `claude plugin marketplace add nigelng/nng-kit` then `claude plugin install lifecycle@nng-kit` | `/lifecycle:<name>` |
-| Cursor, Devin, Windsurf | Each skill dir symlinked into `~/.agents/skills/<name>/` and the tool's own skills dir (the private source repo's Home Manager kit does this) | `/<name>` |
-| Antigravity | Kit links each skill into `~/.gemini/config/skills/<name>/` when `antigravity-cli` is in the host's Homebrew casks (same HM kit as Cursor/Devin/Windsurf) | `/<name>` |
+| Devin CLI/Desktop | `devin plugins install -y --local <nng-kit>/plugins/lifecycle` (once per Devin data home) | `/lifecycle:<name>` |
+| Cursor | Imports plugins installed in Claude Code (enable Third-Party Imports in settings) | `/lifecycle:<name>` |
+| Antigravity | `agy plugin install <nng-kit>/plugins/lifecycle` | `/lifecycle:<name>` |
+| Windsurf / other agents | Each skill dir linked into the tool's skills dir from a store location the tools do not scan, as a fallback when no plugin is installed | `/<name>` |
 | Devin Cloud / consumer repos | Vendored real files under `<repo>/.agents/skills/` from a `lifecycle-v*` tag: `bash plugins/lifecycle/scripts/vendor-skills.sh <repo>` (in an nng-kit checkout). Drift is gated by the `nigelng/nng-kit/plugins/lifecycle/ci/vendor-check@lifecycle-vX.Y.Z` composite action — it fails CI when a vendored copy differs from its stamped tag. Re-vendor after a new tag. | `/<name>` |
 
 The SKILL.md files use only relative links to sibling files and no plugin-only
 syntax, so the same directory works on every surface.
 
-`/delegate:execute-via-cursor` (needs the Cursor `agent` CLI) and
-`/delegate:execute-via-agy` (needs the Antigravity `agy` CLI) are separate Claude
-Code skills in the `delegate` plugin and are **not** part of this plugin. They are
-described below because they write the same plan audit metadata as `/execute-plan`.
+`/delegate:execute-via-cursor` (needs the Cursor `agent` CLI),
+`/delegate:execute-via-agy` (needs the Antigravity `agy` CLI),
+`/delegate:execute-via-devin` (needs the Devin CLI) and `/delegate:review`
+(the plan's Review runner — host session, read-only Task, or an external
+read-only reviewer) are separate skills in the `delegate` plugin and are
+**not** part of this plugin. They are described below because they write the
+same plan audit metadata as `/execute-plan`.
 
 ## The chain
 
@@ -31,7 +36,8 @@ described below because they write the same plan audit metadata as `/execute-pla
 
 /make-plan [update] [task]         top-tier planner; interview-first for Goal/requirements
   → docs/plans/**                     when no brainstorm handoff; drafts a structured plan
-                                       with an Execution map (haiku/auto/opus waves)
+                                       with an Execution map v2 (top/execute/mid/low
+                                       tiers, waves; Dispatch run order)
 
 /critique plan <path>              optional top-tier second opinion on the plan before
   (optional)                          execute (not a lean mid-tier pass)
@@ -39,10 +45,9 @@ described below because they write the same plan audit metadata as `/execute-pla
 /execute-plan <path>               top-tier orchestrator; requires Agent mode; refuses
   → uncommitted working-tree diff     if Blocked / missing Success or Verification;
                                        requires Execution map (draft→confirm→persist if
-                                       missing); runs waves (haiku-biased / auto
-                                       implementers; low→mid fallback if capped) then
-                                       mid-tier review passes, then a top-tier
-                                       final pass, until clean
+                                       missing); runs waves per ## Dispatch
+                                       (execute/low implementers; mid review passes;
+                                       top-tier final pass, until clean)
 
 /delegate:execute-via-cursor <path>  Claude Code–only alternative (`delegate` plugin):
   → uncommitted working-tree diff     Cursor `agent` CLI implements (default tier
@@ -59,6 +64,20 @@ described below because they write the same plan audit metadata as `/execute-pla
                                        logged fallback); Claude gates, briefs, reviews
                                        (bounded FIX loop). Same contract as
                                        `/delegate:execute-via-cursor`, different backend.
+
+/delegate:execute-via-devin <path>  Claude Code–only alternative (`delegate` plugin):
+  → uncommitted working-tree diff     Devin CLI implements (default Devin `execute` pin
+                                       from model-tiers when `model=` omitted; pinned only,
+                                       never `adaptive` or `fusion-*`); Claude gates,
+                                       briefs, reviews (bounded FIX loop). Same contract as
+                                       `/delegate:execute-via-cursor`, different backend.
+
+/delegate:review <plan> [ID]        Claude Code–only (`delegate` plugin):
+  → plan audit metadata                final whole-branch top-tier review through the
+                                       plan's Review runner (read-only; the reviewer
+                                       never runs Verification); `/execute-plan`
+                                       defers to it when the Review runner is an
+                                       external tool other than the host
 
 /critique change [ref]             lean mid-tier diff rounds + final top-tier change
   (optional)                          critique; security pass (Cursor/Claude
@@ -107,6 +126,18 @@ or "tag to trigger CI publish."
   same contract as `/delegate:execute-via-cursor`, but Google's Antigravity `agy`
   CLI does the implementing (default `execute` pin from [model-tiers.md](model-tiers.md)
   when `model=` omitted; Auto only as a logged fallback). Never commits.
+- **`/delegate:execute-via-devin`** — Claude Code–only, in the `delegate` plugin:
+  same contract as `/delegate:execute-via-cursor`, but the Devin CLI does the
+  implementing (default Devin `execute` pin from [model-tiers.md](model-tiers.md)
+  when `model=` omitted; pinned only — never `adaptive` or `fusion-*`). Never commits.
+- **`/delegate:review`** — Claude Code–only, in the `delegate` plugin: the final
+  whole-branch top-tier review through the plan's Review runner
+  (`top@session`, `top@claude-task`, `top@devin-fusion`, `top@cursor-ask`, or
+  `top@agy-plan`). Read-only — the reviewer never runs Verification and never
+  edits (a git guard reverts any reviewer change). `/execute-plan` prints the
+  `/delegate:review` command when a plan's Review runner is an external tool
+  other than the host; pass `[ID]` to mark that row done via
+  `plan-status.sh review`. Never commits.
 
 ## Ideate vs plan (three-way split)
 
@@ -117,9 +148,15 @@ or "tag to trigger CI publish."
   step-by-step plan under `docs/plans/**` for execute/critique and cross-session
   handoff. Always a **top-tier** planner session. When there is no brainstorm
   artifact, interviews for Goal, requirements, non-goals, and constraints before
-  drafting. Plans include an **Execution map** (waves + `haiku` / `auto` /
-  `opus` tiers) for parallel, tiered execute — biased to smallest mechanical
-  units / prefer `haiku`. Plans may be committed with the feature (`/commit`
+  drafting. Plans include an **Execution map** v2 (waves; tiers `top` /
+  `execute` / `mid` / `low`; **Runner**, **Files**, **Acceptance**, **Review**;
+  optional **Model**), a **`## Dispatch`** run order, and `docs/plans/**` files
+  named `YYYY-MM-DD-<slug>.md` with plan-lock metadata (`created_at`, `plan_sha`,
+  `approved_at`). Map routing, recency (`created_at`, then filename, then mtime),
+  and the body hash live in
+  [skills/execute-plan/execution-status.md](skills/execute-plan/execution-status.md)
+  (Plan metadata / Plan lock / Plan recency) — do not restate here. Biased to
+  smallest mechanical units / prefer **low** tier. Plans may be committed with the feature (`/commit`
   when tracked-eligible); `/gh-create-pr` asks **Keep/Drop** per plan on the
   branch so `main` does not accumulate stale plans.
 - **Built-in Plan** (Cursor Plan mode / Claude Code `/plan`) — same "ready for
@@ -134,10 +171,17 @@ missing.
 
 ## Execution tiers
 
-Portable map labels: **`haiku`** | **`auto`** | **`opus`** (`low`/`mid`/`top`).
-Per-skill session/Task requirements: that skill's `SKILL.md`. Canonical chains,
-fallback, and per-tool resolution: [model-tiers.md](model-tiers.md) — **edit
-tier policy there**, then run `bash scripts/sync-model-tiers.sh`.
+Portable map tiers: **`top`** | **`execute`** | **`mid`** | **`low`** (legacy
+`opus` / `auto` / low-tier aliases still normalize to these four).
+**Roles:** `top-plan` = `/brainstorm`, `/make-plan`, and `/critique plan`;
+`top-review` = map tier `top`, `/execute-plan` orchestrator, reviews, and
+`/critique` escalate/closing; `top-critique` (optional) = second-family
+`/critique plan` — map tier **`top`** resolves to **`top-review`**. Per-skill
+session/Task requirements: that skill's `SKILL.md`. Canonical chains, fallback,
+and per-tool resolution: [model-tiers.md](model-tiers.md) — **edit tier policy
+there**, then run `bash scripts/sync-model-tiers.sh`. Full v2 map columns,
+**`## Dispatch`**, naming, plan lock, and recency:
+[skills/execute-plan/execution-status.md](skills/execute-plan/execution-status.md).
 
 ## Critique (policy A)
 
@@ -190,11 +234,10 @@ codebase.
 - **Behavior-changing implement steps:** quality loop in
   `skills/execute-plan/implementer.md` (docs/config-only:
   justified skip + validate/portable checks).
-- **`AskQuestion` options vs. questions.** `AskQuestion` supports up to **4 options
-  per call**, not up to 4 questions. When a step needs to ask several questions
-  (`/brainstorm`'s Goal brief, `/make-plan`'s scope/constraints/success/assumptions
-  — up to ~7 facets combined), each question gets its own `AskQuestion` call
-  (2-4 options plus "Other"); never compress multiple questions into one call.
+- **`AskQuestion` batching.** Batch up to **4 independent questions** per
+  `AskQuestion` call (2–4 options each, plus "Other" when useful); split only
+  questions that depend on an earlier answer (`/brainstorm`'s Goal brief,
+  `/make-plan`'s scope/constraints/success/assumptions, and similar).
 
 ## SKILL.md size budget
 
@@ -216,6 +259,7 @@ companions ship with the skill.
 | `delegate:execute-via-cursor` | Working tree (via Cursor `agent` CLI; Claude reviews); plan audit metadata on `docs/plans/**` (frontmatter + Execution log) | Never (leaves changes uncommitted; Claude Code only, in the `delegate` plugin) |
 | `delegate:execute-via-agy` | Working tree (via Antigravity `agy` CLI; Claude reviews); plan audit metadata on `docs/plans/**` (frontmatter + Execution log) | Never (leaves changes uncommitted; Claude Code only, in the `delegate` plugin) |
 | `delegate:execute-via-devin` | Working tree (via Devin `devin` CLI; Claude reviews); plan audit metadata on `docs/plans/**` (frontmatter + Execution log) | Never (leaves changes uncommitted; Claude Code only, in the `delegate` plugin) |
+| `delegate:review` | Plan audit metadata on `docs/plans/**` (`plan-status.sh review` marks the final `top` row; log stanza only, no `runs:` entry) | Never (read-only review through the plan's Review runner; Claude Code only, in the `delegate` plugin) |
 | `commit` | Local git history | Commits only, after approval; never pushes |
 | `gh-create-pr` | Remote branch + PR; runs planning-artifacts gate on branch plans/relay | Pushes + opens PR, after approval; Keep/Drop (plans) or Keep/Discard (relay) — user runs `/commit` if dropping |
 | `gh-draft-release` | Draft GitHub Release | Creates a draft release, after approval |

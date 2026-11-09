@@ -95,7 +95,9 @@ Otherwise split the list into plans (`docs/plans/**`) and relay files (`docs/rel
 
 **Plans.** For each file, read `execution.status` from YAML frontmatter (the `execution.status` field, not the execution-log table). If it is missing, show `unknown`.
 
-One question per file, up to four questions per `AskQuestion` call; wait for the answers before asking about the next four (otherwise ask conversationally). Options are **Keep** and **Drop**. The prompt shows the path and `execution.status`. When the status is not `completed`, include the warning "execution not finished" and the actual status. The user still decides.
+A sibling `<plan>.notes.md` (same basename with `.notes.md` instead of `.md`) follows that plan's Keep or Drop choice only when that plan file is also in the added/modified list: do not ask a separate question; apply the plan answer to the notes file. When a `*.notes.md` is in the added/modified list and its sibling plan is not in that list, ask **Keep** or **Drop** for the notes path (show the path only; `*.notes.md` is not a plan file). When the plan is in the list, dropping or keeping the plan still applies to its sibling notes at `HEAD` with no extra question.
+
+One question per plan file, plus one per gated `*.notes.md` whose sibling plan is not in the added/modified list, up to four questions per `AskQuestion` call; wait for the answers before asking about the next four (otherwise ask conversationally). Options are **Keep** and **Drop**. For plan files, the prompt shows the path and `execution.status`. When the status is not `completed`, include the warning "execution not finished" and the actual status. The user still decides.
 
 **Relay files.** Same batching (one question per file, up to four per call). Resolve the current branch slug first (see item 3 below). For a file of the current branch, options are **Keep** and **Discard via `/relay:discard`**. Do not `git rm` it. A mirrored twin needs its `discarded` lock first; `/relay:discard` takes that lock, then removes the repo file.
 
@@ -111,13 +113,17 @@ For a relay file whose slug is not the current branch's, read its YAML frontmatt
 git rev-parse HEAD
 ```
 
-Print the full SHA and each dropped plan path. The re-run uses this SHA for those permalinks. Accept only paths matching `^docs/plans/[A-Za-z0-9._-]+\.md$`; show any other as "skipped: unusual name" and do not print a `git rm` or permalink for it.
+Print the full SHA and each dropped plan path. The re-run uses this SHA for those permalinks. Accept only paths matching `^docs/plans/[A-Za-z0-9._-]+\.md$`; show any other as "skipped: unusual name" and do not print a `git rm` or permalink for it. In the dropped-plan list, name each dropped plan and, when `git cat-file -e "HEAD:docs/plans/<slug>.notes.md"` succeeds, its sibling `<plan>.notes.md` (dropped with the plan, no extra question).
 
-2. When any plan is Dropped, print this command and do not run it. Paths are only the dropped plans:
+2. When any plan is Dropped, print this command and do not run it. Paths are each dropped plan and, for each, its sibling `docs/plans/<slug>.notes.md` when that file exists at `HEAD`:
 
 ```bash
-git rm -- docs/plans/<file> …
+git rm -- docs/plans/<file> docs/plans/<slug>.notes.md …
 ```
+
+(Omit a notes path that is not in the tree at `HEAD`.)
+
+2b. When any `*.notes.md` was Dropped on its own (its sibling plan was not in the added/modified list), print `git rm -- <path> …` for those notes paths only and do not run it. Accept only paths matching `^docs/plans/[A-Za-z0-9._-]+\.notes\.md$`; show any other as "skipped: unusual name" and leave it out of the command. No dropped-plan permalink.
 
 3. When any relay file is Discarded or Dropped, resolve the current branch slug the same way as `/relay:discard` Step 1 (`branch` from `git branch --show-current`; if empty, `slug=detached-<short>` from `git rev-parse --short HEAD`; else `/` → `--`, characters outside `[A-Za-z0-9._-]` → `-`). This branch’s handoff paths are `docs/relay/<slug>.md` and legacy `docs/handoffs/<slug>.md`. Split each discarded path into **current-branch** (equals one of those two) vs **other**.
 
@@ -129,7 +135,7 @@ git rm -- docs/plans/<file> …
 
 4. Ask the user to run `/commit` for removals already made (plan `git rm`, other-branch relay `git rm`, plus relay files removed by `/relay:discard`). When a plan is dropped, suggest `chore: drop plan <slug>` (`<slug>` is the basename without `.md`; several slugs, space-separated, in one subject). When only relay files are discarded via `/relay:discard`, suggest `chore: discard relay <slug>`; for other-branch relay drops use `chore: drop relay <slug>`. When plans and relay files are mixed, name both the plan and relay slugs in the subject. Then stop. Kept answers are not stored: the re-run asks again for every path still added or modified. After those paths are gone and committed, re-running `/gh-create-pr` passes the gate for the dropped and discarded paths.
 
-**All Keep (including Discard later).** Continue to step 4. Step 5 lists every kept path under `## Planning artifacts`.
+**All Keep (including Discard later).** Continue to step 4. Step 5 lists every kept path under `## Planning artifacts`, including each kept plan's sibling `<plan>.notes.md` when it exists at `HEAD` (listed next to or immediately after the plan bullet when that plan was in the gate), and each `*.notes.md` kept via its own gate question when its sibling plan was not in the added/modified list.
 
 ### 4. Ensure feature branch
 
@@ -147,7 +153,7 @@ Never push commits directly to `<default>`.
   - Multiple commits → primary commit's type+summary, or a combined summary of the main change.
 - **Body:**
   - Start with a `## Summary` bullet list derived from the commit messages (what changed and why).
-  - If step 3 kept any files or recovered any dropped-plan permalinks, add `## Planning artifacts` after the summary and before the test plan. One bullet per kept path (`<path> (kept)`), plans and relay files included. One bullet per dropped plan: the blob permalink from step 3, labelled `(dropped)`. Include only rows that exist. Omit the heading when both lists are empty.
+  - If step 3 kept any files or recovered any dropped-plan permalinks, add `## Planning artifacts` after the summary and before the test plan. One bullet per kept path (`<path> (kept)`), plans and relay files included; for each kept plan, also bullet its sibling `docs/plans/<slug>.notes.md (kept)` when present at `HEAD`. One bullet per dropped plan: the blob permalink from step 3, labelled `(dropped)` (notes siblings are removed via `git rm` with the plan, not separate permalinks). Include only rows that exist. Omit the heading when both lists are empty.
   - Include a short `## Test plan` checklist.
   - Check for a repo PR template (`.github/PULL_REQUEST_TEMPLATE.md` or any `.md` under `.github/PULL_REQUEST_TEMPLATE/`). If found, append its content below the generated summary, separated by a blank line.
 
@@ -181,6 +187,7 @@ gh pr create --base <default> --title "<conventional-commit title>" --body "$(ca
 
 ## Planning artifacts
 - docs/plans/<file>.md (kept)
+- docs/plans/<slug>.notes.md (kept)
 - https://github.com/<owner>/<repo>/blob/<sha>/docs/plans/<file>.md (dropped)
 
 ## Test plan

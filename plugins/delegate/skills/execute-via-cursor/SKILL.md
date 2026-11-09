@@ -9,227 +9,124 @@ description: >-
   /delegate:execute-via-cursor (or /execute-via-cursor) or wants Cursor CLI to
   implement a fleet plan while Claude gates and reviews.
 argument-hint: "[plan-file] [step-scope] [safe|no-force] [model=<slug>]"
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash(git:*), Bash(agent:*), Bash(which:*), Bash(mkdir:*), Bash(rm:*), Bash(cd:*), Bash(jq:*), Bash(test:*), Bash(head:*), Bash(tail:*), Bash(wc:*), Bash(echo:*), Bash(cat:*)
+allowed-tools: Read, Write, Edit, Glob, Grep, Task, Bash(bash:*), Bash(git:*), Bash(agent:*), Bash(which:*), Bash(mkdir:*), Bash(rm:*), Bash(cd:*), Bash(date:*)
 disable-model-invocation: true
 ---
 
 # execute-via-cursor
 
-Claude Code–only alternative to `/execute-plan` in the `delegate` plugin
-(`/delegate:execute-via-cursor`): **Cursor (`agent`) implements**, Claude
-**gates, briefs, reviews**, and may propose commit text. Never commit without a
-separate `/commit`.
+`/delegate:execute-via-cursor`: **Cursor (`agent`) implements**; Claude gates,
+briefs, and reviews. Never commit without a separate `/commit`.
 
-**Shared workflow & contracts (read first):**
-- [execute-via-core.md](../../references/execute-via-core.md) — arg parse,
-  Steps 1–4, Status audit, Steps 7–8, and shared constraints.
-- [brief-template.md](../../references/brief-template.md) — Step 4 brief
-  template (`{{BACKEND}} = cursor`).
-- [execution-status.md](../../references/execution-status.md) — YAML
-  frontmatter + `## Execution log` dual-write contract.
+Read [execute-via-core.md](../../references/execute-via-core.md) first (arg
+parse, Steps 1–8, Model default, Status audit, exit codes, shared constraints),
+plus [brief-template.md](../../references/brief-template.md),
+[verifier-brief.md](../../references/verifier-brief.md),
+[execution-status.md](../../references/execution-status.md), and
+[model-tiers.md](../../references/model-tiers.md). Follow core. Do not
+hand-build `agent` argv. `<skill-dir>` is this file's absolute directory; paste
+that literal path into every `bash` call (shell variables do not persist).
 
 ## Parameter binding
-
-Bind the placeholders in [execute-via-core.md](../../references/execute-via-core.md)
-for this skill:
 
 | Placeholder | Value for `execute-via-cursor` |
 | --- | --- |
 | `<backend>` | `cursor` |
 | `<last_skill>` | `execute-via-cursor` |
 | `<brief>` | `.claude/tmp/exec-cursor-brief.md` |
+| `<rows-json>` | `.claude/tmp/exec-cursor-rows.json` |
 | `<fix-n>` | `.claude/tmp/exec-cursor-fix-<n>.md` |
 | `<questions>` | `.claude/tmp/exec-cursor-questions.md` |
 | `<run-n>` | `.claude/tmp/exec-run-cursor-<n>.{ndjson,err,exit}` |
 
-Follow [execute-via-core.md](../../references/execute-via-core.md) for argument
-parsing (`[plan-file] [step-scope] [safe|no-force] [model=<slug>]`), Steps 1–4,
-Status audit (`last_skill: execute-via-cursor`), Step 7 review, Step 8 verdict
-loop, and shared constraints, plugging in the Cursor-specific sections below.
-
 ## Step 1.1 — Cursor preflight
 
-Run before the shared repo-root, plan-file, and clean-tree gates in
-[execute-via-core.md § Step 1](../../references/execute-via-core.md):
+Run before core Step 1.2. Stop on failure.
 
-1. **`agent` on PATH** — run `which agent`. If missing → stop with an
-   install/login hint for Cursor CLI (`agent`) and authentication.
-2. **Model default / optional override** — when `model=` is **omitted**, resolve
-   Cursor's tier `execute` pin from [model-tiers.md](../../references/model-tiers.md)
-   (`grok-4.7-high` → `auto`; `--model <slug>` is always passed; `auto` is used
-   only as a logged fallback when the pin is missing from `agent models`, a run
-   fails with a usage/quota error, or the user explicitly passes `model=auto`).
-   Never GPT on Cursor; Haiku 5.5 is allowed; Sonnet only by manual `model=`
-   override. Validate the resolved or user-supplied `<slug>` against
-   `agent models`. If `agent models` fails (not signed in) or a user-supplied
-   `<slug>` is not listed → stop and show the available model slugs from
-   `agent models`.
+1. **`which agent`.** Missing → stop: install the Cursor CLI (`agent`) and
+   sign in with `agent login`.
+2. **`agent models`.** Failure (not signed in) → stop and say `agent login`.
+   Keep the printed slugs. Choose the slug only after `<rows-json>` exists.
 
-Then complete Steps 1.2–1.4, Step 2, Status audit (Start), Step 3, and Step 4
-from [execute-via-core.md](../../references/execute-via-core.md). In Step 4,
-clear only `cursor` artifacts:
+## Model default (Cursor)
 
-```bash
-mkdir -p .claude/tmp
-rm -f .claude/tmp/exec-cursor-brief.md \
-      .claude/tmp/exec-cursor-fix-*.md \
-      .claude/tmp/exec-cursor-questions.md \
-      .claude/tmp/exec-run-cursor-*
-```
+After Step 4 writes `<rows-json>`, before Step 5, follow
+[execute-via-core.md § Model default](../../references/execute-via-core.md).
+The pin is the Cursor chain for `launch_tier` (strongest selected tier), not
+always `execute`. Use the **cursor** block in
+[model-tiers.md](../../references/model-tiers.md). Pass dotted CLI slugs
+(`grok-4.7-high`, `composer-2.5`), not hyphenated summary spellings
+(`grok-4-7-high`).
 
-and write `.claude/tmp/exec-cursor-brief.md` from
-[brief-template.md](../../references/brief-template.md) with
-`{{BACKEND}} = cursor` and
-`{{QUESTIONS_PATH}} = .claude/tmp/exec-cursor-questions.md`.
-
-## Step 5 — Run Cursor
-
-Pick a new run id `<n>` per implement/FIX round (`1`, `2`, …). Always pass
-`--model <slug>` using the slug resolved in Step 1.1 (the user's `model=<slug>`
-override or Cursor's `execute` pin from
-[model-tiers.md](../../references/model-tiers.md); `auto` only as a logged
-fallback).
-
-### Default (`--force` + `--trust`)
-
-Invoke via Bash with `run_in_background: true` (do **not** poll with `sleep`):
-
-```bash
-agent -p --force --trust --workspace /absolute/repo/root \
-  --output-format stream-json --stream-partial-output --model <slug> \
-  "Read .claude/tmp/exec-cursor-brief.md and follow it exactly." \
-  > .claude/tmp/exec-run-cursor-<n>.ndjson 2> .claude/tmp/exec-run-cursor-<n>.err; echo $? > .claude/tmp/exec-run-cursor-<n>.exit
-```
-
-Replace `/absolute/repo/root` with the **literal** path recorded in Step 1.2
-(or `"$(git rev-parse --show-toplevel)"`). Never leave `--workspace` empty.
-
-Wait for Claude Code's **background-task completion notification**.
-
-**Why these flags:** `--trust` skips the workspace-trust prompt; `--force`
-auto-allows tools/shell. Either alone stalls headless background runs. Use
-`--output-format stream-json` with `--stream-partial-output` (not `json`) so
-`session_id` appears on the first `system`/`init` line even if the run fails
-and `exec-observe` can render live stream deltas. Do **not** use `--yolo`
-(alias of `--force`).
-
-### `safe` / `no-force`
-
-Claude **never** invokes `agent`. Print the exact interactive command for the
-user's terminal (literal absolute `--workspace`, plus `--model <slug>` from
-Step 1.1):
-
-```bash
-agent --trust --workspace /absolute/repo/root --model <slug> \
-  "Read .claude/tmp/exec-cursor-brief.md and follow it exactly."
-```
-
-Wait for the user to say done. Step 3 was skipped (Claude is not running
-`agent`). **Skip Step 6** (no `exec-run-cursor-*` logs); proceed directly to
-Step 7 review in [execute-via-core.md](../../references/execute-via-core.md).
-
-## Step 6 — Parse Cursor run logs (defensive)
-
-**Claude-invoked `agent` runs only** (default path). `safe` / `no-force`
-already skipped this step — do not treat missing logs as a failed run.
-
-Summarize; do **not** read large `.ndjson` files whole into context:
-
-```bash
-# session_id (survives failed runs with stream-json)
-jq -r 'select(.type=="system" and .subtype=="init").session_id' \
-  .claude/tmp/exec-run-cursor-<n>.ndjson | head -1
-
-# model_resolved: init model. Cursor prints a display label such as
-# "Grok 4.7 256K High", not the slug. Record that label; do not map it to a
-# slug. The label is untrusted CLI output: nothing, null, or a value that fails
-# the pattern is auto(unresolved).
-model=$(jq -r 'select(.type=="system" and .subtype=="init").model // empty' .claude/tmp/exec-run-cursor-<n>.ndjson | head -1)
-re='^[A-Za-z0-9][A-Za-z0-9 ._:/()+-]{0,63}$'
-[[ "$model" =~ $re && "$model" != null ]] || model='auto(unresolved)'
-
-# exit code (must be 0)
-cat .claude/tmp/exec-run-cursor-<n>.exit
-
-# success classification
-# PASS only if: .exit is 0 AND last JSON line is type=="result",
-# subtype=="success", is_error==false
-tail -1 .claude/tmp/exec-run-cursor-<n>.ndjson | jq -c '{type,subtype,is_error}'
-```
-
-Write `model_resolved` YAML-quoted in `runs:` (for example `model_resolved: "Grok 4.7 256K High"`) and use the same validated value in the `Run:` line. Cursor reports a display label, never the slug, so the resolved label is never compared with the requested slug: `fallback` is set only from `expired <slug>`, `pin missing`, `quota`, `model=auto`, or `auto(unresolved)`, plus a resolved value equal to `auto` (case-insensitive), which is a router fallback.
-
-Anything else → **failed run**: surface `.claude/tmp/exec-run-cursor-<n>.err`;
-if `session_id` was captured, Step 8 FIX may still `--resume` it. Ignore
-unknown fields (schema drift). Also check for
-`.claude/tmp/exec-cursor-questions.md` during Step 7. Optional: cross-check
-`tool_call` write events against `git diff`. Writes made inside Cursor
-subagents surface only as a top-level `taskToolCall`, not as write events, so
-`git diff` + untracked files (Step 7) stay the source of truth.
-
-## Step 8 — Cursor FIX resume commands
-
-Run Step 7 review and Step 8 verdict loop per
-[execute-via-core.md](../../references/execute-via-core.md). When the verdict
-is **FIX** (max **2** rounds), write numbered fixes to
-`.claude/tmp/exec-cursor-fix-<n>.md` (new `<n>` per FIX round; do **not** clear
-`.claude/tmp/exec-cursor-brief.md`), then invoke Cursor:
-
-- **Default (with `session_id` from the prior run):**
-
-  ```bash
-  agent -p --force --trust --workspace /absolute/repo/root \
-    --output-format stream-json --stream-partial-output --model <slug> \
-    --resume "$SESSION_ID" \
-    "Read .claude/tmp/exec-cursor-fix-<n>.md and apply the fixes exactly." \
-    > .claude/tmp/exec-run-cursor-<n>.ndjson 2> .claude/tmp/exec-run-cursor-<n>.err; echo $? > .claude/tmp/exec-run-cursor-<n>.exit
-  ```
-
-- **If `session_id` is empty/missing** — fresh run (no `--resume`); instruct
-  Cursor to read **both** the brief and the fix file and apply the fixes:
-
-  ```bash
-  agent -p --force --trust --workspace /absolute/repo/root \
-    --output-format stream-json --stream-partial-output --model <slug> \
-    "Read .claude/tmp/exec-cursor-brief.md and .claude/tmp/exec-cursor-fix-<n>.md; apply the fixes exactly." \
-    > .claude/tmp/exec-run-cursor-<n>.ndjson 2> .claude/tmp/exec-run-cursor-<n>.err; echo $? > .claude/tmp/exec-run-cursor-<n>.exit
-  ```
-
-  Then re-parse (Step 6) and re-review (Step 7).
-
-- **`safe` / `no-force`:** print the numbered fixes (and
-  `.claude/tmp/exec-cursor-fix-<n>.md`) for the user to paste into / point at
-  their interactive session; wait for done; re-review. Do not invoke `agent`.
-
-## Cursor `agent` CLI flags (reference)
-
-| Flag / Arg | Role | Notes |
+| `launch_tier` | First pin | Pin absent from `agent models` |
 | --- | --- | --- |
-| `-p` | Non-interactive print/headless mode | Required for background runs; omitted in `safe` / `no-force` |
-| `--force` | Auto-allow tool and shell execution (unless denied) | Alone **not** enough for headless (`--trust` also required) |
-| `--trust` | Skip workspace-trust prompt; does **not** auto-approve tools | Alone **not** enough for headless (`--force` also required) |
-| `--workspace <abs-path>` | Explicit workspace root directory | Always pass the recorded literal repo root |
-| `--output-format stream-json` | Emit NDJSON event stream (`system`/`init` → `tool_call` / `assistant` → `result`) | Captures `session_id` on the first `init` line |
-| `--stream-partial-output` | Stream incremental assistant deltas in `stream-json` mode | Used by `exec-observe` for live progress |
-| `--resume <session_id>` | Resume prior Cursor session in Step 8 FIX rounds | Fall back to fresh run reading brief + fix file if empty |
-| `--model <slug>` | Pinned model (`execute` pin from [model-tiers.md](../../references/model-tiers.md) when `model=` omitted, or user `model=<slug>` override) | Always passed; validated against `agent models` in Step 1.1 (`auto` only as a logged fallback) |
-| `safe` / `no-force` | Skill mode flag (not an `agent` flag) | User runs interactive `agent --trust --workspace ...`; Claude never invokes `agent` |
+| `execute` | `grok-4.7-high` | `--model auto`, `fallback: pin missing` |
+| `low` | `composer-2.5` | `--model auto`, `fallback: pin missing` |
+| `mid` | `grok-4.7-high` | `--model auto`, `fallback: pin missing` |
 
-Pairing `--trust` + `--force` is required for headless background execution.
-Real safety is preflight gates + Claude review + confirmed Base SHA rollback —
-**not** interactive Cursor prompts.
+**Cursor model rule:** `execute` / `mid` / `low` use Grok, Composer 2.5, or
+Auto only. Claude only for `top-plan` / `top-review`, or a manual `model=`
+override. Never GPT.
 
-## Cursor-specific constraints
+**`router: true`** and no `model=`: pass `--model auto`. Record
+`model_requested: auto`, `model_resolved: auto(router)`, `effort: unknown`,
+`fallback: null`. Do not copy the CLI display label.
 
-In addition to [execute-via-core.md § Shared constraints](../../references/execute-via-core.md):
+`model=<slug>` overrides the pin and must be listed by `agent models` (`auto`
+is allowed); otherwise stop and show that list. `model=auto` is
+`fallback: model=auto`. A listed pin that then fails usage or quota is core
+Step 6: one `auto` relaunch, and only for `execute`, `mid` and `low`. Do not
+relaunch a run that already used `auto`.
 
-- Never treat `--trust` alone or `--force` alone as headless-ready; always pair
-  both in default headless runs.
-- Never document or prefer `--yolo` (use `--force`).
-- Always pass an explicit literal absolute `--workspace` path matching the repo
-  root where `.claude/tmp/exec-cursor-brief.md` lives.
-- Never report PASS if `.claude/tmp/exec-run-cursor-<n>.exit` ≠ `0` or the
-  terminal `.ndjson` event is not `type=="result"`, `subtype=="success"`,
-  `is_error==false`.
-- **Cursor (`agent`) must never** edit the plan file (including YAML
-  frontmatter and `## Execution log`) or act as the reviewer.
+## Script calls
+
+`<model>` and `<requested-slug>` are the slug from Model default. `batch` and
+`terminal` use this `<last_skill>` and `<rows-json>`; their flags are core
+Status audit. Exit codes and the FIX loop are core Steps 5–8.
+
+```bash
+bash <skill-dir>/../../scripts/plan-status.sh lock <plan>
+bash <skill-dir>/../../scripts/plan-status.sh rows <plan> cursor [ID...] > .claude/tmp/exec-cursor-rows.json
+bash <skill-dir>/../../scripts/plan-status.sh start <plan> execute-via-cursor .claude/tmp/exec-cursor-rows.json --now <TS>
+bash <skill-dir>/../../scripts/delegate-launch.sh [--interactive] cursor /absolute/repo/root <n> <model> brief
+bash <skill-dir>/../../scripts/delegate-launch.sh [--interactive] cursor /absolute/repo/root <n> <model> fix:<n> [session_id]
+bash <skill-dir>/../../scripts/delegate-verdict.sh cursor /absolute/repo/root <n> <requested-slug>
+```
+
+Step 5 default: background `brief` (`run_in_background: true`; do not `sleep`).
+`safe` / `no-force`: `--interactive` only, then skip Steps 3 and 6. Step 6 is
+`delegate-verdict.sh` only — do not parse `.ndjson` here. Step 8: `fix:<n>`,
+passing `session_id` when Step 6 returned one. Step 7 verifier Task is core
+(`Task(model: "haiku")`, else mid).
+
+## Flags
+
+| Arg | Effect |
+| --- | --- |
+| `safe`, `no-force` | Interactive. Claude never invokes `agent`. Print `--interactive` and wait. |
+| `model=<slug>` | Overrides the `launch_tier` pin. Validate with `agent models`. |
+| (no `model=`) | Pin for `launch_tier`, or `--model auto` when `router: true` (`auto(router)`). |
+
+`--force`, `--trust`, `stream-json`, `--stream-partial-output`, `--workspace`,
+and `--resume` are inside `delegate-launch.sh`, not skill args. Do not pass
+`--yolo`.
+
+## Constraints
+
+In addition to core Shared constraints:
+
+- Never commit, push, or open a PR. Propose a Conventional Commit and offer
+  `/commit`.
+- Never hand-build `agent` argv, and never invoke `agent` on `safe` /
+  `no-force`. Launch only through `delegate-launch.sh`; classify only through
+  `delegate-verdict.sh`.
+- Never treat `--trust` alone or `--force` alone as headless-ready, and never
+  prefer `--yolo`. The script pairs both and sets `--workspace` to the recorded
+  absolute repo root.
+- `model_resolved` is a display label (for example `Grok 4.7 256K High`), not
+  the slug. That difference is not a mismatch. Router runs record
+  `auto(router)` and ignore the label.
+- Cursor subagent writes surface only as a top-level `taskToolCall`. `git diff`
+  and untracked files (Step 7) are the source of truth.
+- **`agent` must never** edit the plan (YAML frontmatter or `## Execution log`)
+  or act as the reviewer.

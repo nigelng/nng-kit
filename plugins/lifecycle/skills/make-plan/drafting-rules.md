@@ -1,6 +1,6 @@
 # Drafting rules (coverage, architecture docs, tiers, waves)
 
-Read when drafting Step 4 content or validating an update. Companion to [plan-template.md](plan-template.md). SoT for coverage, architecture-doc, tier, and wave rules — skills point here rather than restating.
+Read when drafting Step 4 content or validating an update. Companion to [plan-template.md](plan-template.md). SoT for coverage, architecture-doc, map v2, Runner policy, and wave rules — skills point here rather than restating.
 
 ## Execution scaffold (Step 4–5, required)
 
@@ -29,17 +29,71 @@ Every new plan **must** include Implementation step(s) **and** matching Executio
 
 On **update**, if the change alters system shape or Scope, re-run the scan and add/adjust the docs step + map row, or the justified skip. Pure wording-only plan edits may keep the prior note if Scope/shape is unchanged.
 
-## Tier rules (when writing the map)
+## Map v2 rules (when writing the map)
 
-Portable tiers: `haiku` | `auto` | `opus` (`low`/`mid`/`top` in [model-tiers.md](model-tiers.md)). Never write `sonnet` — use `auto`. Do not restate per-tool pins here.
+Columns and generation rules for the Execution map. Do not restate per-tool pins; resolution stays in [model-tiers.md](model-tiers.md).
 
-- **`haiku`** — mechanical/tight: renames, boilerplate, template tests, wire existing helpers. One concern, few files.
-- **`auto`** — default mid-tier: new logic, API shape, non-trivial tests, judgmentful refactors.
-- **`opus`** — rare deep design during execute; prefer finishing design here so execute stays `auto`/`haiku`.
+**Tier:** `top` | `execute` | `mid` | `low`. Never write `sonnet`. Legacy labels map over: `opus` → `top`, `auto` / `sonnet` → `mid`, `haiku` → `low`.
+
+**Detail by tier:**
+
+- `low` — exact edits, paths and commands.
+- `execute` — interface, test cases and the helpers to use.
+- `mid` — judgment within a stated design.
+- `top` — planning, decisions or review only.
+
+**Runner:** `session` | `delegate:cursor` | `delegate:devin` | `delegate:agy` | `subagent`.
+
+- `top` rows use only `session` or `subagent`, never `delegate:*`.
+- Missing Runner: `top` → `session`, anything else → `subagent`.
+- Which Runner a row gets: [Runner policy](#runner-policy).
+
+**Files:** repo-relative paths; `—` when a row writes nothing. No overlap within a wave. Escape a literal pipe in a cell as `\|`.
+
+**Acceptance:** one runnable command; `—` allowed only on `top` rows. Escape a literal pipe in a cell as `\|`.
+
+**Model:** empty, or `auto` only with `low` + `delegate:cursor` (recorded as `auto(router)`).
+
+**Review:** `top@session` | `top@claude-task` | `top@devin-fusion` | `top@cursor-ask` | `top@agy-plan` | `mid` | `none`.
+
+- Missing Review → `mid`.
+- `none` only on `low` rows with an Acceptance command.
+- Rows in one (wave, runner) batch share a single `top@*` value.
+
+**Dispatch generation:**
+
+- Waves in ascending order. Within a wave, `session` and `subagent` rows go in one `/execute-plan <plan> <IDs>` line, and each `delegate:<b>` gets one `/delegate:execute-via-<b> <plan> <IDs>` line.
+- Insert a `/commit` line before every `/delegate:execute-via-<b>` line that has any execution line before it — delegates refuse a dirty working tree.
+- Then one review line per wave at the strongest Review per batch (`none` < `mid` < `top@*`).
+- Batch reviews for delegate rows run inside the delegate run, at the batch's strongest Review; the per-wave review line is informational.
+- Then one final whole-branch review line naming the final `top` | `session` review row `<ID>` (Review `top@claude-task` unless the planner names another `top@*`): `Final whole-branch review — top@<x> — /execute-plan <plan> <ID>` for `top@session` / `top@claude-task`, else `Final whole-branch review — top@<x> — /delegate:review <plan> <ID>`.
+
+**Size budget:** keep the body (per SoT in `../execute-plan/execution-status.md`) under about 15 KB. Risk registers, decision records and long evidence go to a sibling `<plan-file>.notes.md` (same basename with `.notes.md` in place of `.md`), which only `top` rows and reviews read.
+
+## Runner policy
+
+SoT for which Runner each map row gets. Record this line under **Assumptions**, in the body, so the [plan lock](../execute-plan/execution-status.md#plan-lock) covers it:
+
+- **Runner policy:** <mode> [<list>]
+
+Missing → `auto`.
+
+List members: `cursor`, `devin`, `agy`, `subagent`. Write `delegate:<member>` for `cursor`, `devin`, and `agy`; write `subagent` for `subagent`. The default list for `round-robin`, when the list is omitted, is the active delegates in [planning fallback order](model-tiers.md) (`cursor`, `devin`, `agy`).
+
+**Eligible** = the tool is active per [model-tiers.md](model-tiers.md) (not past `until:`, not parked) and has a pin for the row's tier. A `subagent` list member is eligible for every non-`top` row. `top` rows are never eligible for delegates (they stay `session` or `subagent`). The modes below assign non-`top` rows only.
+
+- `auto` — the planner's choice (today).
+- `pin <tool>` — every non-`top` row → `delegate:<tool>` if that delegate is eligible, else `subagent`. `pin subagent` writes `subagent` on every non-`top` row.
+- `order <list>` — each non-`top` row → the first eligible member.
+- `round-robin [<list>]` — the rotation advances from wave to wave. Per wave, assign that wave's non-`top` rows to the next member. A row that member can't take goes to the next eligible member in list order (walk the list from that member, wrapping). A member eligible for none of the wave's rows is skipped without consuming the turn.
+
+Same-wave **Files** overlap rules still apply across runners. **Dispatch** generation is unchanged: one line per (wave, runner), and a `/commit` before each delegate line.
+
+Never write a runner the policy didn't pick. If no member is eligible, use `subagent` and say why in the row's Step summary.
 
 ## Wave / parallel rules
 
 - Same **Wave** number → independent (no shared write paths, no ordering dependency) → `/execute-plan` may run them **in parallel**.
 - Higher wave waits on listed `Depends on` IDs.
-- Split large steps until most rows are `haiku` or `auto`; avoid “do the feature” mega-steps.
+- Split large steps until most rows are `low`, `execute`, or `mid`; avoid “do the feature” mega-steps.
 - Prefer many small steps over few large ones when it does not create thrash (shared file conflicts → serial in the same wave or a later wave).

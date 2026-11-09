@@ -1,6 +1,6 @@
 # relay storage
 
-Backend seam for remote handoff storage. Front-ends (the claude.ai chat skill and the Code plugin) name the operations in this file; each backend supplies the call. Layout, locks, and claim-first verbs are in [format.md](format.md).
+Backend seam for remote handoff storage. Front-ends (the claude.ai chat skill and the agent plugin skills) name the operations in this file; each backend supplies the call. Layout, locks, and claim-first verbs are in [format.md](format.md).
 
 Personal roots and space names are **not** part of this spec. Code selects a backend with `$RELAY_BACKEND` and a root with `$RELAY_ROOT`. Chat skills supply their own. There is no default root and no default backend.
 
@@ -33,7 +33,7 @@ An unimplemented backend is **repo-only**: no mirror and no remote calls. `onedr
 
 ## Env
 
-Pick the backend from the environment before any remote call:
+Pick the backend from the environment before any remote call (process env; `~/.config/relay/env` fills keys still unset):
 
 - `$RELAY_ROOT` set — backend is `$RELAY_BACKEND`, or `dropbox` when `$RELAY_BACKEND` is unset.
 - `$RELAY_ROOT` unset and `$RELAY_DROPBOX_ROOT` set — backend `dropbox`, root `$RELAY_DROPBOX_ROOT`. That name is a deprecated alias.
@@ -67,9 +67,23 @@ A whole-folder `move` (one root onto another) is **unverified** for MCP `move`. 
 
 ### `dbxcli` fallback
 
-When the MCP tool for an operation is unavailable, `dbxcli` may run non-lock operations: `list`, `read`, `move`, `delete`, `create_folder`, and a pending-file write. Discover the subcommand with `dbxcli … --help --output=json`, then pass `--output=json` on the call. A folder `move` that MCP rejects may use `dbxcli mv`. That call is still eventual: verify by listing.
+`dbxcli` `list` and `read` (`ls`, `get` to a temp file) may substitute for an unavailable MCP read tool on any surface. Every `dbxcli` write — `move`, `delete`, `create_folder`, or a pending-file upload — applies only when the Dropbox MCP `create_file` tool is available (a partial MCP surface, i.e. Claude Code). When `create_file` is absent, follow § Without the Dropbox MCP: remote access is read-only and writes are refused with `remote claim needs Claude Code (Dropbox MCP)`.
 
-`dbxcli` upload does not provide `atomic_create`. Its behaviour when the path already exists is unverified, so a `dbxcli` write is not a conflict signal. Lock files (`locks/*.lock`, including rev locks) are created with MCP `create_file` only. When a step needs a lock and MCP `create_file` is unavailable, stop.
+When a `dbxcli` write is allowed, discover the subcommand with `dbxcli … --help --output=json`, then pass `--output=json` on the call. A folder `move` that MCP rejects may use `dbxcli mv`, only when the Dropbox MCP `create_file` tool is available. That call is still eventual: verify by listing.
+
+`dbxcli` upload does not provide `atomic_create`. Its behaviour when the path already exists is unverified, so a `dbxcli` write is not a conflict signal; `dbxcli` writes apply only when the Dropbox MCP `create_file` tool is available. Lock files (`locks/*.lock`, including rev locks) are created with MCP `create_file` only. When a step needs a lock and MCP `create_file` is unavailable, stop.
+
+## Without the Dropbox MCP (Devin, Cursor, agy)
+
+On tools without the Dropbox MCP `create_file` tool, remote access is read-only:
+
+- `list` and `read` may use `dbxcli` (`dbxcli ls`, `dbxcli get` to a temp file).
+- Claim (`create_if_absent`), mirror writes, `create_folder`, `move`, and `delete` on the remote are refused. Say exactly: `remote claim needs Claude Code (Dropbox MCP)`. Never create a lock with `dbxcli`. Never write to the remote root with `dbxcli`.
+- A branch-file handoff with `mirror:` set keeps the pickup "twin can't be claimed" path: warn that the twin may still be pending, ask **Execute anyway / Cancel**; **Execute anyway** deletes only the repo file — no remote write.
+- A remote-only handoff (pending list, no repo file) is view only: Execute is refused with the message above; tell the user to run `/relay:pickup` in Claude Code.
+- `/relay:save` writes the repo file only; the mirror step is refused with the message, and the handoff stays repo-only.
+- `/relay:discard` discards the repo file only after the usual confirm; no remote lock, `move`, or `delete`.
+- Unmirrored repo files are unchanged.
 
 ## OneDrive
 

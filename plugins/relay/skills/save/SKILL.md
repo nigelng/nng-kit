@@ -1,9 +1,10 @@
 ---
 name: save
 description: >-
-  Claude Code only (`/relay:save`). Capture this session's intent as a relay
-  handoff (repo file and optional remote mirror). Use when the user says
-  "save handoff", "hand this off", or "continue later" inside Claude Code.
+  Relay handoffs (`/relay:save`) for Claude Code, Devin, Cursor and agy.
+  Capture this session's intent as a relay handoff (repo file and optional
+  remote mirror). Use when the user says "save handoff", "hand this off", or
+  "continue later" in a coding agent session.
   Not for claude.ai chat (that surface uses the separate relay chat skill).
 ---
 
@@ -11,7 +12,7 @@ description: >-
 
 Capture session intent into a relay handoff for the next Claude surface.
 
-Contract: [format.md](../../references/format.md), [storage.md](../../references/storage.md). Shell stays inline; do not source plugin scripts. Name remote calls with the storage.md operations (`create_if_absent`, `read`, `create_folder`, and so on). The backend mapping and the conflict signal live in storage.md — do not hard-code a vendor tool name in place of those operations.
+Contract: [format.md](references/format.md), [storage.md](references/storage.md). Shell stays inline; do not source plugin scripts. Name remote calls with the storage.md operations (`create_if_absent`, `read`, `create_folder`, and so on). The backend mapping and the conflict signal live in storage.md — do not hard-code a vendor tool name in place of those operations.
 
 This skill writes `docs/relay/<slug>.md` only. It never creates a file under `docs/handoffs/`.
 
@@ -41,9 +42,22 @@ directive after step 3 and iterate until the user approves before any write
 
 ## 2. Resolve remote
 
-Before any remote `read` or write, resolve from the environment. Pure env; no network. Same rules as `relay_resolve_remote` in `../../scripts/relay-lib.sh` (prints `backend<TAB>root<TAB>legacy_root<TAB>status`).
+Before any remote `read` or write, resolve from the environment, or `~/.config/relay/env` when unset. Pure env; no network. Same rules as `relay_resolve_remote` in `../../scripts/relay-lib.sh` (prints `backend<TAB>root<TAB>legacy_root<TAB>status`).
 
 ```bash
+# RELAY_* from ~/.config/relay/env when unset (same rules as relay_load_env_file)
+relay_env="${XDG_CONFIG_HOME:-$HOME/.config}/relay/env"
+if [ -r "$relay_env" ]; then
+  while IFS= read -r l || [ -n "$l" ]; do
+    case "$l" in
+      *"$(printf '\t')"*|*"$(printf '\r')"*) continue ;;
+      RELAY_BACKEND=*) [ -n "${RELAY_BACKEND+x}" ] || export RELAY_BACKEND="${l#*=}" ;;
+      RELAY_ROOT=*) [ -n "${RELAY_ROOT+x}" ] || export RELAY_ROOT="${l#*=}" ;;
+      RELAY_LEGACY_ROOT=*) [ -n "${RELAY_LEGACY_ROOT+x}" ] || export RELAY_LEGACY_ROOT="${l#*=}" ;;
+      RELAY_DROPBOX_ROOT=*) [ -n "${RELAY_DROPBOX_ROOT+x}" ] || export RELAY_DROPBOX_ROOT="${l#*=}" ;;
+    esac
+  done < "$relay_env"
+fi
 backend="" root="" legacy="" relay_status="off"
 if [ -n "${RELAY_ROOT:-}" ]; then
   root="$RELAY_ROOT"
@@ -71,6 +85,8 @@ esac
 printf 'backend=%s status=%s root=%s legacy=%s\n' \
   "${backend:-none}" "$relay_status" "${root:-unset}" "${legacy:-unset}"
 ```
+
+Without the Dropbox MCP `create_file` tool, follow storage.md § Without the Dropbox MCP.
 
 Say the matching line once, then follow it for the rest of the skill. Remote calls are allowed only when `status` is `on` or `deprecated-alias`. Do not `read`, `create_if_absent`, `create_folder`, `move`, or `delete` under `$legacy`. The only exception is a `list` of `$legacy` for the absent-root gate in step 6.
 
@@ -247,9 +263,9 @@ Look up that operation's call and its conflict signal in storage.md for `$backen
 
 A conflict signal on the twin means the path already existed: stop and report; do not overwrite; do not set `mirror`. The repo file already written stays as-is. `move` and `delete` are not a correctness signal.
 
-When the mapped `create_if_absent` call is unavailable, storage.md allows a `dbxcli` write of that pending file only. Discover the subcommand with `dbxcli … --help --output=json`, then pass `--output=json`. A `dbxcli` write is not a conflict signal — do not overwrite; if you cannot show the path was absent, stop and report. This skill does not create `locks/*.lock`.
+When the mapped `create_if_absent` call is unavailable but the Dropbox MCP `create_file` tool is available, storage.md allows a `dbxcli` write of that pending file only — `dbxcli` writes apply only when the Dropbox MCP `create_file` tool is available. When `create_file` itself is absent (no Dropbox MCP), refuse the mirror step with `remote claim needs Claude Code (Dropbox MCP)`; the handoff stays repo-only. Discover the subcommand with `dbxcli … --help --output=json`, then pass `--output=json`. A `dbxcli` write is not a conflict signal — do not overwrite; if you cannot show the path was absent, stop and report. This skill does not create `locks/*.lock`.
 
-If the absent-root gate allows a write and `pending/`, `archive/`, or `locks/` under `<root>` are missing, `create_folder` after a brief confirm. An already-exists result from `create_folder` is ordinary, not a claim. Folder creation may use the storage.md `dbxcli` fallback. Seed `<root>/README.md` only if the user agrees, and only with `create_if_absent` (not `dbxcli`) — do not invent a space list. A conflict on that seed means the README is already there; leave it and continue. It is not a failed twin. If `create_if_absent` is unavailable, skip the seed. Do not `create_folder`, seed, or make a `dbxcli` pending write when the absent-root gate forbids a write, including when `<root>` exists and the finished `list` has zero entries while `<legacy>` has content.
+If the absent-root gate allows a write and `pending/`, `archive/`, or `locks/` under `<root>` are missing, `create_folder` after a brief confirm. An already-exists result from `create_folder` is ordinary, not a claim. Folder creation may use the storage.md `dbxcli` fallback (only when the Dropbox MCP `create_file` tool is available). Seed `<root>/README.md` only if the user agrees, and only with `create_if_absent` (not `dbxcli`) — do not invent a space list. A conflict on that seed means the README is already there; leave it and continue. It is not a failed twin. If `create_if_absent` is unavailable, skip the seed. Do not `create_folder`, seed, or make a `dbxcli` pending write when the absent-root gate forbids a write, including when `<root>` exists and the finished `list` has zero entries while `<legacy>` has content.
 
 After a successful `create_if_absent` of the twin, set `mirror: <id>__<slug>` on the **repo** file (no rev, no folder).
 

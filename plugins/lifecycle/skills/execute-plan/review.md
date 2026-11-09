@@ -2,7 +2,7 @@
 
 The review must be run by a **different subagent** than any that implemented. Use `subagent_type: "generalPurpose"` with an explicit **read-only** contract (do not edit files).
 
-**Review model (per pass):** [model-tiers.md](model-tiers.md) — intermediate passes use mid (`auto`); the final pass and ≤1 escalation use top (`opus`). If the tool cannot pin the final top-tier model, stop and ask before that pass. Report each review with its tier (`auto` or `opus`) and resolved model.
+**Review model (per pass):** [model-tiers.md](model-tiers.md) — intermediate passes use mid (`auto`); the final pass and ≤1 escalation use **top-review** (legacy label `opus`). Apply **Review family** from model-tiers.md to mid passes. If the tool cannot pin the final **top-review** model, stop and ask before that pass. Report each review with its tier (`auto` or `opus`) and resolved model.
 
 ## Review loop (state machine)
 

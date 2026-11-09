@@ -27,11 +27,11 @@ model.
 
 | Pass | Tier | Notes |
 | --- | --- | --- |
-| **`/critique plan`** | **top** (in-session) | Plan edits OK; warn once if session below top; 2-pass budget |
+| **`/critique plan`** | **top-plan** (in-session) | Plan edits OK; warn once if session below **top-plan**; 2-pass budget |
 | Lean review (change Phase A) | **mid** | Resolve **mid** per [model-tiers.md](model-tiers.md); max **2** |
 | Fix Task (change) | **mid** (**low** if mechanical) | Separate write agent; never the reviewer |
-| Escalate (≤1) | **top** Task | After round-1 **Rework**, or after **2 mid** with `blocking`/unresolved `important`; then **stop**; `critique escalate` |
-| **Final `/critique change`** | **top** Task | Separate read-only Task (`critique closing pass`); ≠ escalate |
+| Escalate (≤1) | **top-review** Task | After round-1 **Rework**, or after **2 mid** with `blocking`/unresolved `important`; then **stop**; `critique escalate` |
+| **Final `/critique change`** | **top-review** Task | Separate read-only Task (`critique closing pass`); ≠ escalate |
 | Security pass | Cursor **`security-review`** | Not a generic Opus essay; Claude / inline trust-boundary fallback if unavailable |
 
 Never silent “Ship as-is” while `blocking` / unresolved `important` remain; never lean past 2 rounds.
@@ -45,8 +45,8 @@ Fleet multi-mode critique (not Cursor `/review` / `/review-bugbot` / `/review-se
   Tiny/mechanical plans still use top-tier — keep the review short.
 - **`/critique change`** before commit when `/execute-plan` was **not** used, or
   for hand-written diffs (lean mid → final top closing Task when lean is clean).
-- **After converged `/execute-plan` top-tier review:** Change mode → After
-  execute-plan.
+- **After a converged `/execute-plan` top-tier review, or a converged delegate PASS:** Change mode → After
+  execute-plan or a converged delegate PASS.
 
 ## Preconditions
 
@@ -55,16 +55,16 @@ writes: stop and tell the user to switch to Agent mode.
 
 ## Step 1 — Detect review context
 
-Determine whether this is a **plan review** or a **change review**. Run `git status`, `git diff`, `git log --oneline -10`, and `Glob docs/plans/*.md` in parallel first.
+Determine whether this is a **plan review** or a **change review**. Run `git status`, `git diff`, `git log --oneline -10`, and `Glob docs/plans/*.md` in parallel first. Drop `*.notes.md` hits; a notes file is never a plan. Most-recent selection follows [Plan recency](../execute-plan/execution-status.md).
 
 Parse the user's slash-command or message args.
 
 ### Explicit mode (args start with a mode keyword)
 
-- `critique plan [path]` → **plan mode**. If a path is given, use it; otherwise pick the most recent `docs/plans/*.md` (or ask if multiple candidates).
+- `critique plan [path]` → **plan mode**. If a path is given, use it unless it is `*.notes.md` (ask which plan). Otherwise pick the most recent plan per [Plan recency](../execute-plan/execution-status.md) (ask if several files share the newest timestamp).
 - `critique change [ref|range|#PR]` → **change mode**. Parse the ref per "Change mode — Resolve the diff" below.
 - `critique <path-or-ref>` (no keyword) → resolve the argument:
-  - If it's an existing file path ending in `.md` under `docs/plans/` (or matches a plan file) → **plan mode** with that path.
+  - If it's an existing file path ending in `.md` under `docs/plans/` (or matches a plan file) and is not `*.notes.md` → **plan mode** with that path.
   - If it looks like a commit-ish, range (`a..b`), or PR number (`#123` / `123`) → **change mode** with that ref.
   - Otherwise → ask the user which mode they meant.
 
@@ -78,8 +78,8 @@ Evaluate in this order (ambiguous before uncommitted→change):
    - Option C: "Other".
    - **Recommendation: A** if the plan was drafted in this session, otherwise **B**.
 2. **Has uncommitted changes** (staged or unstaged) → **change mode** (review `git diff HEAD`).
-3. **Working tree clean, has commits** → look at `docs/plans/*.md`:
-   - If the most recent plan file's timestamp is newer than the latest commit's author date → **plan mode**.
+3. **Working tree clean, has commits** → among `docs/plans/*.md`, skip `*.notes.md` and pick the most recent plan per [Plan recency](../execute-plan/execution-status.md). Compare that plan to the latest commit's author date by `approved_at`, then `created_at`, then the recency fallback (filename prefix, then mtime):
+   - If that timestamp is newer than the commit's author date → **plan mode**.
    - Otherwise → **change mode** (review the latest commit, `git show HEAD`).
 4. **No commits and no plan files** → tell the user there's nothing to review and stop.
 
@@ -131,8 +131,8 @@ When Phase A is clean/ship-ready **and** escalate was not required — or after
 escalate fixes leave the change ship-ready — run **one** read-only **top-tier**
 Task (`reason: critique closing pass`); never in-session (avoids
 self-review). Distinct from Phase B escalate. **Skip** when After execute-plan
-applies, the user opts out, or that Task already ran this turn (in-session
-self-review does **not** count).
+or a converged delegate PASS applies, the user opts out, or that Task already
+ran this turn (in-session self-review does **not** count).
 
 If the closing pass finds `blocking` / `important`: apply clear fixes via a
 fix Task (**no re-review**), list those fixes as **unverified**, and **stop**.
@@ -142,9 +142,9 @@ fix Task (**no re-review**), list those fixes as **unverified**, and **stop**.
 ## Plan mode
 
 Review a plan in `docs/plans/**` (or promoted `.cursor/plans/`) for residual
-failure modes; apply plan-file edits. **Session is top-tier** — in-session
+failure modes; apply plan-file edits. **Session needs top-plan** — in-session
 review + edits (not a separate Task). **Warn once** (do not block) if the
-session is below top tier.
+session is below **top-plan**.
 
 ### Load the plan
 
@@ -158,10 +158,11 @@ items — no third automatic plan critique.
 2. **Failure modes & unsafe half-done states**
 3. **Sequencing / blast radius / irreversibility** gaps
 4. **Verification gaps** — missing commands, coverage claim without tooling, Success criteria vs Verification mismatch
+5. **Map v2 rule violations** — only on a v2 map (columns in [Map v2 rules](../make-plan/drafting-rules.md); a legacy map with no Files column is not a hit). Report: a `top` row on `delegate:*`; overlapping **Files** in a wave; a **Model** that is neither empty nor `auto` nor `auto(router)`, or `auto` / `auto(router)` **Model** on any row that isn't `low` + `delegate:cursor`; missing **Acceptance** (`—` only on `top` rows).
 
 Also flag **security-sensitive scope** (auth, crypto, PII, network trust boundaries) so a change-mode security pass will be needed later. Do **not** run Cursor `security-review` on a plan file alone (diff-based tool).
 
-Do **not** re-litigate Execution map tier labels or Goal wording unless wrong/unsafe.
+Do **not** re-litigate Execution map tier labels or Goal wording unless wrong/unsafe. Criterion 5 is those rule breaks, not a preference about tier labels.
 
 ### Suggested changes / apply
 
@@ -169,6 +170,8 @@ Concrete minimal plan edits tied to a finding; human decisions → questions (do
 not invent answers). Main agent edits **only** the plan file; summarize fixes
 in 1–2 sentences per finding. Unverifiable paths via `Glob`/`Read` → finding,
 not a guess.
+
+After any edit to a plan under `docs/plans/**` (including a second pass), re-stamp `plan_sha` and `approved_at` per [execution-status.md](../execute-plan/execution-status.md) (Plan metadata / Plan lock). Run the marked snippet; do not reimplement it: `eval` the lines inside the code fence between the `plan-sha` markers in that file, then set `plan_sha` to `plan_sha <path>`. Set `approved_at` to the current UTC time (`YYYY-MM-DDTHH:MM:SSZ`). Do not change `created_at`. Keep both keys above `execution:` when that block is present.
 
 ---
 
@@ -189,15 +192,23 @@ Capture diff, changed files, base ref. For lean review: if the diff is huge, pas
 
 **Working tree vs commit:** Fixes always land in the working tree (never rewrite history). Tell the user when the reviewed ref was a commit but fixes are uncommitted.
 
-### After execute-plan
+### After execute-plan or a converged delegate PASS
 
 If this session (or the user) just finished `/execute-plan` with a converged
 **top-tier** review: **skip Phase A lean** and **skip** the closing final
 `/critique change` pass by default (execute-plan review already closed the
-change). Proceed to **Security pass** unless docs-only or the user opts out.
-Run this skill’s closing top-tier pass only when **this skill’s own lean loop**
-is what is shipping, or the user asks for another pass. In the round table, note
-skipped Phase A / final closing rows with reason `after converged execute-plan`.
+change). In the round table, note skipped Phase A / final closing rows with
+reason `after converged execute-plan`.
+
+Also **skip Phase A lean** and **skip** the closing final `/critique change`
+pass when this session just finished a `/delegate:execute-via-*` PASS whose
+last review was `top@*` and clean, or a `/delegate:review` PASS (log note
+`review=top@… clean`). In the round table, note those skipped rows with reason
+`after converged delegate PASS`.
+
+Either skip still proceeds to **Security pass** unless docs-only or the user
+opts out. Run this skill’s closing top-tier pass only when **this skill’s own
+lean loop** is what is shipping, or the user asks for another pass.
 
 ### Lean review criteria (only report hits)
 
@@ -222,7 +233,7 @@ Optional catch-all: other high-confidence issues (caching, resources, convention
 
 ### Security pass (change mode)
 
-Run **once** per `/critique change` (not per lean round). Prefer **in parallel** with the first lean review when the surface allows concurrent Tasks; otherwise after locating the diff / after skipping lean post-execute-plan.
+Run **once** per `/critique change` (not per lean round). Prefer **in parallel** with the first lean review when the surface allows concurrent Tasks; otherwise after locating the diff / after skipping lean post-execute-plan or a converged delegate PASS.
 
 #### When to run
 

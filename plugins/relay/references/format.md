@@ -1,6 +1,6 @@
 # relay format
 
-Shared contract for every relay front-end (claude.ai chat skill and Code plugin). Surfaces may differ in how they store and surface handoffs; they must agree on this format.
+Shared contract for every relay front-end (claude.ai chat skill and the agent plugin skills). Surfaces may differ in how they store and surface handoffs; they must agree on this format.
 
 Personal values (remote root, backend, space names) are **not** part of this spec. Code selects a backend with `$RELAY_BACKEND` and a root with `$RELAY_ROOT`. Chat skills supply their own. There is no default root and no default backend; resolution is in [storage.md](storage.md). Spaces are listed at runtime in `<root>/README.md`.
 

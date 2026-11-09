@@ -1,7 +1,8 @@
 ---
 name: discard
 description: >-
-  Claude Code only (`/relay:discard`). Discard this branch's handoff without
+  Relay handoffs (`/relay:discard`) for Claude Code, Devin, Cursor and agy.
+  Discard this branch's handoff without
   acting. Confirm first; when mirrored, take the terminal lock (discarded) via
   create_if_absent before cleanup. Explicit slash only
   (disable-model-invocation). Not for claude.ai chat.
@@ -12,7 +13,7 @@ disable-model-invocation: true
 
 You are invoked explicitly by `/relay:discard`. Discard the current branch's handoff without executing its directive. Confirm before any destructive step.
 
-Contract: [format.md](../../references/format.md), [storage.md](../../references/storage.md). `create_if_absent` is the **only** atomic claim signal (see `atomic_create` there). `move` and `delete` are eventual cleanup — never await or trust them for correctness.
+Contract: [format.md](references/format.md), [storage.md](references/storage.md). `create_if_absent` is the **only** atomic claim signal (see `atomic_create` there). `move` and `delete` are eventual cleanup — never await or trust them for correctness.
 
 ## Step 1: Locate the branch file
 
@@ -61,9 +62,22 @@ If **No**: exit without changes.
 
 When the file has no `mirror:`, skip to Step 4 — repo-only discard.
 
-Resolve the active backend and root before any remote path (pure env; no network). Same rules as `relay_resolve_remote` in `../../scripts/relay-lib.sh` and storage.md § Env:
+Resolve the active backend and root before any remote path (pure env; no network). Same rules as `relay_resolve_remote` in `../../scripts/relay-lib.sh` and storage.md § Env (process env, or `~/.config/relay/env` when unset):
 
 ```bash
+# RELAY_* from ~/.config/relay/env when unset (same rules as relay_load_env_file)
+relay_env="${XDG_CONFIG_HOME:-$HOME/.config}/relay/env"
+if [ -r "$relay_env" ]; then
+  while IFS= read -r l || [ -n "$l" ]; do
+    case "$l" in
+      *"$(printf '\t')"*|*"$(printf '\r')"*) continue ;;
+      RELAY_BACKEND=*) [ -n "${RELAY_BACKEND+x}" ] || export RELAY_BACKEND="${l#*=}" ;;
+      RELAY_ROOT=*) [ -n "${RELAY_ROOT+x}" ] || export RELAY_ROOT="${l#*=}" ;;
+      RELAY_LEGACY_ROOT=*) [ -n "${RELAY_LEGACY_ROOT+x}" ] || export RELAY_LEGACY_ROOT="${l#*=}" ;;
+      RELAY_DROPBOX_ROOT=*) [ -n "${RELAY_DROPBOX_ROOT+x}" ] || export RELAY_DROPBOX_ROOT="${l#*=}" ;;
+    esac
+  done < "$relay_env"
+fi
 backend="" root="" legacy="" relay_status="off"
 if [ -n "${RELAY_ROOT:-}" ]; then
   root="$RELAY_ROOT"
@@ -91,6 +105,8 @@ esac
 printf 'backend=%s status=%s root=%s legacy=%s\n' \
   "${backend:-none}" "$relay_status" "${root:-unset}" "${legacy:-unset}"
 ```
+
+Without the Dropbox MCP `create_file` tool, follow storage.md § Without the Dropbox MCP.
 
 Report resolver status when mirrored: backend, whether remote ops are available, and when `status` is `deprecated-alias`, nudge once to set `$RELAY_ROOT` instead of the deprecated alias.
 
@@ -133,7 +149,7 @@ When the file has `mirror:` **and** `status` is `on` or `deprecated-alias` **and
 2. **On success** → this surface owns discard. Start eventual cleanup: `move` matching `<root>/pending/<id>__*.md` files to `<root>/archive/discarded-<id>__…` (preserve slug/rev in the archive name per format.md). Do not wait on `move` results.
 3. **On the backend conflict signal** (Dropbox: `[ALREADY_EXISTS]`) → already handled elsewhere. Report "already handled". Do **not** act on the directive. Still delete the leftover repo file when the user confirmed Yes in Step 2.
 
-When the file has `mirror:` but `status` is `off`, `not-implemented`, `unknown-backend`, or `invalid-root`, the `create_if_absent` tool is **unavailable / errors**, the twin identifiers are **malformed**, or the absent-root gate did not allow a write on `<root>`: warn that **the twin can't be claimed and may still be picked up from chat or another device**. When the gate is the reason, name the case and do not write: `<root>` absent with `<legacy>` content → run `/relay:pickup` for the folder move (claiming now would create `<root>` and block it); `<root>` exists and the finished `list` has zero entries while `<legacy>` has content → remove that empty active root outside this skill, then run `/relay:pickup` (the folder existing is not permission to `create_folder`, `create_if_absent`, or make a `dbxcli` pending write); either `list` unfinished → the listing is unknown, so do not claim. Ask (AskUserQuestion): **Discard anyway** vs **Cancel**. Only on **Discard anyway** proceed to Step 5 (delete the repo file). On **Cancel**, stop with no delete. Do not fall through to the no-mirror path. Do not `create_folder`, `create_if_absent`, or make a `dbxcli` pending write on `<root>` in this branch.
+When the file has `mirror:` but `status` is `off`, `not-implemented`, `unknown-backend`, or `invalid-root`, the `create_if_absent` tool is **unavailable / errors**, the twin identifiers are **malformed**, or the absent-root gate did not allow a write on `<root>`: warn that **the twin can't be claimed and may still be picked up from chat or another device**. When the gate is the reason, name the case and do not write: `<root>` absent with `<legacy>` content → run `/relay:pickup` for the folder move (claiming now would create `<root>` and block it); `<root>` exists and the finished `list` has zero entries while `<legacy>` has content → remove that empty active root outside this skill, then run `/relay:pickup` (the folder existing is not permission to `create_folder`, `create_if_absent`, or make a `dbxcli` pending write); either `list` unfinished → the listing is unknown, so do not claim. Ask the user (AskUserQuestion / AskQuestion / ask_user_question; **Discard anyway** vs **Cancel**). Only on **Discard anyway** proceed to Step 5 (delete the repo file). On **Cancel**, stop with no delete. Do not fall through to the no-mirror path. Do not `create_folder`, `create_if_absent`, or make a `dbxcli` pending write on `<root>` in this branch.
 
 When there is **no** `mirror:`, skip locks entirely — repo-only discard.
 

@@ -4,6 +4,74 @@ Notable changes to the nng-kit plugins, newest first. Each sync commit on
 nigelng/nng-kit quotes the lines added here since the previous sync, so write
 for plugin users. This file is public: keep private names and paths out.
 
+## 2026-11-09
+
+- delegate 0.7.1: `execute-via-core.md` trimmed by about a quarter
+  (37.5 KB → 27 KB) — model default and fallback fields are stated once
+  (one table the status audit and verdict steps refer to); external
+  review-runner steps (Devin Fusion, Cursor ask, Antigravity plan) moved
+  to `references/review-runner.md`, read only for those reviews and by
+  `/delegate:review`. Wording only; no behavior change.
+- delegate 0.7.0: review runners — each delegated batch is reviewed at its
+  strongest map Review (`mid`, read-only Opus Task, host, or an external
+  read-only reviewer: Devin Fusion `--permission-mode auto`, Cursor
+  `--mode=ask`, Antigravity `--mode plan`); new `delegate-review-launch.sh`
+  (git guard that reverts any reviewer edit, scope check, launch, verdict
+  trailer → PASS/FIX/FAIL); a PASS also needs the verifier and scope check
+  clean; reviewer failure stops and asks; new `/delegate:review` for the
+  final whole-branch review; `plan-status.sh review`; review brief template;
+  Devin Fusion allowed only as a reviewer; contract tests cover review flags.
+- lifecycle 0.10.0: `/execute-plan` honors external `top@*` reviews
+  (in-host when the host is that tool, otherwise defers to
+  `/delegate:review`); `/critique change` skips lean rounds and the closing
+  pass after a converged delegate PASS (security pass still runs);
+  `model-tiers.md` documents review runners; drafting rules generate the
+  final-review Dispatch line; execution status gains `last_skill: review`.
+- lifecycle 0.9.0: `/make-plan` asks for (or accepts `runner=`) a **Runner
+  policy** and records it under Assumptions; drafting rules map `auto`, `pin`,
+  `order`, and `round-robin` to Execution-map runners, and plan updates can
+  re-route rows that are not `done`. Cursor `mid` in `model-tiers.md` pins
+  `grok-4.7-high` with logged `auto` fallback (drops stale no-mid-pin wording).
+- delegate 0.6.0: `plan-status` allows Cursor `mid` rows; `execute-via-cursor`
+  resolves the mid pin and no longer refuses mid-tier dispatch; README matches
+  the new routing.
+
+## 2026-11-08
+
+- delegate 0.5.0: map-routed execute-via-* (scripts for launch, verdict, and
+  status); skills shrink to bindings; Antigravity runs without `AGY_ENABLED`;
+  on Cursor, all-low `Model: auto` maps to `auto(router)`; contract and CI
+  always run Antigravity.
+- lifecycle 0.8.1: execution-status documents `auto(router)` and script writer
+  notes; drafting-rules forbid `mid` rows on `delegate:cursor` (Cursor has no
+  mid pin) and say to escape a literal `|` in map cells as `\|`; model-tiers
+  uses parked wording (no `AGY_ENABLED` gate).
+- lifecycle 0.8.0: `model-tiers.md` splits top tier by role (`top-plan`,
+  `top-review`, optional `top-critique`), makes `execute` a map tier, documents
+  the grunt-work rule and per-tool pins (Cursor Grok/Composer, Devin SWE-2
+  first, Antigravity Gemini-only for execute/mid/low). Antigravity rows are
+  active until 2026-11-26. Planning skills and `LIFECYCLE.md` use the new role
+  names; Devin delegate docs match Cursor/Antigravity pinned-only execute
+  behaviour.
+- delegate 0.4.1: synced `references/model-tiers.md` matches the lifecycle 0.8.0
+  tier chains and Antigravity metadata.
+- lifecycle 0.7.0: execution-map v2 routing columns (tier, runner, files,
+  acceptance, review); `/make-plan` adds a `## Dispatch` section; approved plans
+  lock the body with `plan_sha`; brainstorm and plan files use `YYYY-MM-DD`
+  naming; batched `AskQuestion` during planning; `/execute-plan` refuses a
+  plan whose body changed after approval, accepts step-scope IDs, keeps each
+  step to its listed files, and leaves delegate steps to their Dispatch lines.
+- lifecycle 0.6.1: the marketplace listing now reports the same version as the
+  plugin itself, and `LIFECYCLE.md` documents installing the plugin on Devin,
+  Cursor and Antigravity alongside Claude Code.
+- relay 0.4.0: skills are tool-neutral across Claude Code, Devin, Cursor and
+  agy. The SessionStart hook resolves the project directory on each tool and
+  emits Cursor's native context output; `RELAY_*` values fall back to
+  `~/.config/relay/env` when unset; without the Dropbox MCP, remote access is
+  read-only via `dbxcli` (claims and writes need Claude Code). Each skill also
+  carries its own copy of the `format.md` and `storage.md` references, so
+  links keep resolving when a skill folder is copied or linked elsewhere.
+
 ## 2026-11-06
 
 - exec-observe 0.5.0: the run pane says what is running and lets you act on it.

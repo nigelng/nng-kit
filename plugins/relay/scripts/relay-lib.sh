@@ -161,3 +161,31 @@ relay_resolve_remote() {
   printf '%s\t%s\t%s\t%s\n' "$backend" "$root" "$legacy" "$status"
   return 0
 }
+
+# Load relay settings from an env-style file. Default path is
+# ${XDG_CONFIG_HOME:-$HOME/.config}/relay/env. Missing or unreadable file is a
+# silent no-op. Only RELAY_BACKEND, RELAY_ROOT, RELAY_LEGACY_ROOT and
+# RELAY_DROPBOX_ROOT lines are honoured; the value is everything after the
+# first `=` taken literally (no quote stripping, no expansion, never eval).
+# Values containing a tab or CR are rejected. Each key is exported only when
+# currently unset, so the process environment always wins. Every other line
+# (comments, blanks, unknown keys, export-prefixed or quoted lines) is ignored.
+# The per-key case arms mirror the inline snippet embedded in the skills'
+# SKILL.md files — keep the two in sync (one rule, two spellings).
+# Usage: relay_load_env_file [path]
+relay_load_env_file() {
+  local file="${1:-${XDG_CONFIG_HOME:-$HOME/.config}/relay/env}"
+  [[ -f "$file" && -r "$file" ]] || return 0
+
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      *"$(printf '\t')"*|*"$(printf '\r')"*) continue ;;
+      RELAY_BACKEND=*) [ -n "${RELAY_BACKEND+x}" ] || export RELAY_BACKEND="${line#*=}" ;;
+      RELAY_ROOT=*) [ -n "${RELAY_ROOT+x}" ] || export RELAY_ROOT="${line#*=}" ;;
+      RELAY_LEGACY_ROOT=*) [ -n "${RELAY_LEGACY_ROOT+x}" ] || export RELAY_LEGACY_ROOT="${line#*=}" ;;
+      RELAY_DROPBOX_ROOT=*) [ -n "${RELAY_DROPBOX_ROOT+x}" ] || export RELAY_DROPBOX_ROOT="${line#*=}" ;;
+    esac
+  done < "$file"
+  return 0
+}

@@ -1,385 +1,488 @@
 # execute-via shared core
 
-Backend-neutral flow shared by `/delegate:execute-via-cursor` (`<backend> = cursor`),
-`/delegate:execute-via-agy` (`<backend> = agy`), and `/delegate:execute-via-devin`
-(`<backend> = devin`). In each skill, **the delegated backend CLI implements**
-the plan on a branch while **Claude gates, briefs, reviews**, and may propose
-commit text. Never commit without a separate `/commit`.
+Backend-neutral flow for `/delegate:execute-via-cursor` (`<backend> = cursor`),
+`/delegate:execute-via-agy` (`agy`), `/delegate:execute-via-devin` (`devin`). Backend CLI implements
+the plan on a branch; **Claude gates, briefs, reviews**; may propose commit text. Never commit
+without `/commit`. Launch argv, run classification, plan-status writes come from plugin scripts; CLI
+install/auth/model-list checks stay in the calling `SKILL.md`.
 
-**References:** [brief-template.md](brief-template.md) ·
-[execution-status.md](execution-status.md)
-(when linked from `skills/<name>/SKILL.md`, use
-`../../references/brief-template.md` and
-`../../references/execution-status.md`).
+**References:** [brief-template.md](brief-template.md) · [verifier-brief.md](verifier-brief.md) ·
+[execution-status.md](execution-status.md) · [review-brief-template.md](review-brief-template.md) ·
+[model-tiers.md](model-tiers.md). From `skills/<name>/SKILL.md` use `../../references/` prefix.
 
-**Repo root:** Step 1 records the absolute path from
-`git rev-parse --show-toplevel`. Claude Code Bash **keeps `cwd`** across calls
-but **does not keep shell variables** — never rely on `$REPO_ROOT` in a later
-Bash call. Paste the **literal absolute path** into every later command (or
-re-derive with `"$(git rev-parse --show-toplevel)"` after `cd`). Operate from
-that root for all `git` / `mkdir` / `rm` / CLI / tmp work.
+**Scripts** (from `skills/<name>/SKILL.md`): `plan-status.sh` (`lock`,`rows`,`start`,`batch`,
+`terminal`) · `delegate-launch.sh` (headless run or `--interactive` text) ·
+`delegate-review-launch.sh` (`snapshot`/`check`/`scope`/`run`/`verdict`) · `delegate-verdict.sh`
+(classify one run's logs).
+
+`<skill-dir>` = calling `SKILL.md` dir. Run every script as
+`bash <skill-dir>/../../scripts/<name>.sh` with the **literal absolute** `<skill-dir>`.
 
 ## Parameterised contract
 
-Each skill binds `<backend>` (`cursor`, `agy`, or `devin`) and `<last_skill>`
-(`execute-via-cursor`, `execute-via-agy`, or `execute-via-devin`):
+Each skill binds `<backend>` (`cursor`/`agy`/`devin`) and `<last_skill>`
+(`execute-via-cursor`/`execute-via-agy`/`execute-via-devin`):
 
-| Placeholder | Pattern | Purpose |
-| --- | --- | --- |
-| `<backend>` | `cursor` \| `agy` \| `devin` | Backend tag used in all `.claude/tmp/` filenames |
-| `<last_skill>` | `execute-via-cursor` \| `execute-via-agy` \| `execute-via-devin` | Value written to `execution.last_skill` and `## Execution log` |
-| `<brief>` | `.claude/tmp/exec-<backend>-brief.md` | Implementation brief written by Claude in Step 4 |
-| `<fix-n>` | `.claude/tmp/exec-<backend>-fix-<n>.md` | Numbered fix list written by Claude in Step 8 FIX round `<n>` |
-| `<questions>` | `.claude/tmp/exec-<backend>-questions.md` | Blocking questions written by the backend if it stops mid-run |
-| `<run-n>` | `.claude/tmp/exec-run-<backend>-<n>.{ndjson,err,exit}` | Per-round event stream (`ndjson`), stderr (`err`), and exit status (`exit`). Devin uses `{json,out,err,exit}` (export JSON and stdout) instead of `ndjson` |
+| Placeholder | Pattern |
+| --- | --- |
+| `<backend>` | `cursor` \| `agy` \| `devin` — `.claude/tmp/` filename tag |
+| `<last_skill>` | `execute-via-cursor` \| `execute-via-agy` \| `execute-via-devin` — `execution.last_skill` + `## Execution log` |
+| `<brief>` | `.claude/tmp/exec-<backend>-brief.md` |
+| `<rows-json>` | `.claude/tmp/exec-<backend>-rows.json` — `rows` stdout; `start`/`terminal` path |
+| `<fix-n>` | `.claude/tmp/exec-<backend>-fix-<n>.md` — FIX round `<n>` list |
+| `<questions>` | `.claude/tmp/exec-<backend>-questions.md` |
+| `<run-n>` | `.claude/tmp/exec-run-<backend>-<n>.{ndjson,err,exit}` — Devin `{json,out,err,exit}` |
 
 ## Relationship to `/execute-plan`
 
-| Skill | Who implements | Who reviews |
-| --- | --- | --- |
-| **`/delegate:execute-via-cursor`** | Cursor `agent` CLI (headless or user terminal) | Claude in this session |
-| **`/delegate:execute-via-agy`** | Google Antigravity `agy` CLI (headless or user terminal) | Claude in this session |
-| **`/delegate:execute-via-devin`** | Devin CLI (headless or user terminal) | Claude in this session |
-| **`/execute-plan`** | In-process Task orchestrator (waves) | Independent review (final pass top-tier) |
-
-Keep `/execute-plan` unchanged. Prefer a `/delegate:execute-via-*` skill when
-the user wants an external coding CLI to do the coding work while Claude stays
-the gatekeeper and reviewer.
+`/delegate:execute-via-*`: backend CLI (Cursor `agent`, Antigravity `agy`, Devin CLI — headless or
+user terminal) implements on a branch; batch Review runner (Step 7) reviews. `/execute-plan`:
+in-process Task orchestrator; independent review (final pass top-tier). Keep `/execute-plan`
+unchanged. Prefer delegate skill for an external coding CLI while Claude gates/reviews. Do not
+implement a `delegate:*` row from `/execute-plan`, or `subagent`/`session` row from a delegate skill
+— `plan-status.sh rows` selects only this backend's rows.
 
 ## Arg parse (locked)
 
 Signature: `[plan-file] [step-scope] [safe|no-force] [model=<slug>]`
 
-1. **First positional** = plan path (required). If missing or invalid → list
-   `docs/plans/*.md` and ask the user to pick.
-2. **Remaining args** (in any order after the plan path):
-   - Tokens matching `safe` or `no-force` (case-insensitive) are **mode flags**
-     (interactive user-terminal mode; Claude never invokes the backend CLI).
-   - Token matching `model=<slug>` (optional) sets the backend model override
-     (validated and passed by the skill's preflight / Step 5 when provided).
-   - Any other remaining tokens join as **step-scope** (default: all
-     Implementation steps / Execution-map rows).
-3. Drop `--force` / `--dangerously-skip-permissions` as skill args (not used;
-   interactive-friendly flags only).
+1. First positional = plan path (required). Missing/invalid → list `docs/plans/*.md`, ask.
+2. Remaining (any order): `safe`/`no-force` (case-insensitive) = mode flags — interactive
+   user-terminal mode; Claude never invokes the CLI; `model=<slug>` (optional) = backend model
+   override (preflight-validated; **Model default**); other tokens = **step-scope** row IDs (none →
+   `rows` selects every `<backend>` row). Pass IDs to every `plan-status.sh rows` call. Never `all`.
+3. Drop `--force` / `--dangerously-skip-permissions` as skill args (unused; interactive-friendly
+   flags only).
 
 ### Model default (when `model=` is omitted)
 
-For Cursor / agy / Devin **implement** backends: when `model=` is **omitted**,
-resolve the backend's tier `execute` pin from [model-tiers.md](model-tiers.md)
-(first available non-expired, non-parked slug in the backend's `execute` chain)
-and always pass `--model <slug>`. If `model=` is omitted and no `execute` slug
-resolves (every row expired, parked without its enable flag such as
-`AGY_ENABLED=1`, or missing from the CLI's model list), **stop and ask the user
-for `model=<slug>`**; never fall back to **Auto** silently (**Auto** is used
-only as a logged fallback, `fallback: <reason>`, per
-[model-tiers.md](model-tiers.md)).
+Resolve slug from `<rows-json>` **after Step 4 writes it**, **before** Step 5 — every run
+(`--reexecute` or not): pre-switch Step 2 `launch_tier`/pin does not stick if the branch plan body
+differs. Always pass as `--model` via `delegate-launch.sh`.
 
-Map rows that would use `haiku` on in-process `/execute-plan` fall back to `mid`
-when a `low` pin is unavailable or usage-capped; these delegate skills still
-default to the backend's tier `execute` pin when `model=` is omitted (no
-separate `low` pin path unless the user passes `model=<slug>`).
+1. `model=<slug>` → overrides pin; `model_requested` = that slug; `model=auto` = logged fallback
+   (`fallback: model=auto`); preflight checks it against CLI model list.
+2. `router: true` (no `model=`) → `--model auto`.
+3. Else → `launch_tier` (`low`/`execute`/`mid`) backend pin from
+   [model-tiers.md](model-tiers.md): first unexpired CLI-listed slug in chain; skip `until:`-expired
+   (`fallback: expired <slug>`) and parked rows (no enable flag). Pass `--model <slug>`.
+4. No slug → if chain names `auto` fallback, `--model auto` (`fallback: pin missing`); else **stop
+   and ask** for `model=<slug>` — never pick Auto without it. A listed pin failing usage/quota is
+   Step 6.
+
+Terminal model fields — the **only** statement; Status audit §3 and Step 6 refer here. `verdict` =
+`model_resolved` of the `delegate-verdict.sh` stdout after Step 6 (relaunch → new `<n>`'s verdict).
+`effort` = slug suffix (`grok-4.7-high` → `high`), `default` when none (`composer-2.5`); `suffix /
+default` below means exactly that.
+
+| Case | model_requested | model_resolved | effort | fallback |
+| --- | --- | --- | --- | --- |
+| Pin run | slug | verdict | suffix / `default` | `null` |
+| `model=<slug>` | that slug | verdict | suffix / `default` | `null` |
+| `model=auto` | `auto` | verdict | `default` | `model=auto` |
+| Router (`router: true`) | `auto` | `auto(router)` | `unknown` | `null` |
+| Pin missing → `--model auto` | `auto` | verdict | `default` | `pin missing` |
+| Expired slug skipped | slug passed | verdict | suffix / `default` | `expired <slug>` |
+| Quota relaunch (ok or not) | `auto` | relaunch verdict | `default` | `quota` |
+| Devin model mismatch | run's slug | verdict | run's effort | `model mismatch <requested>→<resolved>` — strip `fallback: `; never `null`; FAIL |
+| Cursor/agy display label | run's slug | verdict | run's effort | `null` unless a launch trigger applies |
+| No verdict JSON (safe/no-force, or FAIL/abort before Step 6) | resolved slug | `auto(unresolved)` or user-reported slug (router `auto(router)`) | suffix / `default` (`unknown` router) | per triggers |
+
+`fallback` non-`null` only on launch trigger: `expired <slug>`, `pin missing`, `quota`, `model=auto`,
+`auto(unresolved)`, or resolved == `auto` (case-insensitive). Cursor/agy report display labels, not
+slug — not a mismatch; resolved-vs-requested is Devin-only (exact slugs).
 
 ## Step 1 — Preflight / gates
 
 Stop and report on any failure. **Never stash for the user.**
 
-1. **Backend CLI & auth preflight (skill hook)** — run the calling skill's
-   CLI check (`which agent` for `cursor`; `which agy` + auth/model check for
-   `agy`; `which devin` + `devin auth status` for `devin`). Missing or
-   unauthenticated → stop with the skill's install/login hint.
-2. **Repo root** — resolve, record, then `cd` (shell vars do **not** persist
-   across Bash tool calls; `cwd` does):
+0. **Host gate (Claude Code only)** — before anything else:
 
-   1. Run and **record the printed absolute path** (keep it in your notes /
-      context as the repo root for this invocation):
+   ```bash
+   [ "${CLAUDECODE:-}" = "1" ]
+   ```
 
-      ```bash
-      git rev-parse --show-toplevel
-      ```
+   Not running inside Claude Code → **stop**: `delegate:*` skills are Claude Code
+   only (Cursor and other tools can list them via Claude Code plugin import, but
+   they must never execute there — no `claude` background sessions, no `Task`
+   review runners, and headless backend runs would escape the gates). Do not run
+   any script, `cd`, or status write.
+1. **Backend CLI & auth preflight (skill hook)** — calling skill's check (`which agent` / `which agy`
+   + auth/model / `which devin` + `devin auth status`). Missing/unauthenticated → stop with install/
+   login hint. Model listing here; slug choice waits for **Model default**.
+2. **Repo root** — `git rev-parse --show-toplevel`; record and `cd` to the printed **literal**
+   absolute path (fail if it errors — not a git work tree):
 
-      Fail if this errors (not a git work tree).
-   2. `cd` using that **literal** path (helps Bash allowlist matching too):
+   ```bash
+   git rev-parse --show-toplevel
+   cd /absolute/path/from/previous/step
+   ```
 
-      ```bash
-      cd /absolute/path/from/previous/step
-      ```
-
-   3. Thereafter: relative `.claude/tmp/...` is fine **only after** this `cd`.
-      For any absolute paths or CLI workspace/directory arguments, substitute
-      the **same literal path** (or `"$(git rev-parse --show-toplevel)"`
-      inline — `cwd` persists). Do **not** use `$REPO_ROOT` in a later Bash
-      call expecting the variable to still be set. Keep the backend's working
-      directory aligned with where the brief is written.
-3. **Plan file** — must exist and be readable under
-   `<repo-root>/docs/plans/**` (or the path the user gave that resolves there).
-   Missing → stop. If the user passed a relative plan path, resolve it against
-   the recorded repo root (or absolute).
-4. **Clean working tree** — ignore `.claude/tmp` so leftovers from a prior run
-   do not block. From repo root after `cd`:
+   Relative `.claude/tmp/...` then works; for absolute/CLI args use the literal path or
+   `"$(git rev-parse --show-toplevel)"` inline (`cwd` persists). Never `$REPO_ROOT`. Keep backend
+   cwd aligned with the brief.
+3. **Plan file** — must exist and be readable under `<repo-root>/docs/plans/**` (or given path
+   resolving there). Missing → stop; resolve relative paths against recorded root.
+4. **Clean working tree** — ignore `.claude/tmp`:
 
    ```bash
    git status --short -- . ':!.claude/tmp'
    ```
 
-   Allowed dirty residue: the **plan file only**, and only when its diff is
-   YAML frontmatter + `## Execution log` (prior audit writes). Any other
-   dirty path, or any other plan-body change → stop; ask user to commit or
-   stash.
+   Allowed dirty residue: **plan file only**, and only when its diff is YAML frontmatter +
+   `## Execution log`. Any other dirty path or plan-body change → stop; ask user to commit/stash.
+5. **Plan lock** — after the plan file is known to exist:
 
-## Step 2 — Validate plan (fleet vocabulary)
+   ```bash
+   bash <skill-dir>/../../scripts/plan-status.sh lock <plan>
+   ```
 
-Require readable sections (or clear equivalents):
+   Exit 0 `ok`/`legacy` (stderr `WARN: legacy plan (no plan_sha)`) → continue. Exit 3 → stop
+   (stderr `plan body changed since approval; re-approve with /make-plan update <plan>`); no brief
+   or launch. Exit 2 → stop, show stderr.
 
-- Purpose (or Goal)
-- Ordered Implementation steps
-- Files to modify/create (or a clear file list inside steps)
-- Success criteria
-- Verification (include test/lint commands when present)
+## Step 2 — Validate plan and select rows
 
-Execution map is optional (nice-to-have; `/execute-plan`'s specialty).
+Require readable sections (or clear equivalents): Purpose (or Goal); Ordered Implementation steps;
+Files to modify/create (or a clear file list inside steps, or Files cells on a v2 Execution map);
+Success criteria; Verification (include test/lint commands when present). A missing Execution map
+is valid — `rows` uses the Implementation-step fallback (`map: none`). Do not re-select rows in
+prose. Missing → list gaps and **stop**.
 
-Missing → list gaps and **stop**. Do not let the delegated backend guess.
+Hard stop (not a clarifying question) on explicit unresolved **"Blocked on"** note (or clear
+equivalent): list blocker and **stop** — no brief, no CLI. Next: resolve or
+`/make-plan update <path>`, re-invoke `/delegate:execute-via-<backend>`. Ambiguous *content* in an
+existing section → clarifying question first; missing section / unresolved blocker → hard stop.
 
-Hard stop (not a clarifying question) if the plan has an explicit unresolved
-**"Blocked on"** note (or clear equivalent). List the blocker and **stop** —
-do not write the brief or invoke the backend CLI. Next step: resolve the
-blocker, or `/make-plan update <path>`, then re-invoke
-`/delegate:execute-via-<backend>`. Ambiguous *content* inside an existing
-section → ask a clarifying question before launch; missing section /
-unresolved blocker → hard stop.
+**Row selection** — after both checks, before branch divert:
 
-Only after validation passes:
+```bash
+bash <skill-dir>/../../scripts/plan-status.sh rows <plan> <backend> [ID...]
+```
 
-1. **Branch divert** — if current branch is `main` / `master` / `develop` /
-   `trunk`:
-   - Slug: `impl/<short-slug-from-plan-title>` (lowercase, hyphens, ≤40 chars).
-   - Branch **does not exist** → `git switch -c <branch>`.
-   - Branch **exists** → `git switch <branch>` (reuse). If switch fails
-     (conflicts / unrelated local state) → **stop and ask**. Never invent a
-     new slug; never force-checkout.
-2. **Base SHA** — after any required branch switch:
-   `git rev-parse HEAD`. Record as the rollback point.
+`--reexecute` only after user confirmed re-execute (Status audit Start, exit 4). Stdout = one JSON
+object (`map`, `launch_tier`, `router`, `selected`, `skipped`, `files_union`; each `selected` has
+`id`, `tier`, `wave`, `depends`, `files`, `acceptance`, `model`, `review`). Keep it; Step 4 writes
+the same invocation to `<rows-json>`. `selected` is the only row set the brief may contain.
 
-## Status audit (Claude dual-write)
+Exit 3 → stop. Print `REFUSE:` stderr lines verbatim, then the matching `## Dispatch` hint:
+`REFUSE: <ID>: …` → each Dispatch line naming that ID; `REFUSE: no rows routed to
+delegate:<backend>` → each line naming a different runner. `## Dispatch` missing/names nothing →
+say so. Do not divert, write `<rows-json>`, brief, or launch. Exit 2 → stop, show stderr.
 
-`Read` [execution-status.md](execution-status.md) (or
-`../../references/execution-status.md` from `skills/<name>/SKILL.md`) for
-schema, `%` formula, placement, and dual-write rule — do **not** paste the full
-contract into skill bodies. **Claude** (never the delegated backend CLI)
-dual-writes YAML frontmatter + `## Execution log` in **one edit** at each
-locked timing below, setting `last_skill: <last_skill>` (`execute-via-cursor`,
-`execute-via-agy`, or `execute-via-devin`).
+Only after both pass:
 
-**Row set:** Execution-map rows when present; otherwise Implementation-step
-fallback IDs (`I1`…`In` or the plan's existing step numbers) per the SoT.
-Rows outside the current `step-scope` → `skipped` with Notes
-`out of step-scope` (never leave them `pending`), **except** preserve prior
-`done` — never downgrade a prior `done` row to `skipped`.
+1. **Branch divert** — on `main`/`master`/`develop`/`trunk`: slug `impl/<short-slug>` (lowercase,
+   hyphens, ≤40 chars). Branch absent → `git switch -c <branch>`; present → `git switch <branch>`
+   (reuse; failure → **stop and ask** — never invent slug or force-checkout). After a successful
+   switch onto an existing branch, re-run `plan-status.sh lock <plan>` (Step 1 exit rules) — branch
+   plan body can differ; `git switch -c` keeps the Step 1 lock.
+2. **Base SHA** — `git rev-parse HEAD` after any required switch; rollback point.
 
-1. **Start** — after Steps 1–2 pass (and Step 3 when on the default path),
-   before or as Step 4 writes the brief: ensure frontmatter + log exist;
-   `status: in-progress`; `started_at` if unset; scoped rows `pending`
-   (leave prior `done` on resume); for out-of-scope rows, set `skipped` /
-   `out of step-scope` **only if** the row was not already `done`. Confirm
-   with the user before resetting an already-`completed` plan.
-2. **After a successful scoped batch** (when `step-scope` ≠ all) — once the
-   backend's implement for that scope has been reviewed clean (before a
-   further FIX round if none): update in-scope row statuses + frontmatter
-   `%` / `updated_at`. Skip this mid-run write when scope is all (terminal
-   write covers it).
-3. **Terminal** — on Step 8 verdict (**PASS**, **FAIL** after FIX budget,
-   or user **abort**): set overall `status` (`completed` / `partial` /
-   `failed` / `aborted`), `completed_at` iff `completed`, final `%`, one
-   `### Run …` stanza with its `Run:` line, and append one `runs:` entry
-   (fields in [execution-status.md](execution-status.md) § Run records):
-   `backend` = `<backend>`; `model_requested` = the slug passed to `--model`;
-   `model_resolved` from the skill's Step 6 model extraction (after the
-   skill's pattern check; `auto(unresolved)` when the CLI reports none or the
-   value fails the check; write it YAML-quoted); `effort` from the requested
-   slug; `review_findings` = `blocking` + `important` findings from every Step 7
-   review this run; `fix_loops` = FIX rounds used; `fallback` = `null` or the
-   reason. Devin reports exact slugs, so a resolved model that differs from the
-   pin is already a FAIL there (`model mismatch <requested>→<resolved>`). Cursor
-   reports a display label that never equals the slug, and agy's resolved value
-   is not compared either, so for Cursor and agy `fallback` is set only from
-   launch-side triggers (`expired <slug>`, `pin missing`, `quota`, `model=auto`,
-   `auto(unresolved)`), plus a resolved value equal to `auto`
-   (case-insensitive), which is a router fallback. Write the record on FAIL and abort too. **Scoped terminal PASS:** overall is `partial`
-   unless every row is actually `done` — rows that are only `skipped`
-   solely because `out of step-scope` do **not** count toward `completed`.
+## Status audit (via `plan-status.sh`)
 
-Claude may edit the plan file **only** for frontmatter + `## Execution log`
-(create/move the section per SoT placement). Do **not** edit Implementation
-steps, Execution map content, or other plan sections as part of this skill.
+`Read` [execution-status.md](execution-status.md) (or `../../references/execution-status.md`) for
+schema, `%` formula, placement, dual-write rule — do **not** paste the contract into skill bodies.
+**Claude** (never the backend CLI) runs `plan-status.sh`; it dual-writes YAML frontmatter +
+`## Execution log`, sets `last_skill: <last_skill>`. Do not hand-edit the plan.
+
+`<rows-json>` is `.claude/tmp/exec-<backend>-rows.json`; `start`/`terminal` take that path. Record
+one UTC stamp (`date -u +%Y-%m-%dT%H:%M:%SZ`) as `--now` on the writing `start`; pass it as `--started`
+on `terminal`.
+
+1. **Start** — immediately after Step 4 writes `<rows-json>`, **before** the brief:
+
+   ```bash
+   bash <skill-dir>/../../scripts/plan-status.sh start <plan> <last_skill> .claude/tmp/exec-<backend>-rows.json --now <TS>
+   ```
+
+   Exit 4 (stderr `plan already completed; confirm re-execute`) → ask user. On confirm, rewrite file
+   and start again (new `<TS>`):
+
+   ```bash
+   bash <skill-dir>/../../scripts/plan-status.sh rows --reexecute <plan> <backend> [ID...] \
+     > .claude/tmp/exec-<backend>-rows.json
+   bash <skill-dir>/../../scripts/plan-status.sh start <plan> <last_skill> .claude/tmp/exec-<backend>-rows.json --now <TS> --reexecute
+   ```
+
+   Brief uses the rewritten `selected` array. Decline → stop; no brief. Exit 2 → stop, show stderr.
+
+2. **After a successful scoped batch** (step-scope IDs passed) — once Step 7 for that scope is
+   clean, before a further FIX round if none:
+
+   ```bash
+   bash <skill-dir>/../../scripts/plan-status.sh batch <plan> <last_skill> --done ID... [--failed ID...]
+   ```
+
+   IDs = selected rows that passed or failed review. Skip when no step-scope IDs passed (terminal
+   covers it).
+
+3. **Terminal** — on Step 8 verdict (**PASS**, **FAIL** after FIX budget, or user **abort**):
+
+   ```bash
+   bash <skill-dir>/../../scripts/plan-status.sh terminal <plan> <last_skill> .claude/tmp/exec-<backend>-rows.json \
+     --outcome pass|fail|abort --backend <backend> --model-requested <slug> --model-resolved "<resolved>" \
+     --effort <effort> --started <TS> --findings <N> --fix-loops <N> --fallback "<reason-or-null>" \
+     [--done ID...] [--notes "<TEXT>"]
+   ```
+
+   - `--outcome` per verdict; overall `completed`/`partial` per execution-status.md (do not claim
+     `completed` yourself).
+   - Model flags: shell-quote the CLI arg (script YAML-quotes it); values per **Model default**.
+   - `--findings`/`--fix-loops` = `review_findings`/`fix_loops` per execution-status.md; `--notes` =
+     one short paragraph.
+   - Write on FAIL and abort too. `safe`/`no-force` run has no verdict JSON (fields per **Model
+     default**).
+
+Claude must not edit Implementation steps, Execution map content, or other plan sections. Status
+changes go through `start`, `batch`, `terminal` only.
 
 ## Step 3 — Background runtime gates (default path only)
 
-Resolve any clarifying questions about ambiguous plan content **before**
-launching the headless run (the backend runs non-interactively with no mid-run
-prompts; if it hits a mid-run ambiguity it must stop and write `<questions>`).
+Resolve clarifying questions about ambiguous plan content **before** launching the headless run
+(backend runs non-interactively; on mid-run ambiguity it must stop and write `<questions>`). Run
+**before** writing the brief when **not** `safe`/`no-force` (a failed gate leaves no stray brief).
+Skip entirely for `safe`/`no-force`.
 
-Run **before** writing the brief when **not** `safe` / `no-force` (so a failed
-gate never leaves a stray brief). Skip entirely for `safe` / `no-force`.
+1. `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` (or bare/disabled background mode) → **stop**:
+   background runs unavailable; suggest `safe`/`no-force` or re-enable background tasks.
+2. Tell the user: **keep Claude Code open** until the run finishes — background tasks stop on exit.
+3. Interactive local sessions only. Unattended `claude -p`/cloud are best-effort; background
+   commands may be time-limited. No hard detection — document in the session notice; do not invent
+   a confirm branch.
 
-1. If `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` (or bare/disabled background
-   mode) → **stop**: background runs unavailable. Suggest `safe` / `no-force`
-   or re-enable background tasks.
-2. Tell the user: **keep Claude Code open** until the run finishes —
-   background tasks stop on exit.
-3. Designed for **interactive local sessions only**. Unattended `claude -p` /
-   cloud are best-effort; background commands may be time-limited. No hard
-   detection signal — document in the session notice; do not invent a confirm
-   branch.
+## Step 4 — Clear stale tmp, write rows, start, write brief
 
-## Step 4 — Clear stale tmp (per-backend) + write brief
-
-Clear **only** `<backend>`'s artifacts so any files belonging to the other
-backend remain intact:
+Clear **only** `<backend>`'s artifacts so the other backend's files remain intact:
 
 ```bash
 mkdir -p .claude/tmp
-# Drop stale skill artifacts for <backend> ONLY (do not touch the other backend's files)
 rm -f .claude/tmp/exec-<backend>-brief.md \
       .claude/tmp/exec-<backend>-fix-*.md \
       .claude/tmp/exec-<backend>-questions.md \
+      .claude/tmp/exec-<backend>-rows.json \
+      .claude/tmp/exec-<backend>-verifier.md \
+      .claude/tmp/exec-review-<backend>-* \
       .claude/tmp/exec-run-<backend>-*
 ```
 
-Then write `.claude/tmp/exec-<backend>-brief.md` from
-[brief-template.md](brief-template.md) (or
-`../../references/brief-template.md` from `skills/<name>/SKILL.md`),
-replacing `{{BACKEND}}` (`cursor`, `agy`, or `devin`), `{{PLAN_PATH}}`, `{{REPO_ROOT}}`,
-`{{STEP_SCOPE}}`, and `{{QUESTIONS_PATH}}`
-(`.claude/tmp/exec-<backend>-questions.md`). Prefer `.claude/tmp/` even if not
-gitignored; warn not to commit briefs/questions (check `.gitignore` if unsure).
-For `safe` / `no-force`, still write the brief here before handing the user the
-interactive command.
+Write `<rows-json>` with the same `rows` arguments as Step 2 (`--reexecute` only when already
+confirmed):
 
-## Step 5 & Step 6 — Backend execution & log parsing (skill hooks)
+```bash
+bash <skill-dir>/../../scripts/plan-status.sh rows <plan> <backend> [ID...] \
+  > .claude/tmp/exec-<backend>-rows.json
+```
 
-Each skill defines its own Step 5 (CLI invocation) and Step 6 (log parsing)
-meeting these interface requirements before entering Step 7:
+Exit 3 or 2 → delete the rows file the redirect created, print `REFUSE:` lines + `## Dispatch` hint
+(Step 2), stop. Do not `start`. The file just written is the row set for the brief and **Model
+default** — re-resolve the slug from it even when not a `--reexecute` rewrite.
 
-### Step 5 interface (Run `<backend>`)
+Then run **Status audit Start** before the brief. Exit 4 → ask, then the `--reexecute` pair. The
+brief uses the `selected` array in the rows file `start` accepted.
 
-- Pick a new run id `<n>` per implement/FIX round (`1`, `2`, …).
-- **Default (headless background):** invoke the backend CLI via Bash with
-  `run_in_background: true` (do **not** poll with `sleep`), redirecting stdout
-  to `.claude/tmp/exec-run-<backend>-<n>.ndjson`, stderr to
-  `.claude/tmp/exec-run-<backend>-<n>.err`, and exit code to
-  `.claude/tmp/exec-run-<backend>-<n>.exit`. Devin (`<backend> = devin`) writes
-  the export to `.json` and stdout to `.out` instead of `ndjson`. Wait for
-  Claude Code's **background-task completion notification**.
-- **`safe` / `no-force` (interactive user terminal):** Claude **never** invokes
-  the backend CLI. Print the exact interactive command for the user's terminal
-  pointing at `.claude/tmp/exec-<backend>-brief.md`. Wait for the user to say
-  done. Step 3 was skipped; **skip Step 6** (no run logs) and proceed directly
-  to Step 7 review.
+Write `.claude/tmp/exec-<backend>-brief.md` from [brief-template.md](brief-template.md) (or
+`../../references/brief-template.md`): copy `<!-- static:start -->`…`<!-- static:end -->` unchanged;
+fill placeholders per the template — `{{STEP_SCOPE}}` = ID list or `all rows routed to <backend>`
+(no IDs), `{{QUESTIONS_PATH}}` = `.claude/tmp/exec-<backend>-questions.md`. **Rows** = `selected[]`
+only (omit `skipped`); join `files`/`depends` with `, ` (`—` when empty). Under the table paste each
+selected row's Implementation-step text verbatim; step choice by `map` in `<rows-json>`:
 
-### Step 6 interface (Parse run logs — default path only)
+- `map: none` — id `In` = nth top-level numbered step in order (`I1` = first `1.` line); synthetic,
+  not in text — do not search for `I3`. No nth step → stop and ask.
+- Map ids (`v2`/`legacy`) — the step whose own `N.` opening heading is that id (e.g. `(S8)`); an id
+  only inside a body or another step does not count (`S1..S4` cited ≠ the `S1` step). No
+  opening-line match or two → stop and ask.
 
-- **Claude-invoked runs only** (`safe` / `no-force` skips Step 6 — do not treat
-  missing logs in `safe` / `no-force` mode as a failed run).
-- Summarize via `jq` / `head` / `tail` / `grep`; do **not** read large
-  `.ndjson` files whole into context.
-- Extract and record the **resume handle** (`session_id` for `cursor`, from
-  the stream's init event; `conversation_id` for `agy`, from the stream's init
-  event; `session_id` for `devin`, from the export JSON) so Step 8 FIX rounds
-  can resume the conversation even if the run failed.
-- Check run-level completion: verify `.claude/tmp/exec-run-<backend>-<n>.exit`
-  is `0`, the terminal `.ndjson` `result` event meets the backend's success
-  predicate, and `.claude/tmp/exec-run-<backend>-<n>.err` has no fatal error
-  or permission soft-deny.
-- Anything else → **failed run**: surface `.err`; if a resume handle was
-  captured, Step 8 FIX may still resume it. Ignore unknown JSON fields (schema
-  drift). `git diff` + untracked files (Step 7) remain the source of truth for
-  what changed on disk.
+Omit the Fix-file section (implement brief). Prefer `.claude/tmp/` even if not gitignored; warn not
+to commit briefs/questions/rows file (check `.gitignore`). For `safe`/`no-force`, still write rows +
+`start` + brief before handing the user the interactive command.
+
+## Step 5 & Step 6 — Launch and verdict
+
+Do not hand-build `agent`/`agy`/`devin` argv. `delegate-launch.sh` is the only launch path;
+`delegate-verdict.sh` the only log parse.
+
+### Step 5 — Run `<backend>`
+
+New run id `<n>` per implement/FIX round (`1`,`2`,…). `<model>` = slug from **Model default**.
+
+- **Default (headless background):** Bash `run_in_background: true` (no `sleep` polling); wait for
+  the **background-task completion notification**:
+
+  ```bash
+  bash <skill-dir>/../../scripts/delegate-launch.sh <backend> /absolute/repo/root <n> <model> brief
+  ```
+
+  Script exit 0 after recording backend status in `.exit` (even on backend failure); exit 2 =
+  usage error → stop, show stderr.
+- **`safe`/`no-force`:** Claude **never** invokes the backend CLI. Print the command, wait for the
+  user to say done:
+
+  ```bash
+  bash <skill-dir>/../../scripts/delegate-launch.sh --interactive <backend> /absolute/repo/root <n> <model> brief
+  ```
+
+  Step 3 was skipped. **Skip Step 6** (no run logs); proceed to Step 7.
+
+### Step 6 — Verdict (default path only)
+
+`safe`/`no-force` skips this. Missing logs there are not a failed run. Do not read large `.ndjson`
+or Devin export files whole.
+
+```bash
+bash <skill-dir>/../../scripts/delegate-verdict.sh <backend> /absolute/repo/root <n> <requested-slug>
+```
+
+`<requested-slug>` required for `devin`, passed for every backend. Exit 2 → stop, show stderr.
+
+- `ok: true` — record `session_id` for Step 8; terminal model fields per **Model default**.
+- `ok: false` — failed run. Surface `reasons` and `.err`. Non-empty `session_id` may still resume.
+  `questions: true` → read `<questions>` in Step 7 before the verdict. A `reasons` entry
+  `fallback: model mismatch <requested>→<resolved>` is a Devin FAIL — `--fallback` per **Model
+  default**.
+- **Usage/quota, one relaunch.** Pin was listed and this launch ran, then failed with usage/quota
+  (CLI text in `.err`/`reasons`). If the `launch_tier` chain lists `auto` as a logged fallback,
+  relaunch **once** (new `<n>`, same kind, `--model auto`), then:
+  1. Wait for that `<n>` (background-task completion).
+  2. `delegate-verdict.sh` on the new `<n>` — its stdout **is** the Step 6 result (`ok`,
+     `session_id`, `model_resolved`, `reasons`); the pin run's `ok: false` does not stick.
+  3. Terminal fields per **Model default** (quota relaunch row — `--fallback quota`, never the
+     router record).
+  4. New verdict `ok: true` → may PASS; not `ok` → no second relaunch; the FAIL `terminal` still
+     records `--fallback quota`.
+  Chain lacks `auto` → stop; never pick Auto; never relaunch an `auto` attempt.
+- `git diff` + untracked files (Step 7) remain the source of truth for what changed on disk.
 
 ## Step 7 — Claude review (independent of the backend's report)
 
-1. `git status --short -- . ':!.claude/tmp'` plus `git diff --stat <BaseSHA>`
-   and `git diff <BaseSHA>` (tracked changes against `<BaseSHA>`).
-2. **Untracked** backend output (exclude skill tmp):
-   `git ls-files --others --exclude-standard -- . ':!.claude/tmp'` — read and
-   review those files too.
-3. Read `.claude/tmp/exec-<backend>-questions.md` if present. If the backend
-   stopped on blocking questions, surface them to the user before deciding the
-   verdict.
-4. Per Success criterion and scoped Implementation step: met / not met /
-   unverifiable + `file:line` evidence.
-5. Flag: out-of-scope files, deleted/weakened tests, TODOs, secrets, new deps,
-   or edits to protected repo config (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`,
-   `.cursor/rules`, `.agents/` rules, CI workflows).
-   **Plan-file exception:** the plan path may appear in the diff from Claude's
-   status dual-writes. Expected delta is **only** YAML frontmatter +
-   `## Execution log`. Any other plan-body change → treat as a backend
-   violation / out-of-scope (the backend must never edit the plan). Do **not**
-   flag audit-only plan diffs as out-of-scope.
-6. **Re-run** plan Verification commands yourself — do not trust the backend's
-   self-report alone.
+1. Before building `.claude/tmp/exec-<backend>-verifier.md`, re-check `plan-status.sh lock <plan>`
+   (must match Step 1) and use Step 4 `selected`/`files_union` (backend-modified plan body or
+   `<rows-json>` → flag as backend violation, skip the verifier Task). Fill
+   [verifier-brief.md](verifier-brief.md) into `.claude/tmp/exec-<backend>-verifier.md`; keep the
+   static block. `{{COMMANDS}}` = each selected row's `acceptance` (one per row; a pipeline stays one
+   line) then each copy-pastable plan Verification command; `{{REPO_ROOT}}` = recorded repo root.
+   Skip empty acceptance and non-command prose.
+2. Snapshot the tree (`git status --porcelain`; record output), then run a read-only low-tier
+   verifier Task: `Task(model: "haiku")`; low unavailable → `mid` (`Task(model: "sonnet")`, claude-code
+   `mid` in [model-tiers.md](model-tiers.md)). Runs commands from the repo root; must not edit files
+   or git state.
+3. Snapshot `git status --porcelain` again; if it differs from the pre-Task snapshot, discard the
+   verifier summary and flag the verifier — its PASS/FAIL is not evidence.
+4. **Scope check** — mechanical path check:
+
+   ```bash
+   bash <skill-dir>/../../scripts/delegate-review-launch.sh scope /absolute/repo/root <BaseSHA> .claude/tmp/exec-<backend>-rows.json <plan>
+   ```
+
+   → `{outside,protected,untracked}`. Non-empty `outside`/`protected` = **host finding**
+   (`important` default; `blocking` for protected repo config) added to reviewer findings. Read
+   `.claude/tmp/exec-<backend>-questions.md` if present or Step 6 said `questions: true`; surface
+   before the verdict. **Plan-file exception:** plan may appear in the `plan-status.sh` diff —
+   expected delta is **only** YAML frontmatter + `## Execution log`; any other plan-body change =
+   backend violation; do not flag audit-only plan diffs as outside `files_union`. Deleted/weakened
+   tests, TODOs, secrets, new deps, protected-config edits are reviewer criteria → review findings,
+   not host prose.
+5. **Review runner** — strongest `review` across `selected` in `<rows-json>` (`none` < `mid` <
+   `top@*`; one batch shares one `top@*`). `<rid>` = `<backend>-<k>` (`k` = 1 first review, +1 per
+   later). Fill `.claude/tmp/exec-review-<rid>-brief.md` from
+   [review-brief-template.md](review-brief-template.md) (or `../../references/review-brief-template.md`):
+   static block unchanged; `{{RID}}`=`<rid>`, `{{RUNNER}}`=the review value (`mid`/`top@*`),
+   `{{SCOPE}}`=selected IDs; other placeholders per the template. Dispatch:
+   - `none` — no review, no `verdict`. Clean only when verifier `PASS` and scope `outside`+
+     `protected` empty; else FIX with those as findings.
+   - `mid` — read-only `Task(model: "sonnet")` on the brief (claude-code `mid`); **Review family**
+     per model-tiers.md.
+   - `top@session` — this session reviews the brief itself.
+   - `top@claude-task` — read-only `Task(model: "opus")` on the brief.
+   - The implementing CLI session never reviews; a runner is a fresh read-only session or Task.
+   - For `mid`/`top@session`/`top@claude-task`: snapshot first:
+
+     ```bash
+     bash <skill-dir>/../../scripts/delegate-review-launch.sh snapshot /absolute/repo/root <rid>
+     ```
+
+     Write review text (ends with `FINDINGS:`/`VERDICT:` trailer) to
+     `.claude/tmp/exec-review-<rid>.md`, then check:
+
+     ```bash
+     bash <skill-dir>/../../scripts/delegate-review-launch.sh check /absolute/repo/root <rid>
+     ```
+   - External `top@*` (`top@devin-fusion`, `top@cursor-ask`, `top@agy-plan`) → read
+     [review-runner.md](review-runner.md) (from `skills/<name>/SKILL.md`:
+     `../../references/review-runner.md`).
+   - Every non-`none` review ends with `verdict`:
+
+     ```bash
+     bash <skill-dir>/../../scripts/delegate-review-launch.sh verdict /absolute/repo/root <rid>
+     ```
+
+     → `{ok,verdict,blocking,important,nit,timed_out,guard_clean,reasons}`. Exit 2 → stop, show
+     stderr. Do not re-parse review prose for the verdict; read findings text only for fix items.
 
 ## Step 8 — Verdict loop
 
-Dual-write status per **Status audit** on terminal outcomes below (and after
-a successful scoped batch when `step-scope` ≠ all — see Status audit §2).
+Step 7's result maps to the outcomes below (a `none` review has no verdict JSON; its Step 7
+clean/FIX stands in):
 
-- **PASS** → dual-write terminal status (scoped PASS → `partial` unless every
-  row is actually `done` — see Status audit §3); summarize; propose
-  Conventional Commit message; **do not commit** (offer `/commit`).
-- **FIX** (max **2** rounds) → write numbered fixes to
-  `.claude/tmp/exec-<backend>-fix-<n>.md` (new `<n>` per FIX round; do
-  **not** clear `.claude/tmp/exec-<backend>-brief.md`). Then invoke the
-  backend using the skill's FIX command shape:
-  - **Default (with resume handle from prior run):** invoke the backend CLI in
-    background resuming that session (`--resume <session_id>` for `cursor`;
-    `--conversation <conversation_id>` for `agy`; `--resume=<session_id>` for
-    `devin`) with prompt
-    `"Read .claude/tmp/exec-<backend>-fix-<n>.md and apply the fixes exactly."`,
-    writing to `.claude/tmp/exec-run-<backend>-<n>.{ndjson,err,exit}`.
-  - **If resume handle is empty/missing:** fresh background run (no resume
-    flag); instruct the backend to read **both**
-    `.claude/tmp/exec-<backend>-brief.md` and
-    `.claude/tmp/exec-<backend>-fix-<n>.md` and apply the fixes.
-  - Then re-parse (Step 6) and re-review (Step 7).
-  - **`safe` / `no-force`:** print the numbered fixes (and the
-    `.claude/tmp/exec-<backend>-fix-<n>.md` path) for the user to paste into /
-    point at their interactive session; wait for done; re-review (Step 7). Do
-    not invoke the backend CLI.
-- **FAIL** (or still failing after 2 FIX rounds) → dual-write terminal
-  `failed`; report; show rollback:
+- `ok: false` (`exit N`, `timeout ceiling`, `guard tripped`, `no verdict line`, `inconsistent
+  verdict`) → **reviewer failure**: stop and ask — retry same runner (new `<rid>`),
+  `top@claude-task`, or abort (`terminal --outcome abort`). Never downgrade silently. A tripped
+  guard already reverted the reviewer's edits (`.guard.json` `reverted`/`removed`); `head_moved`
+  true → show the stderr hint, do not touch refs.
+- `verdict: PASS` → PASS **only if** verifier `PASS` and scope `outside`+`protected` empty; else
+  FIX with failing verifier commands + scope paths as numbered fixes. `verdict: FIX` → FIX: copy
+  blocking/important findings verbatim into fixes (2-round budget); after the FIX run repeat Steps
+  6–7, re-review at the **same runner**. `verdict: FAIL` → FAIL.
+- `--findings` = `blocking`+`important` sum across all reviews; `--notes` gains
+  `review=<runner> clean` (last review PASS) or `review=<runner> dirty`. Report `final top-tier
+  review converged: clean` only when the last review ran at `top@*` and PASSed.
+
+Run **Status audit** `batch` (step-scope IDs passed) and `terminal` on the outcomes below.
+
+- **PASS** → `terminal --outcome pass`; summarize; propose a Conventional Commit message; **do not
+  commit** (offer `/commit`). Scoped PASS stays `partial` unless the script's row rule yields
+  `completed`.
+- **FIX** (max **2** rounds) → write `.claude/tmp/exec-<backend>-fix-<n>.md` from the Fix-file
+  section of [brief-template.md](brief-template.md) (static header, numbered fixes, diff excerpts);
+  do **not** clear `.claude/tmp/exec-<backend>-brief.md`. Launch kind `fix:<n>` (same `<n>` as run
+  id):
+  - **Default (with `session_id`):** background
+
+    ```bash
+    bash <skill-dir>/../../scripts/delegate-launch.sh <backend> /absolute/repo/root <n> <model> fix:<n> <session_id>
+    ```
+
+    `session_id` empty/missing → fresh run (omit resume arg; script makes the backend read brief +
+    fix file). Then Steps 6–7 again.
+  - **`safe`/`no-force`:** print fix path + interactive command; wait for done; re-review (Step 7);
+    skip Step 6; never invoke the CLI:
+
+    ```bash
+    bash <skill-dir>/../../scripts/delegate-launch.sh --interactive <backend> /absolute/repo/root <n> <model> fix:<n>
+    ```
+
+- **FAIL** (or still failing after 2 FIX rounds) → `terminal --outcome fail`; report; show rollback:
 
   ```bash
   git reset --hard <BaseSHA> && git clean -fd
   ```
 
-  Run **only after user confirms**. Warn that `git clean -fd` wipes untracked
-  files **and the plan's audit write**. **After** the confirmed rollback
-  completes, **re-apply** the terminal `failed` dual-write (frontmatter +
-  `## Execution log`) so the audit trail survives rollback. On user
-  **abort** before a terminal PASS/FAIL → dual-write `aborted` (or leave
-  prior state if this run never started status writes).
+  Run **only after user confirms**. Warn `git clean -fd` wipes untracked files **and the plan's
+  audit write**. **After** confirmed rollback, **re-apply** the `fail` terminal write (same run
+  fields) so the audit trail survives. If `<rows-json>` was removed, rewrite via `rows` (with
+  `--reexecute` when that was the path) before `terminal`. User **abort** before terminal
+  PASS/FAIL → `terminal --outcome abort` (or leave prior state if this run never wrote status).
 
 ## Shared constraints
 
-- Claude Code–only plugin (`delegate`). Not exposed to Cursor, Devin, or
-  Windsurf skill directories.
-- Refuse (Step 2) on unresolved `"Blocked on"` (or clear equivalent) — do not
-  write the brief or invoke the backend CLI.
+- Claude Code–only plugin (`delegate`). Not exposed to Cursor, Devin, or Windsurf skill directories.
 - Never auto-commit, auto-push, or open a PR.
-- Never run `git reset --hard` / `git clean -fd` without explicit user confirm.
-- Never stash for the user; never invent a new `impl/*` slug on switch failure.
-- Never rely on `$REPO_ROOT` across Bash tool calls; paste the recorded
-  absolute path (or re-derive with `git rev-parse --show-toplevel`).
-- Never clear the other backend's `.claude/tmp/exec-*` files in Step 4.
 - Never touch or write files outside the recorded repo root.
-- Never report PASS if `.exit` ≠ `0`, `.err` contains a fatal/permission error,
-  or the terminal stream event is not a clean success result.
-- Claude never edits target implementation files during the loop; Claude may
-  edit the plan file **only** for YAML frontmatter + `## Execution log`
-  (Status audit / [execution-status.md](execution-status.md)). Do **not** edit
-  Implementation steps, other plan sections, `CLAUDE.md`, `AGENTS.md`,
-  `GEMINI.md`, `.cursor/rules`, `.agents/` rules, or CI workflows. **The
-  delegated backend must never** edit the plan (brief forbids it, including
-  frontmatter and Execution log) or protected repo config.
-- Keep `/execute-plan` unchanged; do not use the delegated backend as the
-  reviewer.
+- Never report PASS when `delegate-verdict.sh` returns `ok: false` (non-zero `.exit`, fatal or
+  permission stderr, timeout, or a non-clean terminal event). `safe`/`no-force` has no verdict JSON;
+  Step 7 still has to pass.
+- Claude writes plan status only via `plan-status.sh` (`start`,`batch`,`terminal`); never hand-edit
+  the plan, and never edit `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursor/rules`, `.agents/` rules,
+  or CI workflows during the loop. **The delegated backend must never** edit the plan (brief
+  forbids it, incl. frontmatter and Execution log) or protected repo config.

@@ -16,7 +16,7 @@ This skill is read-only except for persisting its own output. It does not edit c
 
 ## Session model (top-tier)
 
-Session/Task tiers: [model-tiers.md](model-tiers.md) (`top`/`mid`/`low`). `/brainstorm` needs **top** for the whole session; warn once and recommend switching if below top — do not silently run a thin brainstorm.
+Session/Task tiers: [model-tiers.md](model-tiers.md) (`top`/`mid`/`low`). `/brainstorm` needs **top-plan** for the whole session; warn once and recommend switching if below **top-plan** — do not silently run a thin brainstorm.
 
 ## Step 1 — Gather the idea
 
@@ -50,7 +50,7 @@ The four facets:
 Process:
 
 1. **Extract** Goal / why-now / non-goals / hard constraints from args + the user message when already stated.
-2. **Ask only gaps** — one `AskQuestion` (or conversational ask) per missing facet: 2–4 options plus "Other" per call; never pack multiple facets into one 4-option call.
+2. **Ask only gaps** — batch up to 4 independent facet questions per `AskQuestion` (or conversational ask): 2–4 options plus "Other" per facet in the call.
 3. **Compress** when the idea is tiny or args already encode the brief: confirm a drafted 4-line brief in one turn instead of four interviews.
 4. **Floor**: if any of the four lines is still empty after extraction, ask until filled. Never proceed to exploration with a blank brief. Never silently skip this step because args existed in Step 1.
 5. Carry the brief verbatim into Step 6 (`/make-plan` handoff) and Step 6.5 (persisted brainstorm) so the eventual plan starts from the same Goal, not a re-interpreted one.
@@ -145,7 +145,7 @@ Produce a single prompt that the user can paste into `/make-plan` to turn the ag
 Format the prompt in a fenced code block so the user can copy-paste it cleanly:
 
 ```
-/make-plan <task description>. Goal: <one-sentence Goal from the Step 1.5 brief>. Scope: <in/out>. Constraints: <list>. Target Phase 1: <phase name and deliverable>. Brainstorm: docs/brainstorms/<yymmddhhmm>-<slug>.md
+/make-plan <task description>. Goal: <one-sentence Goal from the Step 1.5 brief>. Scope: <in/out>. Constraints: <list>. Target Phase 1: <phase name and deliverable>. Brainstorm: docs/brainstorms/<YYYY-MM-DD>-<slug>.md
 ```
 
 If the prompt is too long for a single line, use a multi-line fenced block and instruct the user to paste it after `/make-plan`.
@@ -158,11 +158,11 @@ Determine the project root with `git rev-parse --show-toplevel` (fall back to th
 
 Derive a kebab-case slug from the idea title (lowercase, hyphen-separated; drop common English stopwords). Example: "Add a plugin system" → `add-plugin-system`.
 
-On the **first** completion of Steps 5–6 for this brainstorm, generate a timestamp with `date +%y%m%d%H%M` (2-digit year, month, day, hour, minute — e.g. `2607051430`) and set the path to `<project-root>/docs/brainstorms/<yymmddhhmm>-<slug>.md`. On **Refine** (Step 7 → back to Step 4), **overwrite that same path** — do not create a new timestamped file.
+On the **first** completion of Steps 5–6 for this brainstorm, set the date with `date +%Y-%m-%d` (e.g. `2026-11-08`) and the path to `<project-root>/docs/brainstorms/<YYYY-MM-DD>-<slug>.md`. If that path already exists, append `-2`, `-3`, and so on before `.md` until unused. Write a YAML frontmatter block at the top containing only `created_at: <ISO-8601Z>` (set once with `date -u +%Y-%m-%dT%H:%M:%SZ`). On **Refine** (Step 7 → back to Step 4), **overwrite that same path** and **preserve** the existing `created_at` — do not create a new dated file.
 
 Create the `docs/brainstorms/` directory at the project root if it doesn't exist, then write the brainstorm to the path above.
 
-The file must contain: the Step 1.5 Goal brief, the Step 3 feasibility assessment, the Step 5 roadmap (strategy, architecture, phases, can/can't/deferring lists), and the Step 6 make-plan prompt (verbatim).
+The file must contain: frontmatter with `created_at`, the Step 1.5 Goal brief, the Step 3 feasibility assessment, the Step 5 roadmap (strategy, architecture, phases, can/can't/deferring lists), and the Step 6 make-plan prompt (verbatim).
 
 ## Step 7 — Offer next steps
 

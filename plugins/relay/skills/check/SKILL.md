@@ -1,13 +1,15 @@
 ---
 name: check
 description: >-
-  Claude Code only (`/relay:check`). Read-only handoff status: this branch's
+  Relay handoffs (`/relay:check`) for Claude Code, Devin, Cursor and agy.
+  Read-only handoff status: this branch's
   file (age, commits past, snooze, twin), other docs/relay and legacy
   docs/handoffs files, orphans in both directories, a legacy
   .claude/handoff/active.md if present, a resolver status line, and a remote
   pending / awaiting-cleanup / lock summary for the active root. Legacy-root
   pending and lock counts are labelled "legacy, migrate via /relay:pickup".
-  Use for "check handoff" or "handoff status" in Code. Never claims or acts.
+  Use for "check handoff" or "handoff status" in a coding agent session.
+  Never claims or acts.
   Not for claude.ai chat.
 ---
 
@@ -15,13 +17,26 @@ description: >-
 
 You are running `/relay:check`. Report only. Do not claim locks, move, delete, edit, or Execute.
 
-Contract: [format.md](../../references/format.md), [storage.md](../../references/storage.md). Remote lookups use **`list`** (filenames only, pagination followed to the end). Never `read` a pending body. Never guess when a listing cannot finish — report **unknown**. Check does not call `create_if_absent`, `move`, `delete`, or `create_folder`.
+Contract: [format.md](references/format.md), [storage.md](references/storage.md). Remote lookups use **`list`** (filenames only, pagination followed to the end). Never `read` a pending body. Never guess when a listing cannot finish — report **unknown**. Check does not call `create_if_absent`, `move`, `delete`, or `create_folder`.
 
 ## Step 1: Resolve remote
 
-Resolve before any remote path (pure env; no network). Same rules as `relay_resolve_remote` in `../../scripts/relay-lib.sh` and storage.md § Env:
+Resolve before any remote path (pure env; no network). Same rules as `relay_resolve_remote` in `../../scripts/relay-lib.sh` and storage.md § Env (process env, or `~/.config/relay/env` when unset):
 
 ```bash
+# RELAY_* from ~/.config/relay/env when unset (same rules as relay_load_env_file)
+relay_env="${XDG_CONFIG_HOME:-$HOME/.config}/relay/env"
+if [ -r "$relay_env" ]; then
+  while IFS= read -r l || [ -n "$l" ]; do
+    case "$l" in
+      *"$(printf '\t')"*|*"$(printf '\r')"*) continue ;;
+      RELAY_BACKEND=*) [ -n "${RELAY_BACKEND+x}" ] || export RELAY_BACKEND="${l#*=}" ;;
+      RELAY_ROOT=*) [ -n "${RELAY_ROOT+x}" ] || export RELAY_ROOT="${l#*=}" ;;
+      RELAY_LEGACY_ROOT=*) [ -n "${RELAY_LEGACY_ROOT+x}" ] || export RELAY_LEGACY_ROOT="${l#*=}" ;;
+      RELAY_DROPBOX_ROOT=*) [ -n "${RELAY_DROPBOX_ROOT+x}" ] || export RELAY_DROPBOX_ROOT="${l#*=}" ;;
+    esac
+  done < "$relay_env"
+fi
 backend="" root="" legacy="" relay_status="off"
 if [ -n "${RELAY_ROOT:-}" ]; then
   root="$RELAY_ROOT"
@@ -50,6 +65,8 @@ printf 'backend=%s status=%s root=%s legacy=%s\n' \
   "${backend:-none}" "$relay_status" "$([ -n "$root" ] && echo set || echo unset)" \
   "$([ -n "$legacy" ] && echo set || echo unset)"
 ```
+
+Without the Dropbox MCP `create_file` tool, follow storage.md § Without the Dropbox MCP.
 
 Print one **resolver status** line from that output. You may show the resolved root and legacy root values from the environment. Do not invent a path.
 

@@ -1,17 +1,23 @@
 # relay
 
-Cross-surface handoff for Claude: save session intent on one surface and pick
-it up on another. Surfaces: Claude Code in a git repo, Claude Code outside a
-repo, and claude.ai chat (via a separate private upload-only skill).
+Cross-surface handoff for coding agents: save session intent on one surface and
+pick it up on another. Surfaces: Claude Code in a git repo, Devin, Cursor,
+Antigravity (`agy`), and claude.ai chat (via a separate private upload-only
+skill).
 
 Format contract: [references/format.md](references/format.md). Remote
-operations: [references/storage.md](references/storage.md).
+operations: [references/storage.md](references/storage.md). Each skill carries
+its own `references/` copies of the shared docs; they are kept in sync by the
+kit's sync script.
 
 ## Surfaces and ownership
 
 | Surface | Owner |
 | --- | --- |
 | Claude Code (git repo or not) | `/relay:*` plugin skills in this package |
+| Devin | `devin plugins install` of this plugin per data home; `/relay:*` skills |
+| Cursor | Imports plugins installed in Claude Code (enable Third-Party Imports); `/relay:*` skills. The SessionStart hook runs only for new chats, not the chat already open at window start — open a new chat or run `/relay:pickup` |
+| Antigravity (`agy`) | `agy plugin install` of this plugin; no SessionStart hook — run `/relay:pickup` manually |
 | claude.ai chat | private `relay` chat skill (uploaded separately; not in this repo) |
 
 Exactly one owner per surface. The chat skill defers to `/relay:*` whenever it
@@ -58,8 +64,9 @@ eventual cleanup.
 
 ## Environment
 
-Set in the host's Claude Code `settings.json` `env` block (private config, not
-in this marketplace).
+Values come from the process environment first, then `~/.config/relay/env`
+(`KEY=VALUE` lines, the four `RELAY_*` keys, literal values — no expansion; the
+environment always wins). The file is private config, not in this marketplace.
 
 | Variable | Role |
 | --- | --- |
@@ -103,8 +110,12 @@ MCP tools allowed (mapped to [storage.md](references/storage.md) operations):
 - `delete`
 
 relay never needs `check_job_status`. A repo with a tool-pruning deny list must
-allow these six. Non-lock operations may fall back to `dbxcli` when MCP is
-unavailable; locks always use MCP `create_file`.
+allow these six.
+
+The Dropbox MCP tools are only available in Claude Code. On Devin, Cursor and
+agy, remote access is read-only via `dbxcli` (`ls`/`get` for list and read);
+claims, mirror writes, folder create, move and delete are refused — see
+[storage.md](references/storage.md#without-the-dropbox-mcp-devin-cursor-agy).
 
 ### OneDrive (`RELAY_BACKEND=onedrive`)
 
@@ -150,8 +161,9 @@ claude plugin install relay@nng-kit
 From the plugin directory:
 
 ```bash
-bats tests                   # bats suite
-bash tests/orphan-scan.sh    # orphan-scan fixture; exits 0 and prints the expected orphans
+nix shell nixpkgs#bats --command bats tests   # bats suite
+bash tests/orphan-scan.sh                    # orphan-scan fixture; exits 0 and prints the expected orphans
+bash tests/import-frontmatter.sh             # frontmatter import fixture
 ```
 
 ## Migrating to `docs/relay` and a new root

@@ -7,7 +7,7 @@
       "name": "lifecycle",
       "source": "./plugins/lifecycle",
       "description": "Idea-to-shipped skill chain: brainstorm, make-plan, critique, execute-plan, commit, gh-create-pr, gh-draft-release, gh-tag-release",
-      "version": "0.5.0"
+      "version": "0.10.0"
     },
     {
       "name": "exec-observe",
@@ -18,14 +18,14 @@
     {
       "name": "delegate",
       "source": "./plugins/delegate",
-      "description": "Delegate fleet plan implementation to headless Cursor CLI, Google Antigravity CLI, or Devin CLI while Claude Code gates, reviews, and drives the verdict loop: /delegate:execute-via-cursor, /delegate:execute-via-agy, /delegate:execute-via-devin",
-      "version": "0.4.0"
+      "description": "Delegate fleet plan implementation to headless Cursor CLI, Google Antigravity CLI, or Devin CLI while Claude Code gates, reviews, and drives the verdict loop: /delegate:execute-via-cursor, /delegate:execute-via-agy, /delegate:execute-via-devin; /delegate:review runs the final whole-branch review through the plan's Review runner",
+      "version": "0.7.1"
     },
     {
       "name": "relay",
       "source": "./plugins/relay",
       "description": "Cross-surface handoff: save session intent in a git repo or a remote root, pick it up on any Claude surface",
-      "version": "0.3.0"
+      "version": "0.4.0"
     }
   ]
 }

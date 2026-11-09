@@ -61,8 +61,8 @@ commit_file() { # <repo> <file>
 write_handoff() { # <repo> <file-slug> [dir]
   local dir="${3:-docs/handoffs}"
   mkdir -p "$1/$dir"
-  printf -- '---\nid: %s\ntitle: t\norigin: code\nsaved-at: 2026-10-01T12:00:00Z\n---\nbody\n' \
-    "$2" >"$1/$dir/$2.md"
+  printf -- '---\nid: %s\ntitle: t\norigin: code\nsaved-at: %s\n---\nbody\n' \
+    "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$1/$dir/$2.md"
 }
 
 # Bare origin plus a working clone on main with one commit pushed.
