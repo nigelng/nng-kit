@@ -6,6 +6,11 @@ for plugin users. This file is public: keep private names and paths out.
 
 ## 2026-11-09
 
+- lifecycle 0.12.0: new `/lifecycle:conduct` skill — drives brainstorm →
+  make-plan → critique plan → execute-plan → full critique change, then
+  branch/commit/push or a PR per an up-front finish mode; hands-off after
+  plan approval and downgrades to no-commit on any dirty review or failed
+  verification.
 - delegate 0.8.0: a deterministic verify script
   (`delegate-verify.sh`) replaces the low-tier LLM verifier for
   execution and `/delegate:review` Verification — exit codes 0/1/3/2

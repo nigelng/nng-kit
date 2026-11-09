@@ -101,6 +101,7 @@ Invoke as `/<name>`.
 
 | Skill | Does | Writes to | Commits/pushes? |
 | --- | --- | --- | --- |
+| `conduct` | Runs brainstorm, make-plan, critique plan, execute-plan and full critique change with two human gates, then finishes per up-front mode | Brainstorms, plans, working tree; git branch/commit/push/PR per finish mode | Per up-front finish mode (`push`, `pr`, `none`); never to default branch |
 | `brainstorm` | Goal brief, explore feasibility, roadmap + `/make-plan` handoff | `docs/brainstorms/**` | Never |
 | `make-plan` | Structured plan with an Execution map | `docs/plans/**` | Never |
 | `critique` | Lean independent review of a plan or a change, plus a security pass | Plan file or working tree | Never |

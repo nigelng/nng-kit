@@ -29,6 +29,28 @@ same plan audit metadata as `/execute-plan`.
 ## The chain
 
 ```
+/conduct [idea | artifact-path]    top-plan session; Agent mode; resumes from saved artifacts
+  up-front finish=push|pr|none        push is default; plan=keep|drop; confirm=yes|no
+  Stage 1: brainstorm                reads sibling skills in-session with stage overrides
+  Gate A                             Refine / Continue to plan / Stop
+  Stage 2: make-plan                 writes or updates docs/plans/**
+  Stage 3: critique plan             skips critique only for Plan size: small
+  Gate B (hard)                      Approve / Refine (back to Stage 2) / Abort;
+                                       never bypassed by args; an executed-plan resume
+                                       with a matching plan lock counts as having
+                                       passed Gate B
+  Stage 4: execute-plan              ensures feature branch first unless finish=none
+  Stage 5: critique change           whole branch + working tree + untracked files;
+                                       full review + security, then re-run Verification
+  Stage 6: finish                    push = branch + commit + push (default);
+                                       pr = push + PR + CI watch;
+                                       none = uncommitted, no branch/commit/push/PR
+  downgrade to finish=none            stop before commit and report if execution is not
+                                       completed, final review is dirty/deferred, critique
+                                       leaves blocking/unresolved important findings,
+                                       Verification fails, a hook rejects, or the current
+                                       branch is the default branch at finish
+
 /brainstorm [idea]                 top-tier session; read-only; adaptive Goal brief
   → docs/brainstorms/**              (extract → ask gaps → never empty), explores
   → /make-plan handoff prompt        feasibility, iterates with the user, then emits a
@@ -216,7 +238,12 @@ codebase.
 ## Guardrails carried by every skill in this chain
 
 - **No unapproved commits or pushes.** `/commit` and `/gh-create-pr`/`/gh-tag-release`
-  always present the exact change (message, branch, tag) for approval before acting.
+  standalone always present the exact change (message, branch, tag) for approval
+  before acting. Under [`/conduct`](skills/conduct/SKILL.md), the up-front
+  `finish=push` or `finish=pr` choice is the approval, subject to Gate B and the
+  downgrade rule (`confirm=yes` adds confirmation before commit/PR). It never
+  commits or pushes to the default branch, never force-pushes, and never commits
+  on a dirty or deferred review.
 - **No scope creep past the plan.** Execute skills (`/execute-plan`,
   `/delegate:execute-via-cursor`, `/delegate:execute-via-agy`, `/delegate:execute-via-devin`) implement only what `docs/plans/**` specifies; they do
   not re-plan or expand scope.
@@ -255,6 +282,7 @@ companions ship with the skill.
 
 | Skill | Writes to | Commits/pushes? |
 | --- | --- | --- |
+| `conduct` | Brainstorms, plans, working tree; git branch/commit/push/PR per finish mode | Per up-front finish mode; never to default branch |
 | `brainstorm` | `docs/brainstorms/**` | Never |
 | `make-plan` | `docs/plans/**` | Never (skill); plans committable via `/commit` when tracked-eligible |
 | `critique` | Plan file (plan mode) or working tree (change mode, via a fix subagent) | Never |

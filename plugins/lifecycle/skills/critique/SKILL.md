@@ -15,6 +15,8 @@ High-confidence second opinion on a **plan** or **change**. Not a second
 planning/execute loop. Prefer “Ship as-is” over inventing nits. Auto-apply only
 `blocking` / `important`; leave `nit`s for the user.
 
+> **Under /conduct:** change mode runs in full (the after-execute-plan skip is disabled) over the whole branch diff; see [../conduct/stage-overrides.md](../conduct/stage-overrides.md#critique-change). Standalone behaviour is unchanged.
+
 ## Critique policy A (session / Task tiers)
 
 **Not all critique is Opus.** Split by mode — do not collapse these into one

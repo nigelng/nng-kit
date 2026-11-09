@@ -12,6 +12,8 @@ disable-model-invocation: true
 
 Brainstorm an idea with the user: explore the codebase for feasibility, iterate on the concept until the user is satisfied, then produce a high-level roadmap and a ready-to-use `/make-plan` prompt.
 
+> **Under /conduct:** Step 7 and the "never invoke /make-plan" constraint are replaced by the conductor; see [../conduct/stage-overrides.md](../conduct/stage-overrides.md#brainstorm). Standalone behaviour is unchanged.
+
 This skill is read-only except for persisting its own output. It does not edit code or commit. It produces a prompt that the user can paste into `/make-plan` to turn the agreed idea into an implementation plan.
 
 ## Session model (top-tier)

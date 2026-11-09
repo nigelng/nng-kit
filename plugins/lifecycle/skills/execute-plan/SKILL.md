@@ -12,6 +12,8 @@ disable-model-invocation: true
 
 Execute a structured plan. Orchestrate: locate plan → plan lock → ensure Execution map → pre-flight → **wave-delegated implement** (parallel `generalPurpose` Tasks, tier per step; `delegate:*` rows are not Tasks) → **independent** review loop (mid intermediate, **top** final) until no `blocking`/`important` remain and agreed tests pass.
 
+> **Under /conduct:** Step 3 dirty-tree and critique-plan prompts and Step 6 offers are handled by the conductor; see [../conduct/stage-overrides.md](../conduct/stage-overrides.md#execute-plan). Standalone behaviour is unchanged.
+
 **References (read when needed):** [implementer.md](implementer.md) · [review.md](review.md) · [execution-status.md](execution-status.md) · [../make-plan/drafting-rules.md](../make-plan/drafting-rules.md)
 
 ## Preconditions
