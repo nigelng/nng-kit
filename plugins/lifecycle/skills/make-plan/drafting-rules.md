@@ -66,9 +66,28 @@ Columns and generation rules for the Execution map. Do not restate per-tool pins
 - Insert a `/commit` line before every `/delegate:execute-via-<b>` line that has any execution line before it — delegates refuse a dirty working tree.
 - Then one review line per wave at the strongest Review per batch (`none` < `mid` < `top@*`).
 - Batch reviews for delegate rows run inside the delegate run, at the batch's strongest Review; the per-wave review line is informational.
+- **Small plans** (see Small plans below) omit the per-wave review lines entirely.
 - Then one final whole-branch review line naming the final `top` | `session` review row `<ID>` (Review `top@claude-task` unless the planner names another `top@*`): `Final whole-branch review — top@<x> — /execute-plan <plan> <ID>` for `top@session` / `top@claude-task`, else `Final whole-branch review — top@<x> — /delegate:review <plan> <ID>`.
 
 **Size budget:** keep the body (per SoT in `../execute-plan/execution-status.md`) under about 15 KB. Risk registers, decision records and long evidence go to a sibling `<plan-file>.notes.md` (same basename with `.notes.md` in place of `.md`), which only `top` rows and reviews read.
+
+## Small plans
+
+A plan is **small** when all of these hold:
+
+- The map has at most 4 non-`top` rows, all in wave 1.
+- There is exactly one `top` row: the final whole-branch review.
+- The planner judges it touches no trust boundary (auth, secrets, permissions, CI credentials, network exposure).
+
+When small, record `- **Plan size:** small` under **Assumptions** (in the body, so the plan lock covers it). A missing Plan size line means normal plan behavior.
+
+Effects:
+
+1. Dispatch omits the per-wave review lines and keeps only the final whole-branch review line.
+2. `/make-plan`'s closing offer does not recommend `/critique plan` (still offered on request).
+3. `/execute-plan`'s review loop starts at the top-tier final pass — no mid passes. A dirty final follows the existing dirty-final path (fix → re-verify → one mid confirmation → stop).
+
+The hard cap is unchanged.
 
 ## Runner policy
 

@@ -98,7 +98,7 @@ Re-run validation after legacy confirm/persist (or when the map was already pres
 3. If working tree not clean, warn and ask proceed / stash / abort.
 4. Determine test / build / lint / type-check tooling from manifests, Verification, and common config.
 5. Build a **Quality toolkit** for every implementation Task: unit/integration commands (prefer path-scoped), lint, type-check/format-check, and **Coverage** (if Verification says available: command + target, else plan target or **90%**; if not available, do not invent a gate).
-6. **Optional:** if the plan was not stress-tested via `/critique plan`, offer that first; do not block if they decline.
+6. **Optional:** if the plan was not stress-tested via `/critique plan` and does not record `Plan size: small`, offer that first; do not block if they decline.
 
 ## Status audit (orchestrator dual-write)
 

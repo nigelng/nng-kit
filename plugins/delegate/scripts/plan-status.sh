@@ -9,7 +9,7 @@ usage() {
   echo "       plan-status.sh rows [--reexecute] <plan> <backend> [ID...]" >&2
   echo "       plan-status.sh start <plan> <last_skill> <rows-json> [--now TS] [--reexecute]" >&2
   echo "       plan-status.sh batch <plan> <last_skill> --done ID... [--failed ID...] [--now TS]" >&2
-  echo "       plan-status.sh terminal <plan> <last_skill> <rows-json> --outcome pass|fail|abort --backend B --model-requested S --model-resolved S --effort E --started TS --findings N --fix-loops N --fallback R|null [--done ID...] [--notes TEXT] [--now TS]" >&2
+  echo "       plan-status.sh terminal <plan> <last_skill> <rows-json> --outcome pass|fail|abort --backend B --model-requested S --model-resolved S --effort E --started TS --findings N --fix-loops N --fallback R|null [--usage <json>] [--done ID...] [--notes TEXT] [--now TS]" >&2
   echo "       plan-status.sh review <plan> [ID] --outcome pass|fail --runner <top@…> --findings N [--notes TEXT] [--now TS]" >&2
 }
 
@@ -1653,6 +1653,9 @@ emit_exec_block() {
   emit_line "      effort: $(yaml_quote "$RUN_EFFORT")"
   emit_line "      started_at: $(yaml_quote "$RUN_STARTED")"
   emit_line "      ended_at: $(yaml_quote "$updated")"
+  emit_line "      tokens_in: $RUN_TOKENS_IN"
+  emit_line "      tokens_cached: $RUN_TOKENS_CACHED"
+  emit_line "      tokens_out: $RUN_TOKENS_OUT"
   emit_line "      review_findings: $RUN_FINDINGS"
   emit_line "      fix_loops: $RUN_LOOPS"
   if [[ "$RUN_FALLBACK" == null ]]; then
@@ -1670,7 +1673,7 @@ emit_run_md() {
   fi
   emit_line "### Run ${NOW_TS} (${RUN_SKILL})"
   emit_line "- Outcome: ${RUN_OUTCOME}"
-  emit_line "- Run: backend=${RUN_BACKEND} model=${RUN_REQUESTED}→${RUN_RESOLVED} effort=${RUN_EFFORT} findings=${RUN_FINDINGS} fix_loops=${RUN_LOOPS} fallback=${fb} (${RUN_STARTED}→${NOW_TS})"
+  emit_line "- Run: backend=${RUN_BACKEND} model=${RUN_REQUESTED}→${RUN_RESOLVED} effort=${RUN_EFFORT} findings=${RUN_FINDINGS} fix_loops=${RUN_LOOPS} fallback=${fb} tokens_in=${RUN_TOKENS_IN} tokens_cached=${RUN_TOKENS_CACHED} tokens_out=${RUN_TOKENS_OUT} (${RUN_STARTED}→${NOW_TS})"
   if [[ -n "$RUN_NOTES" ]]; then
     emit_line "- Notes: ${RUN_NOTES}"
   else
@@ -1975,7 +1978,8 @@ require_count() {
 
 cmd_terminal() {
   local plan skill rows now="" outcome="" backend="" requested="" resolved_raw="" effort=""
-  local started_run="" findings="" loops="" fallback="" notes=""
+  local started_run="" findings="" loops="" fallback="" notes="" usage_json=""
+  local tokens_in=null tokens_cached=null tokens_out=null
   local -a done_ids=()
   local saw_fallback=0 saw_outcome=0 saw_backend=0 saw_requested=0 saw_resolved=0
   local saw_effort=0 saw_started=0 saw_findings=0 saw_loops=0
@@ -2047,6 +2051,11 @@ cmd_terminal() {
         saw_fallback=1
         shift 2
         ;;
+      --usage)
+        [[ $# -ge 2 ]] || die_usage
+        usage_json=$2
+        shift 2
+        ;;
       --notes)
         [[ $# -ge 2 ]] || die_usage
         notes=$2
@@ -2080,6 +2089,20 @@ cmd_terminal() {
   require_iso_ts "$started_run"
   require_count "$findings"
   require_count "$loops"
+  if [[ -n "$usage_json" ]]; then
+    if ! jq -e '
+      type == "object"
+      and has("tokens_in") and has("tokens_cached") and has("tokens_out")
+      and ((.tokens_in == null) or (.tokens_in | type == "number" and . >= 0 and . == floor))
+      and ((.tokens_cached == null) or (.tokens_cached | type == "number" and . >= 0 and . == floor))
+      and ((.tokens_out == null) or (.tokens_out | type == "number" and . >= 0 and . == floor))
+    ' <<<"$usage_json" >/dev/null 2>&1; then
+      die_usage
+    fi
+    tokens_in=$(jq -r '.tokens_in' <<<"$usage_json")
+    tokens_cached=$(jq -r '.tokens_cached' <<<"$usage_json")
+    tokens_out=$(jq -r '.tokens_out' <<<"$usage_json")
+  fi
   if [[ -n "$now" ]]; then
     require_iso_ts "$now"
   else
@@ -2141,6 +2164,9 @@ cmd_terminal() {
   RUN_FINDINGS=$findings
   RUN_LOOPS=$loops
   RUN_FALLBACK=$(single_line "$fallback")
+  RUN_TOKENS_IN=$tokens_in
+  RUN_TOKENS_CACHED=$tokens_cached
+  RUN_TOKENS_OUT=$tokens_out
   RUN_OUTCOME=$status
   RUN_NOTES=$(single_line "$notes")
   commit_write "$plan" "$status" "$skill" "$now" "$started" "$completed" 1

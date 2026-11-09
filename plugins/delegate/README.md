@@ -65,6 +65,8 @@ Committed under `plugins/delegate/scripts/` (mode `100644`, run with `bash`):
 | `delegate-launch.sh` | Build and run the backend CLI (headless background, or `--interactive` / `--print`) |
 | `delegate-verdict.sh` | Classify one run's logs (`ok`, model, session id) |
 | `delegate-review-launch.sh` | Review git guard (`snapshot`/`check`), `scope` check, external read-only reviewer `run`, and `verdict` (review trailer → JSON) |
+| `delegate-verify.sh` | Run Verification commands from the repo root → `PASS` / `FAIL` / `FAIL (tree changed)` |
+| `delegate-usage.sh` | Sum token usage over a run's launch files (feeds `terminal --usage`) |
 
 Skills invoke them as `bash <skill-dir>/../../scripts/<name>.sh` (see
 [execute-via-core.md](references/execute-via-core.md)).
@@ -89,7 +91,7 @@ Each delegated batch is reviewed at the strongest `Review` value among its
 selected rows (`none` < `mid` < `top@*`; rows in one batch share one
 `top@*`). The reviewer is read-only: it reviews a brief that already
 contains the host verifier summary and the `scope` JSON, and it never runs
-Verification itself (a low-tier host verifier does). Reviewers:
+Verification itself (the host verify script does). Reviewers:
 
 - `top@session` — this Claude Code session (the host) reviews the brief.
 - `top@claude-task` — a read-only `Task(model: "opus")` subagent.
@@ -98,7 +100,7 @@ Verification itself (a low-tier host verifier does). Reviewers:
 - `top@cursor-ask` — Cursor `agent -p --mode=ask`.
 - `top@agy-plan` — Antigravity `agy --mode plan`.
 - `mid` — a read-only `Task(model: "sonnet")`.
-- `none` — no review; clean only when the verifier says PASS and the scope
+- `none` — no review; clean only when the verify script says PASS and the scope
   check found nothing.
 
 External runners are preflighted (`which`, and the exact model pin from
@@ -132,7 +134,8 @@ shows its summary when the run ends.
 Every finished run (PASS, FAIL or abort) appends one `runs:` entry to the plan's
 `execution:` frontmatter and a matching `Run:` line in its `### Run` stanza:
 backend, the requested model, the model the CLI actually reported (verbatim,
-or `auto(unresolved)` when it reports none), effort, start and end, review
+or `auto(unresolved)` when it reports none), effort, start and end, token
+usage (`tokens_in`/`tokens_cached`/`tokens_out`, `null` when unknown), review
 findings, FIX loops, and the fallback reason if a non-pinned model ran. Field
 definitions live in [execution-status.md](references/execution-status.md).
 Compare models across plans by counting findings per run in these records.
@@ -149,6 +152,8 @@ batch reviews, `final-<k>` for `/delegate:review`).
 | `.claude/tmp/exec-<backend>-fix-<n>.md` | Fix brief for verdict-loop round `<n>` |
 | `.claude/tmp/exec-<backend>-questions.md` | Questions the backend raised for Claude |
 | `.claude/tmp/exec-<backend>-rows.json` | Selected map rows from `plan-status.sh rows` (written in Step 4) |
+| `.claude/tmp/exec-<backend>-verify.txt` | Verification commands for `delegate-verify.sh` |
+| `.claude/tmp/exec-<backend>-verify.out` | Verify script output (the verifier summary) |
 | `.claude/tmp/exec-run-<backend>-<n>.ndjson` | Run event stream (stdout) for `cursor` and `agy` |
 | `.claude/tmp/exec-run-devin-<n>.json` | Devin conversation export |
 | `.claude/tmp/exec-run-devin-<n>.out` | Devin stdout |
@@ -160,6 +165,7 @@ batch reviews, `final-<k>` for `/delegate:review`).
 | `.claude/tmp/exec-review-<rid>.exit` | Reviewer exit code |
 | `.claude/tmp/exec-review-<rid>.snap` | Guard snapshot taken before the review |
 | `.claude/tmp/exec-review-<rid>.guard.json` | Guard result from `check` (`clean`, `head_moved`, `reverted`, `removed`) |
+| `.claude/tmp/exec-review-final-verify.txt` / `.out` | Verification commands and verify script output for `/delegate:review` |
 
 ## Data egress and trust
 
@@ -211,17 +217,18 @@ From plugin root (`nng-kit/plugins/delegate/`):
 
 - `bash tests/contract.sh`
 - `bash tests/test-plan-status.sh`, `bash tests/test-delegate-launch.sh`,
-  `bash tests/test-delegate-verdict.sh`,
+  `bash tests/test-delegate-verdict.sh`, `bash tests/test-delegate-verify.sh`,
+  `bash tests/test-delegate-usage.sh`,
   `bash tests/test-delegate-review-launch.sh` (or `bash tests/test-*.sh`)
 
 From repo root, prefix paths with `nng-kit/plugins/delegate/` (e.g.
-`bash nng-kit/plugins/delegate/tests/contract.sh` and the same for the four
+`bash nng-kit/plugins/delegate/tests/contract.sh` and the same for the
 `test-*.sh` suites).
 
 `contract.sh` checks flags that `delegate-launch.sh` emits via `--print` and
 `--interactive` against `AGENT_FLAGS` / `AGY_FLAGS` / `DEVIN_FLAGS` and the
 committed help fixtures; runs `delegate-verdict.sh` on PATH-shim stub logs;
-asserts remaining Devin skill strings; then runs the four `test-*.sh` suites.
+asserts remaining Devin skill strings; then runs the `test-*.sh` suites.
 Antigravity (`agy`) cases always run (no feature gate, no optional skip).
 
 Maintainers also run a live version/flag check and an authenticated smoke outside

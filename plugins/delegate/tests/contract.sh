@@ -10,7 +10,8 @@
 #     (--mode=ask, --mode plan, --permission-mode auto) and omits
 #     --force / --dangerously-skip-permissions / dangerous.
 # Ends by running tests/test-plan-status.sh, tests/test-delegate-launch.sh,
-# tests/test-delegate-verdict.sh, and tests/test-delegate-review-launch.sh.
+# tests/test-delegate-verdict.sh, tests/test-delegate-verify.sh,
+# tests/test-delegate-usage.sh, and tests/test-delegate-review-launch.sh.
 # AGENT_FLAGS / AGY_FLAGS / DEVIN_FLAGS below are read by scripts/check-delegate-cli.sh
 # (first line matching ^NAME=\(, words never eval'd). Keep them unindented.
 set -euo pipefail
@@ -826,6 +827,8 @@ run_suite() {
 run_suite test-plan-status.sh
 run_suite test-delegate-launch.sh
 run_suite test-delegate-verdict.sh
+run_suite test-delegate-verify.sh
+run_suite test-delegate-usage.sh
 run_suite test-delegate-review-launch.sh
 
 echo "1..$n"

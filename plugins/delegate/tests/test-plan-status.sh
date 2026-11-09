@@ -915,7 +915,7 @@ assert_file_has "pass all-done S2" "$work/pass-all.md" "| S2 | done | |"
 assert_file_has "pass run heading" "$work/pass-all.md" "### Run 2026-04-01T02:00:00Z (execute-via-cursor)"
 assert_file_has "pass run outcome" "$work/pass-all.md" "- Outcome: completed"
 assert_file_has "pass run line" "$work/pass-all.md" \
-  "- Run: backend=cursor model=grok-4.7-high${AR}Grok 4.7 256K High effort=high findings=0 fix_loops=0 fallback=none (2026-04-01T00:00:00Z${AR}2026-04-01T02:00:00Z)"
+  "- Run: backend=cursor model=grok-4.7-high${AR}Grok 4.7 256K High effort=high findings=0 fix_loops=0 fallback=none tokens_in=null tokens_cached=null tokens_out=null (2026-04-01T00:00:00Z${AR}2026-04-01T02:00:00Z)"
 assert_file_has "pass run notes" "$work/pass-all.md" "- Notes: wave ok"
 assert_file_has "pass runs skill indent" "$work/pass-all.md" "    - skill: execute-via-cursor"
 assert_file_has "pass runs backend indent" "$work/pass-all.md" "      backend: cursor"
@@ -925,7 +925,59 @@ assert_file_has "pass runs effort quoted" "$work/pass-all.md" '      effort: "hi
 assert_file_has "pass runs fallback null" "$work/pass-all.md" "      fallback: null"
 assert_file_has "pass runs outcome" "$work/pass-all.md" "      outcome: completed"
 assert_file_has "pass runs findings" "$work/pass-all.md" "      review_findings: 0"
+assert_file_has "pass runs tokens_in null" "$work/pass-all.md" "      tokens_in: null"
+assert_file_has "pass runs tokens_cached null" "$work/pass-all.md" "      tokens_cached: null"
+assert_file_has "pass runs tokens_out null" "$work/pass-all.md" "      tokens_out: null"
 assert_count "pass one runs entry" "$work/pass-all.md" '^    - skill:' 1
+
+# terminal --usage writes token fields into the runs entry and Run line
+term_base "$work/usage.md"
+run_cmd bash "$SCRIPT" rows "$work/usage.md" cursor
+assert_rc "usage rows exits 0" 0
+printf '%s\n' "$LAST_OUT" >"$work/usage-rows.json"
+run_cmd bash "$SCRIPT" start "$work/usage.md" execute-via-cursor "$work/usage-rows.json" --now 2026-04-01T00:00:00Z
+assert_rc "usage start exits 0" 0
+run_cmd bash "$SCRIPT" terminal "$work/usage.md" execute-via-cursor "$work/usage-rows.json" \
+  --outcome pass --backend cursor --model-requested grok-4.7-high \
+  --model-resolved "Grok 4.7 256K High" --effort high \
+  --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 --fallback null \
+  --usage '{"tokens_in":1200,"tokens_cached":3400,"tokens_out":256}' \
+  --now 2026-04-01T02:00:00Z
+assert_rc "terminal --usage exits 0" 0
+assert_file_has "usage tokens_in" "$work/usage.md" "      tokens_in: 1200"
+assert_file_has "usage tokens_cached" "$work/usage.md" "      tokens_cached: 3400"
+assert_file_has "usage tokens_out" "$work/usage.md" "      tokens_out: 256"
+assert_file_has "usage run line tokens" "$work/usage.md" \
+  "tokens_in=1200 tokens_cached=3400 tokens_out=256 (2026-04-01T00:00:00Z${AR}2026-04-01T02:00:00Z)"
+
+# partial nulls are allowed; bad shapes are usage errors
+term_base "$work/usage-null.md"
+run_cmd bash "$SCRIPT" rows "$work/usage-null.md" cursor
+assert_rc "usage-null rows exits 0" 0
+printf '%s\n' "$LAST_OUT" >"$work/usage-null-rows.json"
+run_cmd bash "$SCRIPT" start "$work/usage-null.md" execute-via-cursor "$work/usage-null-rows.json" --now 2026-04-01T00:00:00Z
+assert_rc "usage-null start exits 0" 0
+run_cmd bash "$SCRIPT" terminal "$work/usage-null.md" execute-via-cursor "$work/usage-null-rows.json" \
+  --outcome pass --backend agy --model-requested gemini-4-argon-medium \
+  --model-resolved "gemini-4-argon-medium" --effort high \
+  --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 --fallback null \
+  --usage '{"tokens_in":null,"tokens_cached":10,"tokens_out":null}' \
+  --now 2026-04-01T02:00:00Z
+assert_rc "terminal --usage partial null exits 0" 0
+assert_file_has "usage-null tokens_in" "$work/usage-null.md" "      tokens_in: null"
+assert_file_has "usage-null tokens_cached" "$work/usage-null.md" "      tokens_cached: 10"
+assert_file_has "usage-null tokens_out" "$work/usage-null.md" "      tokens_out: null"
+
+for bad in 'not json' '{"tokens_in":-1,"tokens_cached":null,"tokens_out":null}' \
+  '{"tokens_in":"5","tokens_cached":null,"tokens_out":null}' \
+  '{"tokens_in":1,"tokens_out":null}' ; do
+  run_cmd bash "$SCRIPT" terminal "$work/usage.md" execute-via-cursor "$work/usage-rows.json" \
+    --outcome pass --backend cursor --model-requested grok-4.7-high \
+    --model-resolved "Grok 4.7 256K High" --effort high \
+    --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 --fallback null \
+    --usage "$bad" --now 2026-04-01T03:00:00Z
+  assert_rc "terminal --usage bad json rc 2 ($bad)" 2
+done
 
 # acceptable skip (not scheduled) still completes; out-of-step-scope does not
 write_stamped "$work/pass-skip.md" <<EOF

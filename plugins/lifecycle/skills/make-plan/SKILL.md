@@ -88,7 +88,7 @@ Show the full plan in the chat and share the file path.
 
 ## Step 7 — Offer next steps
 
-Offer: **Refine** · **Review** (`/critique plan`) · **Proceed** (`/execute-plan <path>`, Agent mode). Wait for the user's choice. Do not start implementing unless explicitly asked.
+Offer: **Refine** · **Review** (`/critique plan`) · **Proceed** (`/execute-plan <path>`, Agent mode). Wait for the user's choice. Do not start implementing unless explicitly asked. For small plans (see Small plans in drafting-rules.md) the offer is **Refine** · **Proceed** — Review only if asked.
 
 ## Constraints
 

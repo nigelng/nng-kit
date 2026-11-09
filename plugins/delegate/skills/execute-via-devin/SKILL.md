@@ -13,7 +13,7 @@ disable-model-invocation: true
 
 **Devin (`devin`) implements**; **Claude gates, briefs, and reviews**. Never commit without a separate `/commit`. Claude Code only.
 
-Read [execute-via-core.md](../../references/execute-via-core.md) first (arg parse, Steps 1–8, status audit, model default, shared constraints), plus [brief-template.md](../../references/brief-template.md), [verifier-brief.md](../../references/verifier-brief.md), [execution-status.md](../../references/execution-status.md), and [model-tiers.md](../../references/model-tiers.md).
+Read [execute-via-core.md](../../references/execute-via-core.md) first (arg parse, Steps 1–8, status audit, model default, shared constraints), plus [brief-template.md](../../references/brief-template.md), [execution-status.md](../../references/execution-status.md), and [model-tiers.md](../../references/model-tiers.md).
 
 Do not hand-build headless `devin` argv. `<skill-dir>` is this file's directory; paste that literal absolute path:
 

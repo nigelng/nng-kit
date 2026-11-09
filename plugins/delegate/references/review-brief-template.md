@@ -104,8 +104,9 @@ and omit the per-row step text.
 
 ## Verifier summary
 
-The low-tier verifier's output (`command | exit | last 20 lines on failure`,
-then `PASS` or `FAIL`), pasted unchanged.
+The verify script's output (`$ <command>`, `exit: <n>`, last 20 output lines
+on failure, then `PASS`, `FAIL`, `FAIL (tree changed)` or `PASS (no commands)`),
+pasted unchanged.
 
 {{VERIFIER_SUMMARY}}
 

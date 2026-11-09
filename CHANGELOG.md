@@ -6,6 +6,17 @@ for plugin users. This file is public: keep private names and paths out.
 
 ## 2026-11-09
 
+- delegate 0.8.0: a deterministic verify script
+  (`delegate-verify.sh`) replaces the low-tier LLM verifier for
+  execution and `/delegate:review` Verification — exit codes 0/1/3/2
+  distinguish pass, command failure, tree mutation and usage error;
+  `runs:` records now store token usage (`tokens_in`, `tokens_cached`,
+  `tokens_out`) collected by `delegate-usage.sh` from Cursor,
+  Antigravity and Devin run outputs.
+- lifecycle 0.11.0: small-plan fast lane — plans the planner records
+  `Plan size: small` skip the per-wave review lines and the mid-tier
+  review passes (final top-tier pass unchanged); the `runs:` schema
+  gains the token fields above.
 - delegate 0.7.1: `execute-via-core.md` trimmed by about a quarter
   (37.5 KB → 27 KB) — model default and fallback fields are stated once
   (one table the status audit and verdict steps refer to); external

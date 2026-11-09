@@ -6,14 +6,15 @@ the plan on a branch; **Claude gates, briefs, reviews**; may propose commit text
 without `/commit`. Launch argv, run classification, plan-status writes come from plugin scripts; CLI
 install/auth/model-list checks stay in the calling `SKILL.md`.
 
-**References:** [brief-template.md](brief-template.md) · [verifier-brief.md](verifier-brief.md) ·
+**References:** [brief-template.md](brief-template.md) ·
 [execution-status.md](execution-status.md) · [review-brief-template.md](review-brief-template.md) ·
 [model-tiers.md](model-tiers.md). From `skills/<name>/SKILL.md` use `../../references/` prefix.
 
 **Scripts** (from `skills/<name>/SKILL.md`): `plan-status.sh` (`lock`,`rows`,`start`,`batch`,
 `terminal`) · `delegate-launch.sh` (headless run or `--interactive` text) ·
 `delegate-review-launch.sh` (`snapshot`/`check`/`scope`/`run`/`verdict`) · `delegate-verdict.sh`
-(classify one run's logs).
+(classify one run's logs) · `delegate-verify.sh` (run Verification commands → PASS/FAIL) ·
+`delegate-usage.sh` (token totals for `terminal --usage`).
 
 `<skill-dir>` = calling `SKILL.md` dir. Run every script as
 `bash <skill-dir>/../../scripts/<name>.sh` with the **literal absolute** `<skill-dir>`.
@@ -223,7 +224,7 @@ on `terminal`.
    bash <skill-dir>/../../scripts/plan-status.sh terminal <plan> <last_skill> .claude/tmp/exec-<backend>-rows.json \
      --outcome pass|fail|abort --backend <backend> --model-requested <slug> --model-resolved "<resolved>" \
      --effort <effort> --started <TS> --findings <N> --fix-loops <N> --fallback "<reason-or-null>" \
-     [--done ID...] [--notes "<TEXT>"]
+     [--usage <json>] [--done ID...] [--notes "<TEXT>"]
    ```
 
    - `--outcome` per verdict; overall `completed`/`partial` per execution-status.md (do not claim
@@ -231,6 +232,14 @@ on `terminal`.
    - Model flags: shell-quote the CLI arg (script YAML-quotes it); values per **Model default**.
    - `--findings`/`--fix-loops` = `review_findings`/`fix_loops` per execution-status.md; `--notes` =
      one short paragraph.
+   - Token usage: before `terminal`, sum this run's launches —
+
+     ```bash
+     bash <skill-dir>/../../scripts/delegate-usage.sh <backend> /absolute/repo/root <n> [<n>...]
+     ```
+
+     over every implement and FIX `<n>` of this run — and pass its stdout JSON as
+     `--usage '<json>'`. `safe`/`no-force` has no run files (all `null`); omit `--usage`.
    - Write on FAIL and abort too. `safe`/`no-force` run has no verdict JSON (fields per **Model
      default**).
 
@@ -261,7 +270,8 @@ rm -f .claude/tmp/exec-<backend>-brief.md \
       .claude/tmp/exec-<backend>-fix-*.md \
       .claude/tmp/exec-<backend>-questions.md \
       .claude/tmp/exec-<backend>-rows.json \
-      .claude/tmp/exec-<backend>-verifier.md \
+      .claude/tmp/exec-<backend>-verify.txt \
+      .claude/tmp/exec-<backend>-verify.out \
       .claude/tmp/exec-review-<backend>-* \
       .claude/tmp/exec-run-<backend>-*
 ```
@@ -356,19 +366,23 @@ bash <skill-dir>/../../scripts/delegate-verdict.sh <backend> /absolute/repo/root
 
 ## Step 7 — Claude review (independent of the backend's report)
 
-1. Before building `.claude/tmp/exec-<backend>-verifier.md`, re-check `plan-status.sh lock <plan>`
-   (must match Step 1) and use Step 4 `selected`/`files_union` (backend-modified plan body or
-   `<rows-json>` → flag as backend violation, skip the verifier Task). Fill
-   [verifier-brief.md](verifier-brief.md) into `.claude/tmp/exec-<backend>-verifier.md`; keep the
-   static block. `{{COMMANDS}}` = each selected row's `acceptance` (one per row; a pipeline stays one
-   line) then each copy-pastable plan Verification command; `{{REPO_ROOT}}` = recorded repo root.
-   Skip empty acceptance and non-command prose.
-2. Snapshot the tree (`git status --porcelain`; record output), then run a read-only low-tier
-   verifier Task: `Task(model: "haiku")`; low unavailable → `mid` (`Task(model: "sonnet")`, claude-code
-   `mid` in [model-tiers.md](model-tiers.md)). Runs commands from the repo root; must not edit files
-   or git state.
-3. Snapshot `git status --porcelain` again; if it differs from the pre-Task snapshot, discard the
-   verifier summary and flag the verifier — its PASS/FAIL is not evidence.
+1. Before verifying, re-check `plan-status.sh lock <plan>` (must match Step 1) and use Step 4
+   `selected`/`files_union` (backend-modified plan body or `<rows-json>` → flag as backend
+   violation, skip verification). Write `.claude/tmp/exec-<backend>-verify.txt`, one command per
+   line: each selected row's `acceptance` (a pipeline stays one line) then each copy-pastable plan
+   Verification command. Skip empty acceptance and non-command prose.
+2. Run the verify script from the repo root:
+
+   ```bash
+   bash <skill-dir>/../../scripts/delegate-verify.sh /absolute/repo/root \
+     .claude/tmp/exec-<backend>-verify.txt > .claude/tmp/exec-<backend>-verify.out
+   ```
+
+   Exit 0 → verifier PASS; exit 1 → verifier FAIL; exit 3 → a Verification command modified the
+   tree — stop and ask (never treat it as PASS); exit 2 → stop and show stderr. The script owns
+   the tree snapshots; do not re-run commands yourself.
+3. The "verifier summary" everywhere below is the contents of
+   `.claude/tmp/exec-<backend>-verify.out`, pasted unchanged into review briefs.
 4. **Scope check** — mechanical path check:
 
    ```bash

@@ -21,7 +21,6 @@ briefs, and reviews. Never commit without a separate `/commit`.
 Read [execute-via-core.md](../../references/execute-via-core.md) first (arg
 parse, Steps 1–8, Model default, Status audit, exit codes, shared constraints),
 plus [brief-template.md](../../references/brief-template.md),
-[verifier-brief.md](../../references/verifier-brief.md),
 [execution-status.md](../../references/execution-status.md), and
 [model-tiers.md](../../references/model-tiers.md). Follow core. Do not
 hand-build `agent` argv. `<skill-dir>` is this file's absolute directory; paste
@@ -96,8 +95,8 @@ bash <skill-dir>/../../scripts/delegate-verdict.sh cursor /absolute/repo/root <n
 Step 5 default: background `brief` (`run_in_background: true`; do not `sleep`).
 `safe` / `no-force`: `--interactive` only, then skip Steps 3 and 6. Step 6 is
 `delegate-verdict.sh` only — do not parse `.ndjson` here. Step 8: `fix:<n>`,
-passing `session_id` when Step 6 returned one. Step 7 verifier Task is core
-(`Task(model: "haiku")`, else mid).
+passing `session_id` when Step 6 returned one. Step 7 verification is core's
+verify script (`delegate-verify.sh`).
 
 ## Flags
 

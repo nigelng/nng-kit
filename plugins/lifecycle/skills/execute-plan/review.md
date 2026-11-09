@@ -8,6 +8,7 @@ The review must be run by a **different subagent** than any that implemented. Us
 
 Hard cap: **5** review passes total (mid-tier, final, confirmation, and escalation all count).
 
+0. If the plan records `Plan size: small` (see [Small plans](../make-plan/drafting-rules.md#small-plans)), skip steps 1–2 and go to step 3 — the loop starts at the top-tier final pass. A dirty final still follows step 3's dirty-final path.
 1. Run a **mid-tier** review pass.
 2. If dirty (`blocking`/`important`): fix → re-verify → go to 1 (next mid-tier pass).
 3. On the **first clean** mid-tier pass: run **one** top-tier **final** pass.

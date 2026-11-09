@@ -66,7 +66,7 @@ Filter the tier’s chain to the active tool; first available uncapped model win
 - `top@cursor-ask` = Cursor `top-review` pin with `--mode=ask`
 - `top@agy-plan` = agy `top-review` pin with `--mode plan` (until 2026-11-26)
 
-External runners (`top@devin-fusion`, `top@cursor-ask`, `top@agy-plan`) run through the delegate plugin's review launcher. They read the host's low-tier verifier summary and never run Verification themselves, and they run under a git guard that reverts any reviewer edit. A reviewer failure (launch error, quota, timeout, guard trip, missing or inconsistent verdict) → stop and ask: retry, `top@claude-task`, or abort.
+External runners (`top@devin-fusion`, `top@cursor-ask`, `top@agy-plan`) run through the delegate plugin's review launcher. They read the host's verify-script summary and never run Verification themselves, and they run under a git guard that reverts any reviewer edit. A reviewer failure (launch error, quota, timeout, guard trip, missing or inconsistent verdict) → stop and ask: retry, `top@claude-task`, or abort.
 
 <!-- tiers:summary:start -->
 top-plan: claude-opus-5-5-high→fusion-claude-opus-5-5-high-sidekick-swe-2-flash-max

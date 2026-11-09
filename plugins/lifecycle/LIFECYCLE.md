@@ -156,7 +156,10 @@ or "tag to trigger CI publish."
   and the body hash live in
   [skills/execute-plan/execution-status.md](skills/execute-plan/execution-status.md)
   (Plan metadata / Plan lock / Plan recency) — do not restate here. Biased to
-  smallest mechanical units / prefer **low** tier. Plans may be committed with the feature (`/commit`
+  smallest mechanical units / prefer **low** tier. A plan that qualifies under
+  **Small plans** in [skills/make-plan/drafting-rules.md](skills/make-plan/drafting-rules.md)
+  records `Plan size: small` under Assumptions and skips the per-wave review
+  lines plus the mid-tier review passes. Plans may be committed with the feature (`/commit`
   when tracked-eligible); `/gh-create-pr` asks **Keep/Drop** per plan on the
   branch so `main` does not accumulate stale plans.
 - **Built-in Plan** (Cursor Plan mode / Claude Code `/plan`) — same "ready for

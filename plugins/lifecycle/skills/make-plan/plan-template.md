@@ -35,6 +35,7 @@ execution:
 - <assumption; mark `[verified]` or `[unverified]`>
 - **Architecture docs (from scan):** <paths / canonical, or "none found"; note if create-under-`docs/architecture/` needed>
 - **Runner policy:** <auto | pin <tool> | order <list> | round-robin [<list>]>
+- **Plan size:** small  (optional — only when the plan qualifies under Small plans in drafting-rules.md; omit for a normal plan)
 
 ## Dependencies
 - <other plans, PRs, external API approvals, or infra that must be in place first; link if known>

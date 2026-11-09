@@ -15,7 +15,7 @@ disable-model-invocation: true
 
 `/delegate:review`: **Claude orchestrates; the review runner reviews.** Read-only — never fixes, never commits. Claude Code only.
 
-Read [execute-via-core.md](../../references/execute-via-core.md) first — its Step 7 item 5 holds the review-runner rules (snapshot/check, `verdict`) this skill reuses — plus [review-runner.md](../../references/review-runner.md) for external `top@*` runners, [review-brief-template.md](../../references/review-brief-template.md), [verifier-brief.md](../../references/verifier-brief.md), [execution-status.md](../../references/execution-status.md), and [model-tiers.md](../../references/model-tiers.md).
+Read [execute-via-core.md](../../references/execute-via-core.md) first — its Step 7 item 5 holds the review-runner rules (snapshot/check, `verdict`) this skill reuses — plus [review-runner.md](../../references/review-runner.md) for external `top@*` runners, [review-brief-template.md](../../references/review-brief-template.md), and [execution-status.md](../../references/execution-status.md).
 
 `<skill-dir>` is this file's directory; invoke scripts as `bash <skill-dir>/../../scripts/<name>.sh` with the literal absolute path (same convention as core).
 
@@ -32,7 +32,14 @@ Read [execute-via-core.md](../../references/execute-via-core.md) first — its S
 1. **Repo root + plan + lock.** `git rev-parse --show-toplevel`; record literal absolute path and `cd` there (shell vars do not persist across Bash calls). Plan must exist. Then `bash <skill-dir>/../../scripts/plan-status.sh lock <plan>`: exit 0 (`ok`/`legacy`) → continue; exit 3 → stop with stderr; exit 2 → stop. Dirty worktrees allowed — reviews may run before `/commit`.
    When `ID` is given, read its `## Execution map` row before verifier or review runs. Stop if missing, Tier != `top`, Runner != `session` (missing Runner on `top` row counts as `session`), Files != `—`, or Review != `top@*`; print failing field and suggest `/make-plan update <plan>`. Then derive runner from `Review`. `plan-status.sh review` enforces this at the end: exit 3 → print `REFUSE:` lines and stop; a failed write is never reported as PASS.
 2. **Clear + rid.** `mkdir -p .claude/tmp` then `rm -f .claude/tmp/exec-review-final-*`. Review id `<rid>` = `final-<k>` (`k` = 1, +1 per retry).
-3. **Verifier.** Fill [verifier-brief.md](../../references/verifier-brief.md) into `.claude/tmp/exec-review-final-verifier.md`: keep static block; under **Commands** list every copy-pastable command from the plan's Verification section (whole branch; no per-row Acceptance). Set `{{REPO_ROOT}}` to recorded repo root. Snapshot `git status --porcelain`; run a read-only `Task(model: "haiku")` on the file (if unavailable, `Task(model: "sonnet")`); snapshot again — if it differs, discard summary and flag verifier (core Step 7 items 2–3), then stop and ask (re-run or abort with no status write); do not brief or review without a valid verifier summary. Do not re-run commands yourself.
+3. **Verifier.** Write `.claude/tmp/exec-review-final-verify.txt`, one command per line: every copy-pastable command from the plan's Verification section (whole branch; no per-row Acceptance). Then run:
+
+   ```bash
+   bash <skill-dir>/../../scripts/delegate-verify.sh /absolute/repo/root \
+     .claude/tmp/exec-review-final-verify.txt > .claude/tmp/exec-review-final-verify.out
+   ```
+
+   Exit 0 → verifier PASS; exit 1 → verifier FAIL; exit 3 → a Verification command modified the tree — stop and ask (never treat it as PASS); exit 2 → stop and show stderr. The script owns the tree snapshots; do not re-run commands outside it. Do not brief or review without a valid verifier summary — the summary is the `.out` contents.
 4. **Brief.** Write `.claude/tmp/exec-review-<rid>-brief.md` from [review-brief-template.md](../../references/review-brief-template.md): copy `<!-- static:start -->`…`<!-- static:end -->` block unchanged. **Run**: `{{RID}}` = `<rid>`, `{{RUNNER}}` = the `top@*` value, plan path, `{{BASE_SHA}}` = resolved base SHA, `{{SCOPE}}` = `whole branch`. **Shared plan context**: Purpose (or Goal) and Success criteria verbatim. **Rows**: paste whole `## Execution map` table; no per-row step text. **Verifier summary**: paste unchanged. **Scope check**: `not run (whole branch)`. **Diff**: per template against base (untracked files included, `.claude/tmp` excluded; >150 KB → path list).
 5. **Review.** Run the review exactly per core Step 7 item 5 for the resolved `top@*` runner (`top@session` / `top@claude-task`: `snapshot`, review text with the `FINDINGS:`/`VERDICT:` trailer → `.claude/tmp/exec-review-<rid>.md`, `check`; external runners: [review-runner.md](../../references/review-runner.md)). Then:
 

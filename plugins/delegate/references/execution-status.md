@@ -28,6 +28,9 @@ execution:
       effort: low | medium | high | xhigh | max | default | unknown
       started_at: <ISO-8601Z>   # this run's Start write
       ended_at: <ISO-8601Z>     # this run's terminal write
+      tokens_in: <int | null>   # uncached input tokens
+      tokens_cached: <int | null>  # cache-read tokens
+      tokens_out: <int | null>  # output tokens as reported
       review_findings: <int>
       fix_loops: <int>
       fallback: <null | reason>
@@ -97,6 +100,7 @@ Reviews are not runs: `/delegate:review` (`last_skill: review`) appends a `### R
 | `model_resolved` | The model the CLI reported for the run (Cursor `init.model`, agy `init.model`, Devin export step `model_name`; for `claude-code`, the models the Tasks ran on). When a Cursor `delegate:cursor` batch ran with map `Model: auto` (router row), write `auto(router)` — do not copy a display label from the CLI (`fallback: null`, `effort: unknown` on that entry). Otherwise CLI output is untrusted: it must match `^[A-Za-z0-9][A-Za-z0-9 ._:/()+-]{0,63}$`, otherwise write `auto(unresolved)`. Write it YAML-quoted in `runs:` (for example `model_resolved: "Grok 4.7 256K High"`) and use the same validated value in the `Run:` line. If the CLI reports none, write `auto(unresolved)`; never copy `model_requested` into it. |
 | `effort` | The effort suffix of the requested slug (`grok-4.7-high` → `high`); `default` when the slug has none (`composer-2.5`); the tier effort from `model-tiers.md` for `claude-code` (comma-separated, matching `model_requested`); `unknown` for a router. |
 | `started_at` / `ended_at` | This run's Start write and Terminal write. |
+| `tokens_in` / `tokens_cached` / `tokens_out` | Token usage for the run: integers, or `null` when unknown. Delegate runs write the `delegate-usage.sh` totals over every implement and FIX launch of the run (uncached input, cache reads, output as reported — reasoning/thinking not added). External reviewer launches (text output) and in-process `/execute-plan` (`claude-code`) write `null`. A missing run file or usage block makes the affected fields `null`, never an undercount. |
 | `review_findings` | Count of `blocking` + `important` findings raised by Claude's reviews during this run (all rounds summed; `0` when every review was clean). Nits are not counted. |
 | `fix_loops` | FIX rounds used (delegate skills: 0–2; `/execute-plan`: fix Task rounds after review). |
 | `fallback` | `null`, or the reason a non-pinned model ran: `expired <slug>`, `pin missing`, `quota`, `model=auto`, `model mismatch <requested>→<resolved>`, or `auto(unresolved)` when the resolved model is unknown. The resolved-vs-requested comparison applies to Devin only (exact slugs; a mismatch is already a FAIL there). Cursor reports a display label and agy's value is not compared, so for Cursor and agy `fallback` is set only from `expired <slug>`, `pin missing`, `quota`, `model=auto`, or `auto(unresolved)`; additionally a resolved value equal to `auto` (case-insensitive) is a router fallback. |
@@ -153,7 +157,7 @@ Writers must **create or move** the section to that slot — do **not** append a
 
 ### Run <ISO-8601Z> (<skill>)
 - Outcome: <completed|partial|failed|aborted|in-progress>
-- Run: backend=<backend> model=<model_requested>→<model_resolved> effort=<effort> findings=<review_findings> fix_loops=<fix_loops> fallback=<fallback or none> (<started_at>→<ended_at>)
+- Run: backend=<backend> model=<model_requested>→<model_resolved> effort=<effort> findings=<review_findings> fix_loops=<fix_loops> fallback=<fallback or none> tokens_in=<int|null> tokens_cached=<int|null> tokens_out=<int|null> (<started_at>→<ended_at>)
 - Notes: <one short paragraph or bullet list>
 ```
 
