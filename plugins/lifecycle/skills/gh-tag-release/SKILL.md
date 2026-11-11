@@ -18,79 +18,54 @@ handles the release).
 ## Preconditions
 
 - User explicitly asked to tag a release (this skill does not push or tag on its own initiative).
-- Resolve the default branch with git only (see step 0). Use `gh` for CI wait and workflow-run listing. If `gh` is not available, **stop** at the CI wait step — do not skip it and tag anyway (that would contradict "do not tag until CI passes").
+- Resolve the default branch with git only (see step 0). Use `gh` for CI wait and workflow-run listing. If `gh` is not available, **stop** at the CI wait step — do not skip it and tag anyway.
 
 ## Workflow
 
 ### 0. Resolve default branch and confirm a clean tree
 
-Resolve `<default>` **without** `gh`:
+`<skill-dir>` is the absolute directory of this `SKILL.md`.
 
 ```bash
-git symbolic-ref refs/remotes/origin/HEAD
+bash <skill-dir>/../commit/scripts/git-preflight.sh state
 ```
 
-Use the branch name after `refs/remotes/origin/` (e.g. `main` or `master`) everywhere below as `<default>`. Do **not** hardcode `main` / `origin/main`. If `symbolic-ref` fails (no `origin/HEAD`), stop and ask the user to set upstream tracking or name the default branch — do not guess.
+Use `default=` as `<default>`. Do **not** hardcode `main` / `origin/main`. If `default=` is empty, stop and ask the user to set upstream tracking or name the default branch — do not guess. `state` fetched `origin`; on stderr `WARN: git fetch failed`, stop (stale `origin`).
 
-Confirm the current branch:
+- `branch=` equals `<default>` → proceed.
+- Otherwise abort, **or** ask for approval to `git checkout <default>` before any push/tag. Do not push or tag from a non-default branch.
 
-```bash
-git branch --show-current
-```
-
-- If already on `<default>`, proceed.
-- If not on `<default>`: abort, **or** ask for approval to `git checkout <default>` before any push/tag. Do not push or tag from a non-default branch.
-
-Before any edit, confirm a clean working tree:
-
-```bash
-git status --short
-```
-
-If there are uncommitted changes, inform the user: "There are uncommitted changes. Commit or stash them first." and stop.
-
-If the working tree is clean, proceed.
+`clean=no` → "There are uncommitted changes. Commit or stash them first." and stop. `clean=yes` → proceed.
 
 ### 1. Propose the tag version
 
-- Read the `version` field from `package.json` (e.g. `3.0.0`).
-- Read the latest unreleased section header in `CHANGELOG.md`. Common variants include:
-  - `## [3.0.0] — unreleased` / `## [3.0.0] - unreleased` (em-dash or hyphen)
-  - `## [Unreleased]` / `## Unreleased`
-  - Other fuzzy matches of an unreleased heading (case-insensitive `unreleased`)
-- Extract the version from that heading when present (e.g. from `## [3.0.0] — unreleased`). If the heading is only `Unreleased` / `[Unreleased]` with no version, use the `package.json` version.
-- If the `package.json` version and the CHANGELOG header version **match**, propose `v<version>` as the tag.
-- If they **differ**, present both versions and propose a reconciliation:
-  - Use `AskQuestion` when available (otherwise ask conversationally) which version to use, or suggest bumping `package.json` to match the CHANGELOG (or vice versa).
-  - On approval, plan to update the mismatched file(s) so both agree — apply those edits in step 4 together with the changelog dating (do not edit yet).
-- Present the proposed tag to the user for approval. If the user requests a different tag, revise.
-
-If no `package.json` exists, ask the user for the version directly.
-
-Tag-free pre-check (local and remote) once `<version>` is agreed:
-
 ```bash
-git rev-parse -q --verify "v<version>"
-git ls-remote --tags origin "v<version>"
+bash <skill-dir>/../commit/scripts/git-preflight.sh version
 ```
 
-If either command shows the tag already exists, inform the user and stop (do not retag or overwrite).
+- `manifest=` is the package version. Empty `manifest=` → ask the user for the version directly.
+- `changelog_heading=` is the latest unreleased heading (any case-insensitive `unreleased` line). `changelog_version=` is the version in that heading, empty when the heading is only `Unreleased` / `[Unreleased]`.
+- If `changelog_version` is empty, use `manifest`. If `manifest` and `changelog_version` **match**, propose `v<version>`.
+- If they **differ**, present both and propose a reconciliation:
+  - Use `AskQuestion` when available (otherwise ask conversationally) which version to use, or suggest bumping the manifest to match the CHANGELOG (or vice versa).
+  - On approval, plan to update the mismatched file(s) so both agree — apply those edits in step 4 together with the changelog dating (do not edit yet).
+- Present the proposed tag for approval. If the user requests a different tag, revise.
+
+Once `<version>` is agreed:
+
+```bash
+bash <skill-dir>/../commit/scripts/git-preflight.sh version v<version>
+```
+
+If `local_tag=yes` or `remote_tag=yes`, inform the user and stop (do not retag or overwrite). `remote_tag=unknown` (cannot verify the remote tag) → stop and report.
 
 ### 2. Push default branch to remote (if local is ahead)
 
-```bash
-git fetch origin
-git log origin/<default>..<default> --oneline
-```
+Re-run `state` after any checkout in step 0. Use `ahead=` and `behind=` against `upstream=`. If `upstream=` is not `origin/<default>`, stop and ask — do not guess.
 
-If local `<default>` is **ahead** of `origin/<default>` (there are unpushed commits):
-
-- Ask the user for approval to push: `git push origin <default>`.
-- On approval, push. On denial, stop.
-
-If local `<default>` is **behind** `origin/<default>`: inform the user "local `<default>` is behind origin/`<default>` — pull or rebase first" and stop.
-
-If local `<default>` is **up to date** with `origin/<default>`: proceed to step 3.
+- `ahead` greater than 0: ask for approval to `git push origin <default>`. On approval, push. On denial, stop.
+- `behind` greater than 0: "local `<default>` is behind origin/`<default>` — pull or rebase first" and stop.
+- Both 0: proceed to step 3.
 
 ### 3. Wait for CI to pass on the default branch
 
@@ -113,7 +88,7 @@ If no `CHANGELOG.md` exists, skip this step with a note (still apply any approve
 
 Otherwise:
 
-- Find the latest unreleased heading (see variants in step 1). Date it for release:
+- Find the latest unreleased heading (`changelog_heading=` from step 1). Date it for release:
   - Versioned unreleased (e.g. `## [3.0.0] — unreleased` / `- unreleased`) → `## [<version>] — <today's-date>` (ISO: `YYYY-MM-DD`), preserving the repo's heading style where practical.
   - Bare `## [Unreleased]` / `## Unreleased` → replace with a dated versioned heading such as `## [<version>] — <today's-date>` (or the repo's established pattern).
 - Apply any approved `package.json` version reconciliation from step 1.
@@ -129,7 +104,7 @@ EOF
 )"
 ```
 
-(If only one of the two was edited, `git add` only that file; keep the same commit message style when the change is changelog dating.)
+(If only one was edited, `git add` only that file; keep the same message style.)
 
 - Push the commit: ask the user for approval to `git push origin <default>`, then push.
 

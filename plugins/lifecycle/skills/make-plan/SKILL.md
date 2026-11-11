@@ -55,7 +55,7 @@ Do **not** draft Implementation steps or the Execution map until Goal and must-h
 
 Use `Read`, `Grep`, and `Glob` **in parallel** to find relevant files, trace consumers, note patterns/tests, check prior art and recent plans, and **scan architecture docs** + **probe test coverage** (full rules in [drafting-rules.md](drafting-rules.md)).
 
-Run `git status`, `git diff`, and `git log --oneline -10`. Also `Glob docs/plans/*.md` and read the 2–3 most recent plans per [Plan recency](../execute-plan/execution-status.md#plan-recency) (ignore `*.notes.md`); note conflicts/related work. Record architecture-doc paths for the draft.
+Run `git status`, `git diff`, and `git log --oneline -10`. `<skill-dir>` is the absolute directory of this `SKILL.md`. Newest prior plan: `bash <skill-dir>/../execute-plan/scripts/plan-status.sh recent docs/plans` (exit 3 `tie` → ask; exit 2 → none). Read it and up to two older non-notes plans; do not sort raw filenames. Note conflicts and architecture-doc paths.
 
 Do not over-explore. Focus on what the plan needs to be concrete and grounded.
 
@@ -73,7 +73,7 @@ Project root: `git rev-parse --show-toplevel` (else cwd). Slug: kebab-case from 
 
 Set `created_at` once, ISO-8601Z (`date -u +%Y-%m-%dT%H:%M:%SZ`), when the file is created. Never rewrite it. Keys and placement: [Plan metadata](../execute-plan/execution-status.md#plan-metadata).
 
-After the final body write, stamp `plan_sha` and `approved_at` per [Plan lock](../execute-plan/execution-status.md#plan-lock). Take the lines inside the code fence between the `plan-sha` markers in that file, `eval` them, and set `plan_sha` to the `plan_sha <file>` result. Do not reimplement the hash. Set `approved_at` to the stamp time (ISO-8601Z). If `plan_body <file> | wc -c` is over 15000, warn and suggest moving risk registers, decision records, or long evidence to `<plan-file>.notes.md` (same basename with `.notes.md` in place of `.md`).
+Before presenting: `bash <skill-dir>/../execute-plan/scripts/plan-status.sh rows --lint <plan>`. Exit 3 → quote each `REFUSE:` line; fix when clear and lint again; if it needs a decision, report it and do not present the plan as ready. Exit 2 → stop and show stderr. Then `bash <skill-dir>/../execute-plan/scripts/plan-status.sh stamp <plan>` (again after a lint fix). A warning over 15000 → move long evidence to `<plan-file>.notes.md`. `stamp` writes `plan_sha` and `approved_at`, never `created_at`. Do not hand-edit `plan_sha`.
 
 ### Update mode
 
@@ -81,7 +81,7 @@ After the final body write, stamp `plan_sha` and `approved_at` per [Plan lock](.
 2. Clarify with `AskQuestion` if needed (same batching as Step 2).
 3. If `runner=<policy>` was given, or the user asks to re-route: re-apply [Runner policy](drafting-rules.md#runner-policy) to Execution-map rows that are not `done` (no log status counts as not `done`), regenerate **Dispatch**, and update the Assumptions **Runner policy** line. Leave `done` rows unchanged.
 4. If the update changes system shape or Scope, re-run the architecture-doc scan and adjust the docs Implementation/map step or justified skip ([drafting-rules.md](drafting-rules.md)). Wording-only edits may keep the prior Architecture docs note.
-5. Write back to the **same path**. Keep `created_at` and the filename. After the final body write, re-stamp `plan_sha` and `approved_at` the same way as a new plan. A Step 3 re-route is part of that body write, so it is re-stamped here.
+5. Write back to the **same path**. Keep `created_at` and the filename. Lint, fix, and stamp the same way as a new plan. A re-route is part of that body, so stamp it.
 6. Present and offer next steps (Step 6–7).
 
 ## Step 6 — Present the plan
@@ -96,4 +96,4 @@ Offer: **Refine** · **Review** (`/critique plan`) · **Proceed** (`/execute-pla
 
 - Never implement — only write `docs/plans/**`; no commit/push. Ask rather than guess; keep plans minimal.
 - Plans are committable; `/gh-create-pr` asks Keep/Drop for each plan on the branch (via `/commit` when the repo tracks `docs/plans/**`).
-- On update, keep the filename and `created_at`. Re-stamp `plan_sha` and `approved_at` after the body write.
+- On update, keep the filename and `created_at`. Stamp with `plan-status.sh stamp` after the body is final.

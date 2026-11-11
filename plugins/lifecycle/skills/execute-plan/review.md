@@ -19,8 +19,8 @@ Hard cap: **5** review passes total (mid-tier, final, confirmation, and escalati
 
 ## Each review pass
 
-1. Diff: `git diff HEAD` + untracked (`git ls-files --others --exclude-standard`), scoped to the Step 3 baseline.
-2. Launch read-only `Task` (`generalPurpose`) at this pass’s review model. Give: that diff, full plan (incl. map), criteria below, and **do not edit/write/delete** — structured review only.
+1. The Step 3 baseline SHA is `<base>`.
+2. Launch read-only `Task` (`generalPurpose`) at this pass’s review model. Pass `<base>`, the plan path, and the criteria below only. The reviewer runs `git diff <base>` and lists untracked files (`git ls-files --others --exclude-standard`) itself. Do not paste a diff. **Do not edit/write/delete** — structured review only.
 
 ## Sub-agent review criteria
 
@@ -52,6 +52,6 @@ For each concrete, high-confidence issue:
 - If severity is `blocking` or `important` and the fix is clear and safe, **resume the relevant implementation subagent** (using `Task` with the `resume` parameter and that step's agent ID), or spawn a new fix Task scoped to the finding's files. Prefer **`haiku`** when the fix is mechanical; otherwise **`auto`**. Never use the review subagent to apply fixes.
 - If the fix is unclear or risky, ask the user before proceeding.
 
-After fixes are applied, re-run the full verification via a mid-tier Task, then continue the **Review loop (state machine)** above (next mid-tier pass, final, confirmation, or escalation as that machine directs).
+After fixes are applied, rebuild the commands file and re-run `delegate-verify.sh` as [implementer.md](implementer.md) § Full verification describes. Exit 1 → fix Task, then re-run. Exit 3 (tree changed) → stop and ask. Exit 2 → stop and show stderr. Then continue the **Review loop (state machine)** above (next mid-tier pass, final, confirmation, or escalation as that machine directs).
 
 **Done when:** full tests pass; coverage meets target **when available**; no high-confidence `blocking`/`important` findings remain.

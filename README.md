@@ -155,8 +155,8 @@ Invoke as `/<name>`.
 
 | Plugin | Version | What it is |
 | --- | --- | --- |
-| `lifecycle` | 0.12.2 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
-| `delegate` | 0.4.0 | Hands plan implementation to the Cursor (`agent`), Antigravity (`agy`), or Devin (`devin`) CLI while Claude Code gates and reviews. See [README](plugins/delegate/README.md). |
+| `lifecycle` | 0.13.0 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
+| `delegate` | 0.9.0 | Hands plan implementation to the Cursor (`agent`), Antigravity (`agy`), or Devin (`devin`) CLI while Claude Code gates and reviews. See [README](plugins/delegate/README.md). |
 | `exec-observe` | 0.4.0 | Pane + status line for `/exec` runs of `delegate` (Cursor, Antigravity and Devin badges). Replaces the retired observe plugin. See [README](plugins/exec-observe/README.md). |
 | `relay` | 0.4.1 | Cross-surface handoff (save / pickup / check / discard + SessionStart). See [README](plugins/relay/README.md). |
 
@@ -164,15 +164,27 @@ Invoke as `/<name>`.
 
 | Skill | Does | Writes to | Commits/pushes? |
 | --- | --- | --- | --- |
-| `conduct` | Runs brainstorm, make-plan, critique plan, execute-plan and full critique change with two human gates, then finishes per up-front mode | Brainstorms, plans, working tree; git branch/commit/push/PR per finish mode | Per up-front finish mode (`push`, `pr`, `none`); never to default branch |
+| `conduct` | Runs brainstorm, make-plan, critique plan, execute-plan and full critique change with two human gates, then finishes per up-front mode. After Gate B, a fresh session starts at execute-plan only when `gate_b_sha` still matches the plan | Brainstorms, plans, working tree; git branch/commit/push/PR per finish mode | Per up-front finish mode (`push`, `pr`, `none`); never to default branch |
 | `brainstorm` | Goal brief, explore feasibility, roadmap + `/make-plan` handoff | `docs/brainstorms/**` | Never |
 | `make-plan` | Structured plan with an Execution map | `docs/plans/**` | Never |
 | `critique` | Lean independent review of a plan or a change, plus a security pass | Plan file or working tree | Never |
-| `execute-plan` | Runs the plan's waves through subagents, mid-tier review passes plus a top-tier final pass | Working tree + plan audit metadata | Never |
+| `execute-plan` | Runs the plan's waves through subagents, mid-tier review passes plus a top-tier final pass. Lock, map rows, and status writes go through `plan-status.sh`; Verification through `delegate-verify.sh` | Working tree + plan audit metadata | Never |
 | `commit` | Conventional Commit (optional version/CHANGELOG bump) after approval | Local git history | Commits only |
 | `gh-create-pr` | Branch, push, open PR via `gh`, watch CI | Remote branch + PR | After approval |
 | `gh-draft-release` | Draft GitHub Release with notes | Draft release | After approval |
 | `gh-tag-release` | Date the changelog and push a release tag | Tag + publish CI | After approval |
+
+Plan lock, map checks, status writes, verification, the PR artifact
+inventory, and git preflight are bash scripts the skills call
+(`plan-status.sh`, `delegate-verify.sh`, `pr-artifacts.sh`,
+`git-preflight.sh`). `scripts/sync-kit-scripts.sh` copies the first two
+from `delegate` into the lifecycle `execute-plan` skill, so a host that
+installs lifecycle without delegate still runs them.
+`scripts/sync-model-tiers.sh` writes compact tier copies into the five
+lifecycle skills that link `model-tiers.md`; the canonical file and the
+delegate copy stay full. `scripts/skill-budget.sh` checks each skill's
+own bytes and closure bytes against `scripts/nng-kit-skill-budgets.tsv`.
+Detail is in [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md).
 
 ## Portability rules
 

@@ -4,13 +4,15 @@ Single source of truth for durable completion state on fleet plans under `docs/p
 
 ## Frontmatter schema
 
-`created_at`, `plan_sha`, and `approved_at` are top-level keys placed **above** `execution:` (see Plan metadata). The `execution:` block is required once any execute skill has touched the plan:
+`created_at`, `plan_sha`, `approved_at`, `gate_b_sha`, and `gate_b_at` are top-level keys placed **above** `execution:` (see Plan metadata). The `execution:` block is required once any execute skill has touched the plan:
 
 ```yaml
 ---
 created_at: <ISO-8601Z>   # set once when the file is created; see Plan metadata
 plan_sha: <64 hex chars>  # see Plan lock
 approved_at: <ISO-8601Z>  # see Plan metadata
+gate_b_sha: <64 hex | absent>
+gate_b_at: <ISO-8601Z | absent>
 execution:
   status: not-started | in-progress | completed | partial | failed | aborted
   progress_pct: 0-100
@@ -45,14 +47,16 @@ Timestamps: ISO-8601 UTC (`YYYY-MM-DDTHH:MM:SSZ`).
 These top-level frontmatter keys are placed **above** `execution:`:
 
 - `created_at` — ISO-8601Z. Set once when the file is created; never rewrite it.
-- `plan_sha` — 64 hex characters. Hash of the locked body (see Plan lock).
-- `approved_at` — ISO-8601Z. Stamped on each approved body write.
+- `plan_sha` — 64 hex characters. Hash of the locked body (see Plan lock). `plan-status.sh stamp` writes it. Never hand-edit it.
+- `approved_at` — ISO-8601Z. Written with `plan_sha` by `stamp`.
+- `gate_b_sha` — the `plan_sha` at Gate B. Written only by `plan-status.sh approve`, called only by `/conduct` at Gate B Approve.
+- `gate_b_at` — ISO-8601Z written with `gate_b_sha`. No other skill writes `gate_b_sha` or `gate_b_at`.
 
-Writers: `/make-plan` and `/critique plan` only. Execute and delegate skills never set, change, or remove these keys.
+`/make-plan` and `/critique plan` call `stamp` only. Execute and delegate skills never set, change, or remove `created_at`, `plan_sha`, or `approved_at`.
 
 ## Plan lock
 
-The locked body is the file minus its leading frontmatter, minus the `## Execution log` section, with CRLF normalized to LF. That section runs from its heading through the line before the next line that begins with `## ` (a `### Run` subsection stays inside the log), or through EOF when the log is the last section. Run this snippet; do not reimplement it.
+The locked body is the file minus its leading frontmatter, minus the `## Execution log` section, with CRLF normalized to LF. That section runs from its heading through the line before the next line that begins with `## ` (a `### Run` subsection stays inside the log), or through EOF when the log is the last section. Run the lock with `plan-status.sh lock <plan>`. Do not reimplement the hash. The snippet below is the definition `lock` loads.
 
 <!-- plan-sha:start -->
 ```bash
@@ -71,9 +75,9 @@ plan_sha() {
 ```
 <!-- plan-sha:end -->
 
-- No `plan_sha` → warn `legacy plan (no plan_sha)` and continue.
-- Mismatch → refuse with `plan body changed since approval; re-approve with /make-plan update <path>`.
-- Size is `plan_body <f> | wc -c`. Soft cap: 15000 bytes.
+- No `plan_sha` → stderr `WARN: legacy plan (no plan_sha)`, stdout `legacy`; continue.
+- Mismatch → exit 3; stderr `plan body changed since approval; re-approve with /make-plan update <path>`.
+- `stamp` prints body bytes and warns when over 15000.
 
 ## Plan recency
 
@@ -82,13 +86,13 @@ To pick the most recent plan:
 - Ignore `*.notes.md`. A notes file is never a plan.
 - Give each remaining file one timestamp. The newest timestamp wins.
   - Use `created_at` when it is present.
-  - Otherwise use the filename prefix, read in the machine's local time zone and converted to UTC before comparing: `YYYY-MM-DD-` is local 00:00 that day, and `yymmddhhmm-` is local `20yy-mm-dd hh:mm`. For example, on a +07:00 machine `2611081032-slug.md` is `2026-11-08T03:32Z` and `2026-11-08-slug.md` is `2026-11-07T17:00Z`.
+  - Otherwise use the filename prefix, read in the machine's local time zone and converted to UTC before comparing: `YYYY-MM-DD-` is local 00:00 that day, and `yymmddhhmm-` is local `20yy-mm-dd hh:mm`.
   - Otherwise use mtime.
 - Never sort raw filenames.
 
 ## Run records (`runs:`)
 
-One entry per run, appended in the **Terminal** write (never rewritten later; earlier entries stay as they are). Plans written before this field existed simply have no `runs:` key. Purpose: compare models by review findings per run and spot silent fallbacks to a router.
+One entry per run, appended in the **Terminal** write (never rewritten later; earlier entries stay as they are). Plans written before this field existed simply have no `runs:` key.
 
 Reviews are not runs: `/delegate:review` (`last_skill: review`) appends a `### Run <ISO-8601Z> (review)` stanza (`Outcome:`, `Run: runner=<top@…> findings=<N>`, `Notes:`) and **no** `runs:` entry. Batch reviews inside a delegate run are counted in that run's `review_findings`.
 
@@ -97,13 +101,13 @@ Reviews are not runs: `/delegate:review` (`last_skill: review`) appends a `### R
 | `skill` | The `last_skill` value this run wrote. |
 | `backend` | `cursor`, `agy`, `devin`, or `claude-code` (in-process `/execute-plan`). |
 | `model_requested` | The slug passed to the CLI: the user's `model=` or the tier pin from `model-tiers.md`. May be `auto` for a router row (map `Model: auto` on a `delegate:cursor` batch) or when the user explicitly requested a router / fallback to Auto. For `claude-code`, the distinct implementer models used, in run order, comma-separated (for example `claude-sonnet-5-5,claude-haiku-5-5`). |
-| `model_resolved` | The model the CLI reported for the run (Cursor `init.model`, agy `init.model`, Devin export step `model_name`; for `claude-code`, the models the Tasks ran on). When a Cursor `delegate:cursor` batch ran with map `Model: auto` (router row), write `auto(router)` — do not copy a display label from the CLI (`fallback: null`, `effort: unknown` on that entry). Otherwise CLI output is untrusted: it must match `^[A-Za-z0-9][A-Za-z0-9 ._:/()+-]{0,63}$`, otherwise write `auto(unresolved)`. Write it YAML-quoted in `runs:` (for example `model_resolved: "Grok 4.7 256K High"`) and use the same validated value in the `Run:` line. If the CLI reports none, write `auto(unresolved)`; never copy `model_requested` into it. |
+| `model_resolved` | The CLI-reported model: Cursor `init.model`, agy `init.model`, Devin export step `model_name`; `claude-code` uses the Task models. A Cursor `delegate:cursor` batch with map `Model: auto` writes `auto(router)`, not a CLI display label (`fallback: null`, `effort: unknown`). Any other value must match `^[A-Za-z0-9][A-Za-z0-9 ._:/()+-]{0,63}$` or be `auto(unresolved)`. YAML-quote it in `runs:` and put that same value on the `Run:` line. No CLI value → `auto(unresolved)`. Never copy `model_requested`. |
 | `effort` | The effort suffix of the requested slug (`grok-4.7-high` → `high`); `default` when the slug has none (`composer-2.5`); the tier effort from `model-tiers.md` for `claude-code` (comma-separated, matching `model_requested`); `unknown` for a router. |
 | `started_at` / `ended_at` | This run's Start write and Terminal write. |
-| `tokens_in` / `tokens_cached` / `tokens_out` | Token usage for the run: integers, or `null` when unknown. Delegate runs write the `delegate-usage.sh` totals over every implement and FIX launch of the run (uncached input, cache reads, output as reported — reasoning/thinking not added). External reviewer launches (text output) and in-process `/execute-plan` (`claude-code`) write `null`. A missing run file or usage block makes the affected fields `null`, never an undercount. |
+| `tokens_in` / `tokens_cached` / `tokens_out` | Integers, or `null` when unknown. Delegate runs write `delegate-usage.sh` totals over every implement and FIX launch (uncached input, cache reads, output as reported; do not add reasoning). External reviewer launches and in-process `/execute-plan` (`claude-code`) write `null`. A missing run file or usage block makes the affected fields `null`, never an undercount. |
 | `review_findings` | Count of `blocking` + `important` findings raised by Claude's reviews during this run (all rounds summed; `0` when every review was clean). Nits are not counted. |
 | `fix_loops` | FIX rounds used (delegate skills: 0–2; `/execute-plan`: fix Task rounds after review). |
-| `fallback` | `null`, or the reason a non-pinned model ran: `expired <slug>`, `pin missing`, `quota`, `model=auto`, `model mismatch <requested>→<resolved>`, or `auto(unresolved)` when the resolved model is unknown. The resolved-vs-requested comparison applies to Devin only (exact slugs; a mismatch is already a FAIL there). Cursor reports a display label and agy's value is not compared, so for Cursor and agy `fallback` is set only from `expired <slug>`, `pin missing`, `quota`, `model=auto`, or `auto(unresolved)`; additionally a resolved value equal to `auto` (case-insensitive) is a router fallback. |
+| `fallback` | `null`, or why a non-pinned model ran: `expired <slug>`, `pin missing`, `quota`, `model=auto`, `model mismatch <requested>→<resolved>`, or `auto(unresolved)` when resolved is unknown. Compare resolved to requested on Devin only (exact slugs; a mismatch is already FAIL). Cursor's display label and agy's value are not compared: set `fallback` only from `expired <slug>`, `pin missing`, `quota`, `model=auto`, or `auto(unresolved)`; a resolved value equal to `auto` (case-insensitive) is a router fallback. |
 | `outcome` | Same value as the `### Run` stanza `Outcome:` line. |
 
 ## Overall `status` meanings
@@ -121,67 +125,23 @@ Reviews are not runs: `/delegate:review` (`last_skill: review`) appends a `### R
 
 Table column values: `pending` | `in-progress` | `done` | `skipped` | `failed`.
 
-## Progress formula
-
-- **`steps_total`** = number of Execution-map rows (preferred), or Implementation-step fallback rows when no map.
-- **`steps_done`** = count of rows with status `done` **or** `skipped` (skipped counts as resolved for progress).
-- **`progress_pct`** = `round(100 * steps_done / steps_total)`.
-- If **`steps_total == 0`**: set `progress_pct` to `0` and **never** claim `completed`.
+`plan-status.sh` computes progress, placement, the log template and update timing.
 
 ## Out-of-scope / step-scope (locked)
 
 Out-of-scope rows (not in current `step-scope` / execute-plan subset) → **`skipped`** + Notes **`out of step-scope`**, only if not already `done` (never leave `pending`; never downgrade prior `done`). Notes that begin with `out of step-scope` (including `out of step-scope (dispatch via delegate)`) never count toward `completed` (see `partial`).
 
-## Placement (locked)
-
-`## Execution log` goes **immediately after** `## Execution map` and **before** `## Files to modify/create`.
-
-If the plan has **no** Execution map: place immediately after `## Implementation steps` and before Files.
-
-Writers must **create or move** the section to that slot — do **not** append at EOF; do **not** leave a duplicate mid-file.
-
-## Markdown log template
-
-```markdown
-## Execution log
-
-- **Overall:** <status> — <progress_pct>% (<steps_done>/<steps_total>)
-- **Last skill:** <execute-plan|execute-via-cursor|execute-via-agy|execute-via-devin|review>
-- **Updated:** <ISO-8601Z>
-
-| ID | Status | Notes |
-| --- | --- | --- |
-| S1 | done | … |
-| S2 | skipped | out of step-scope |
-| S3 | pending | |
-
-### Run <ISO-8601Z> (<skill>)
-- Outcome: <completed|partial|failed|aborted|in-progress>
-- Run: backend=<backend> model=<model_requested>→<model_resolved> effort=<effort> findings=<review_findings> fix_loops=<fix_loops> fallback=<fallback or none> tokens_in=<int|null> tokens_cached=<int|null> tokens_out=<int|null> (<started_at>→<ended_at>)
-- Notes: <one short paragraph or bullet list>
-```
-
-The `Run:` line mirrors the matching `runs:` entry so a human sees the same record the frontmatter holds.
-
-Keep history short: replace/update the summary table on each write; add one `### Run …` stanza per terminal (or meaningful) outcome rather than unbounded append noise.
-
-## Update timing (locked)
-
-1. **Start of execute** (after preflight/validation passes): ensure frontmatter + empty/updated log exist; set `status: in-progress`, `started_at` if unset, mark scoped rows `pending` with Notes cleared (or leave prior `done` on resume).
-2. **After each wave / scoped batch** succeeds or fails: update those row statuses + frontmatter `%` / `updated_at`.
-3. **Terminal outcome** (final summary / PASS / FAIL / abort): set overall `status`, `completed_at` iff `completed`, final `%`, one `### Run …` stanza with its `Run:` line, and append the matching `runs:` entry.
-
 ## Who writes
 
 | Skill | Writer |
 | --- | --- |
-| `/execute-plan` | **Orchestrator** (same agent that persists the Execution map). |
+| `/execute-plan` | **Orchestrator** via `plan-status.sh` (`lock`, `rows`, `start`, `batch`, `terminal`). |
 | `/delegate:execute-via-cursor`, `/delegate:execute-via-agy`, `/delegate:execute-via-devin` | **Claude** via `scripts/plan-status.sh` (`start` / `batch` / `terminal`) after each meaningful phase (post-implement before/after review as needed; always on terminal verdict). **Never** the implementer tool (`agent` / `agy` / `devin`). |
 | `/delegate:review` | **Claude** via `scripts/plan-status.sh review` (marks the final `top` review row `done`/`failed`, appends a `### Run … (review)` stanza; no `runs:` entry). **Never** the reviewer CLI. |
 
 ## Fallback when no Execution map
 
-Treat numbered **Implementation steps** as the row set for progress. Use IDs `I1`…`In` or the plan’s existing step numbers. Same row statuses, formula, out-of-scope rule, and log template.
+Treat numbered **Implementation steps** as the row set for progress. Use IDs `I1`…`In` or the plan’s existing step numbers. Same row statuses and out-of-scope rule.
 
 ## Idempotency / re-execute
 
@@ -191,4 +151,4 @@ Default recommendation when user confirms re-execute: reset non-`skipped` rows i
 
 ## Dual-write rule
 
-Every status update is **one edit** that updates frontmatter **and** `## Execution log` together. Prefer replace-the-summary-table over conflicting formats. Never write one without the other. A status edit may change `execution:` only. Leave `created_at`, `plan_sha`, and `approved_at` unchanged.
+Every status update is **one edit** that updates frontmatter **and** `## Execution log` together. Prefer replace-the-summary-table over conflicting formats. Never write one without the other. A status edit may change `execution:` only. Leave `created_at`, `plan_sha`, `approved_at`, `gate_b_sha`, and `gate_b_at` unchanged.

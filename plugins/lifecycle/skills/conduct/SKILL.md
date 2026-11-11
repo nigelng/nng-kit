@@ -11,33 +11,37 @@ disable-model-invocation: true
 
 # conduct
 
-Take an idea to a reviewed change through the sibling lifecycle skills, with two human gates and an up-front finish mode. Resume from a saved brainstorm or plan instead of restarting. This is a thin conductor: read each sibling skill and follow it in-session, applying only the linked overrides. The siblings disable model invocation; do not invoke them as slash commands.
+Take an idea to a reviewed change through the sibling lifecycle skills, with two human gates and an up-front finish mode. Thin conductor: read each sibling skill and follow it in-session, with only the linked overrides. The siblings disable model invocation; do not invoke them as slash commands.
 
-**References (read when needed):** [stage-overrides.md](stage-overrides.md) (stage-specific differences) | [finish.md](finish.md) (branch, commit, push, PR) | [model-tiers.md](../make-plan/model-tiers.md) (tier resolution)
+**References (read when needed):** [stage-overrides.md](stage-overrides.md) | [finish.md](finish.md) | [model-tiers.md](../make-plan/model-tiers.md)
+
+`<skill-dir>` is the absolute directory of this file. Sibling `model-tiers.md` and `execution-status.md` copies are identical; read each once.
 
 ## Preconditions
 
-**Requires Agent mode.** In Plan or Ask mode, stop and tell the user to switch before continuing.
+**Requires Agent mode.** In Plan or Ask mode, stop and tell the user to switch.
 
-**Session needs top-plan.** Resolve via [model-tiers.md](../make-plan/model-tiers.md). Warn once and recommend switching if below **top-plan**; do not silently run a thin brainstorm or plan. A top-plan session also meets **top-review** for the execute orchestrator. Do not repeat the warning at each stage. Preserve each sibling's independent-review and explicit Task-model requirements; report intended tier and resolved model, never an invented resolution.
+**Session needs top-plan.** Resolve via [model-tiers.md](../make-plan/model-tiers.md). Warn once and recommend switching if below **top-plan**; do not silently run a thin brainstorm or plan. A top-plan session also meets **top-review** for the execute orchestrator. Preserve each sibling's independent-review and explicit Task-model requirements; report intended tier and resolved model, never an invented resolution.
 
-Work in the project root (`git rev-parse --show-toplevel`). The up-front `finish=push` or `finish=pr` choice is the user's explicit request to commit/push under this skill, subject to Gate B, safety checks, and the downgrade rule. It is not permission to bypass a failed gate.
+Work in the project root (`git rev-parse --show-toplevel`). The up-front `finish=push` or `finish=pr` choice is the user's explicit request to commit/push under this skill, subject to Gate B, safety checks, and the downgrade rule, and never permission to bypass a failed gate.
 
 ## Step 0 - Router
 
-Parse and remove `finish=`, `plan=`, `confirm=`, and `runner=` before routing the remaining argument. Keep the runner policy for Stage 2. Resolve paths with `Read`/`Glob`; never guess a file. A `*.notes.md` file is not a plan. Missing, ambiguous, or unsupported artifact status: ask before proceeding.
+Parse and remove `finish=`, `plan=`, `confirm=`, and `runner=` before routing the remaining argument. Keep the runner policy for Stage 2. Resolve paths with `Read`/`Glob`; never guess a file. A `*.notes.md` file is not a plan. Missing, ambiguous, or unsupported artifact status: ask first.
 
 | Argument / artifact | Start at |
 | --- | --- |
-| `docs/plans/*.md`, `execution.status: not-started` | Stage 3 |
+| `docs/plans/*.md`, `execution.status: not-started` | Stage 3, unless **Fresh Gate B** below passes |
 | `docs/plans/*.md`, `execution.status: in-progress`, `partial`, or `failed` | Stage 4, resuming the existing plan |
 | `docs/plans/*.md`, `execution.status: completed` | Stage 5 |
 | `docs/brainstorms/*.md` | Stage 2, using the file's saved `/make-plan` prompt as arguments |
 | Free text or no argument | Stage 1 |
 
-Read `execution.status` from YAML frontmatter, not the execution-log table. When routing an existing plan, read its Purpose, Scope, Assumptions, Execution map, Verification, Success criteria, and Risks before continuing. Keep the artifact path for the later stages.
+Read `execution.status` from YAML frontmatter, not the execution-log table. When routing an existing plan, read its Purpose, Scope, Assumptions, Execution map, Verification, Success criteria, and Risks before continuing.
 
-**Resume approval:** For any resumed plan (`in-progress`, `partial`, `failed`, or `completed`), before Step 0.6 uses its **Files** column and before any stage runs, run the plan lock exactly as written in [execution-status.md](../execute-plan/execution-status.md#plan-lock) section **Plan lock**: `eval` the code block between the `plan-sha` markers and compare `plan_sha <path>` to frontmatter `plan_sha`; do not reimplement the hash. A present, matching `plan_sha` counts Gate B as previously passed; continue to the routed stage without re-running ideation or asking for approval of unchanged executed work. Missing `plan_sha` (legacy plan) does **not** pass Gate B: present the plan at Gate B for explicit approval before continuing to the routed stage. A mismatch is a **hard stop**: `plan body changed since approval; re-approve with /make-plan update <path>`; no stage runs and nothing is committed. Otherwise Gate B remains mandatory; no argument can bypass it.
+**Fresh Gate B (`not-started` only),** before Step 0.6: `bash <skill-dir>/../execute-plan/scripts/plan-status.sh lock --gate <plan>`. Pass only on exit 0 **and** an ISO-8601Z stdout (`YYYY-MM-DDTHH:MM:SSZ`): print it as `gate_b_at` and start at Stage 4. Anything else (mismatch, missing `gate_b_sha`, no `plan_sha`, exit 2, other stdout) stays at Stage 3 and still requires Gate B. Show stderr when present. This is not the resume hard stop. Do not hand-edit `plan_sha` or `gate_b_sha`.
+
+**Resume approval** for `in-progress`, `partial`, `failed`, or `completed`, before Step 0.6 uses the **Files** column and before any stage: `bash <skill-dir>/../execute-plan/scripts/plan-status.sh lock <plan>`. Stdout `ok`: Gate B already passed; do not re-run ideation or re-approve unchanged executed work. Exit 0, stdout `legacy` (stderr WARN is not a stop): present Gate B before the routed stage. Exit 3: hard stop; quote stderr (`plan body changed since approval; re-approve with /make-plan update <path>`); no stage runs and nothing is committed. Exit 2: stop and show stderr. No argument bypasses Gate B.
 
 ## Step 0.5 - Up-front choices
 
@@ -47,15 +51,15 @@ Before any stage runs, ask all unanswered choices in **one `AskQuestion` batch**
 - **Plan file:** `keep` (default: include eligible plan files in the commit) or `drop` (leave them uncommitted; do not delete them).
 - **Confirm before commit:** `no` (default: no further commit approval) or `yes` (show the proposed commit and ask once before committing).
 
-State the defaults and their effects, especially commit/push authority. Choices live **in chat only**: never write them into the plan body, which would break the plan lock. A resumed invocation asks again for choices not given in its arguments; do not infer finish permission from a saved plan.
+State defaults and their effects, especially commit/push authority. Choices live **in chat only**: never write them into the plan body, which would break the plan lock. A resumed invocation asks again for choices not given in its arguments; do not infer finish permission from a saved plan.
 
 ## Step 0.6 - Preflight + baseline
 
 Complete all checks before running any stage, including on resume:
 
-1. **Default branch and access.** Resolve the default with `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`; fall back to `git symbolic-ref --short refs/remotes/origin/HEAD` and strip `origin/`. Do not assume `main` or `master`. For `finish` other than `none`, `git remote get-url origin` must succeed; for `finish=pr`, `gh auth status` must also succeed. If the default cannot be established or required access is unavailable, tell the user **now** and set `finish=none`, rather than discovering the problem after implementation.
-2. **Baseline and ownership.** Record the HEAD SHA (`git rev-parse HEAD`), current branch, and `git status --porcelain`, including staged and untracked paths. **Conductor-owned paths** are `docs/brainstorms/**`, `docs/plans/**`, and, when the router resumed an existing plan whose plan lock matched (Step 0), every path in that plan's Execution-map **Files** column. Every other dirty path is **foreign**. Show those paths and ask **stash / continue with `finish=none` / abort**. Stash only on explicit selection and preserve the stash; continue means preserve the files, never stage them; abort stops the run. Retain the baseline foreign-path list for execution and finishing. Later work must not retroactively authorize foreign changes.
-3. **Existing branch history.** With `origin` and a known default, run `git fetch origin <default>` before comparing. If on a non-default branch with commits ahead of `origin/<default>`, count them and ask once: **reuse `<branch>` (its N existing commits ship too) / continue with `finish=none` / abort**. Do not silently publish those commits. If the comparison cannot be established, report it and use `finish=none`; do not claim the branch is safe to publish.
+1. **Default branch and access.** Resolve the default with `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`; fall back to `git symbolic-ref --short refs/remotes/origin/HEAD` and strip `origin/`. Do not assume `main` or `master`. For `finish` other than `none`, `git remote get-url origin` must succeed; for `finish=pr`, `gh auth status` must also succeed. If the default cannot be established or required access is unavailable, tell the user **now** and set `finish=none`.
+2. **Baseline and ownership.** Record the HEAD SHA (`git rev-parse HEAD`), current branch, and `git status --porcelain`, including staged and untracked paths. **Conductor-owned paths** are `docs/brainstorms/**`, `docs/plans/**`, and, when resume `lock` printed `ok`, every path in that plan's Execution-map **Files** column. Every other dirty path is **foreign**. Show those paths and ask **stash / continue with `finish=none` / abort**. Stash only on explicit selection and preserve the stash; continue means preserve the files, never stage them; abort stops the run. Retain the baseline foreign-path list for execution and finishing. Later work must not retroactively authorize foreign changes.
+3. **Existing branch history.** With `origin` and a known default, run `git fetch origin <default>` before comparing. If on a non-default branch with commits ahead of `origin/<default>`, count them and ask once: **reuse `<branch>` (its N existing commits ship too) / continue with `finish=none` / abort**. Do not silently publish those commits. If the comparison cannot be established, report it and use `finish=none`.
 
 Ownership is permission to continue, not a staging allowlist: brainstorms, secrets, foreign files, and ineligible/dropped plans remain excluded at finish. Keep baseline evidence in chat, not the locked plan body.
 
@@ -73,13 +77,13 @@ After the brainstorm is persisted, replace the sibling's next-step offer with:
 - **Continue to plan** - pass the saved `/make-plan` prompt to Stage 2.
 - **Stop** - stop with the saved artifact and final summary; nothing to finish.
 
-Wait for the user's choice. Skip this gate only when routing directly to a later stage or taking the sibling's explicit planning path; report why.
+Wait for the choice. Skip this gate only when routing directly to a later stage or taking the sibling's explicit planning path; report why.
 
 ## Stage 2 - Make-plan
 
 `Read` [../make-plan/SKILL.md](../make-plan/SKILL.md) and follow it with [stage-overrides.md](stage-overrides.md#make-plan) section **Make-plan**.
 
-Arguments are the brainstorm handoff prompt (including when resumed from its saved file), or the user's text on the direct planning path. Forward `runner=<policy>` when given. Capture the plan path, keep its lock metadata intact, and proceed to Stage 3 instead of offering standalone next steps. This stage never implements.
+Arguments are the brainstorm handoff prompt (including when resumed from its saved file), or the user's text on the direct planning path. Forward `runner=<policy>` when given. Capture the plan path, keep its lock metadata intact, and proceed to Stage 3 instead of offering standalone next steps.
 
 ## Stage 3 - Critique plan
 
@@ -89,33 +93,34 @@ Skip the critique only when the plan records `Plan size: small`; record that rea
 
 ### Gate B
 
-**Hard approval gate, never skipped by arguments.** Present the final plan (including any critique edits), its path, verdict/remaining items or small-plan skip, and current finish choices. Ask:
+**Hard approval gate, never skipped by arguments.** Present the final plan (with critique edits), its path, verdict/remaining items or small-plan skip, and current finish choices. Ask:
 
-- **Approve** - approve this plan and enter Stage 4.
+- **Approve** - `not-started`: run `approve`, then offer the continue choice. Resumed `legacy`: skip `approve` (its record is for `not-started` only); go to the routed stage.
 - **Refine** - follow Stage 2 in make-plan **update** mode on the same path, then return to Stage 3 and this gate.
 - **Abort** - stop; no implementation, commit, push, or other finish action.
 
-Wait for explicit approval. An existing plan's approval stamp alone is not this gate. Only the router's already-executed-plan resume rule counts Gate B as previously passed, and only with a matching plan lock.
+Wait for explicit approval. An approval stamp alone is not this gate. Already passed only when resume `lock` printed `ok`, or **Fresh Gate B** printed `gate_b_at`.
+
+`bash <skill-dir>/../execute-plan/scripts/plan-status.sh approve <plan>`. Exit 0 writes `gate_b_sha` and `gate_b_at`; do not hand-edit them or `plan_sha`. Exit 3 writes nothing: quote stderr if any (`plan body changed since approval; re-approve with /make-plan update <path>`). No `plan_sha` is also exit 3: **Refine** so `stamp` runs, then return here. Exit 2: stop and show stderr. After exit 0:
+
+- **Continue here** - the routed stage (Stage 4 after `approve`) in this session.
+- **Continue in a fresh session** - recommended unless `Plan size: small`. Print `/conduct <path> finish=<finish> plan=<keep|drop> confirm=<confirm>` and stop. That session starts at Stage 4 only when `lock --gate` passes.
 
 ## Stage 4 - Execute-plan
 
-**On entry, before execution**, whether arriving from Gate B **or the resume router**, if `finish` is not `none`, read and follow [finish.md](finish.md#branch) section **Branch** to ensure a non-default feature branch. If `finish=none`, do not create a branch on the conductor's behalf.
+**On entry, before execution**, from **Continue here**, a passing `lock --gate`, or the resume router: if `finish` is not `none`, follow [finish.md](finish.md#branch) **Branch**. If `finish=none`, do not create a branch.
 
-`Read` [../execute-plan/SKILL.md](../execute-plan/SKILL.md) and follow it on the plan path with [stage-overrides.md](stage-overrides.md#execute-plan) section **Execute-plan**.
+`Read` [../execute-plan/SKILL.md](../execute-plan/SKILL.md) and follow it with [stage-overrides.md](stage-overrides.md#execute-plan). Do not implement in the conductor.
 
-Let the sibling validate the plan lock, orchestrate its Execution map, persist execution status, verify, and perform independent review; do not implement the plan in the conductor. Replace its concluding offers with Stage 5 only after the completion/review checks pass.
-
-Read the terminal `execution.status` and final top-tier review result. An unfinished `delegate:*` dispatch or final review deferred to `/delegate:review` leaves the run `partial`: print the sibling's Dispatch lines and apply the downgrade rule, not an automatic commit to unblock delegation.
+On a clean final review (`clean`, including the in-host loop when the strongest Review is `mid` or `none`) with `execution.status` `completed`, record in chat, not the plan: `bash <skill-dir>/../commit/scripts/git-preflight.sh fingerprint` (`fingerprint=` and `head=`). On `dirty`, `partial`, or `failed`, record nothing and stop before Stage 5.
 
 ## Stage 5 - Critique change
 
-`Read` [../critique/SKILL.md](../critique/SKILL.md) and follow it in **change mode** with [stage-overrides.md](stage-overrides.md#critique-change) section **Critique change**.
+`Read` [../critique/SKILL.md](../critique/SKILL.md) and follow it in **change mode** with [stage-overrides.md](stage-overrides.md#critique-change).
 
-Review the whole branch plus working tree, not only this session's last edit: fetch `origin/<default>` and use `git diff <merge-base>`, where `<merge-base>` is `git merge-base origin/<default> HEAD`; without `origin`, use the Step 0.6 HEAD SHA as base. Include untracked files from `git ls-files --others --exclude-standard`. Exclude `docs/brainstorms/**` and `docs/plans/**`.
+`state` fetches `origin` when a remote URL exists. Stderr `WARN: git fetch failed`, or a failed `git merge-base origin/<default> HEAD`, stops this stage and triggers the downgrade rule. Never use a stale or narrower diff. `<default>` is the Step 0.6 branch; `default=` from `state` may be empty and does not replace it. The review base is that merge-base SHA. With no `origin`, the base is the HEAD SHA recorded at Step 0.6. Pass the base ref to each review Task. The Task runs `git diff <base>` and lists untracked files from `git ls-files --others --exclude-standard`. Do not paste the diff. Exclude `docs/brainstorms/**` and `docs/plans/**` from the tracked diff and from the untracked input. `fingerprint=` and `head=` are the Stage 5 comparison against the fingerprint Stage 4 recorded.
 
-The **After execute-plan or a converged delegate PASS** skip is disabled: run Phase A (at most two mid-tier reviews), Phase B (at most one top-tier escalation when triggered), and the top-tier closing pass when ship-ready. Run the security pass too, using the sibling's platform tool or inline fallback; do not take a docs-only security skip for this unattended commit/push trust boundary. Keep reviewers separate from implementers/fix agents.
-
-After critique fixes, re-run the plan's **Verification** commands, including after closing-pass fixes that the sibling otherwise labels unverified. Preserve the review budgets; verification does not authorize another review loop. Any remaining `blocking` or unresolved `important`, or a verification failure, invokes the downgrade rule.
+Skip **Phase A** only when all three hold: this session recorded Stage 4's `fingerprint=` and `head=`; a new `fingerprint` run prints the same values; and `head=` equals that review base. Otherwise run **Phase A** (at most two mid-tier reviews) and **Phase B** (at most one top-tier escalation, only when triggered). A skipped Phase A counts as ship-ready, so Phase B is not triggered. The closing top pass and the security pass always run.
 
 ## Stage 6 - Finish
 
@@ -125,14 +130,12 @@ Apply the downgrade checks **before staging or committing**. For a Stage 5 resum
 - `finish=push`: follow [finish.md](finish.md#commit) section **Commit**, then [finish.md](finish.md#push) section **Push**, sequentially.
 - `finish=pr`: follow **Commit**, then **Push**, then [finish.md](finish.md#pull-request) section **Pull request**, including CI watch.
 
-The linked finish rules own branching, staging exclusions, the single Conventional Commit, `plan=keep|drop`, and optional `confirm=yes` approval. Do not reintroduce standalone split/version/CHANGELOG/README offers. With `confirm=no`, do not add routine prompts after Gate B; safety stops and downgrades still apply. A push rejection stops the run without pull/rebase/force; CI failures are investigated and reported, never auto-fixed.
-
 ## Downgrade rule
 
 Set **`finish=none`**, stop before commit, preserve the working tree, and report why if any condition holds:
 
 - Execute-plan's terminal status is not `completed`.
-- The final top-tier execution review is `dirty` or `deferred`.
+- The final execution review is `dirty`, or status is `partial` after `terminal --deferred-review` (a printed `/delegate:review` line).
 - Critique change leaves any `blocking` or unresolved `important` finding.
 - The plan's Verification fails after critique fixes.
 - Stage 5 cannot resolve its review base (failed `git fetch` or `git merge-base`), so the whole branch was not reviewed.

@@ -30,15 +30,15 @@ Args: `[plan] [step-scope IDs…]`. The first argument is a path under `docs/pla
 
 If no plan argument, list `docs/plans/*.md` except `*.notes.md`, then ask the user to pick (`AskQuestion` when available).
 
-**Step-scope.** With no IDs, every map row is in scope. With IDs, a map row not named is outside scope. At Status audit Start, dual-write it `skipped` with Notes `out of step-scope` per [execution-status.md](execution-status.md) § Out-of-scope / step-scope (only if not already `done`; never leave `pending`; never downgrade a prior `done`). An ID that is not on the map is a hard stop — do not dual-write.
+**Step-scope.** With no IDs, every map row is in scope. With IDs, a map row not named is outside scope. `rows` reports those as `skipped` (`out of step-scope`, or `out of step-scope (top row: run in session)`). An ID that is not on the map is a `rows` refusal — quote stderr and do not `start`.
 
-If the user points at `.cursor/plans/`, stop and tell them to promote via `/make-plan` into `docs/plans/**` first. If missing/unreadable, stop. Do **not** execute raw `~/.claude/plans/` — require a fleet plan under `docs/plans/**`.
+If the user points at `.cursor/plans/`, stop and tell them to promote via `/make-plan` into `docs/plans/**` first. If missing/unreadable, stop. Do **not** execute raw `~/.claude/plans/`; require `docs/plans/**`.
 
 ## Step 2 — Read and parse the plan
 
 Extract: Purpose, Scope, Assumptions, Dependencies, Implementation steps, Execution map (v2 or legacy), `## Dispatch` when present, Files to modify/create, Verification, Success criteria, Rollback, Risks.
 
-If a section is ambiguous or referenced files do not exist, ask a focused clarifying question before proceeding. A legacy plan may have no `## Dispatch` and no Runner / Files / Acceptance / Review columns; Step 2.75 accepts that map. Tier aliases are normalized there, not here.
+If a section is ambiguous or referenced files do not exist, ask a focused clarifying question before proceeding. A legacy plan may have no `## Dispatch` and no Runner / Files / Acceptance / Review columns; Step 2.75 accepts that map. Tier aliases are normalized there.
 
 ## Step 2.5 — Refuse if blocked or incomplete
 
@@ -48,36 +48,41 @@ Hard stop (not a clarifying question) if any of:
 - Missing **Success criteria** section
 - Missing **Verification** section
 
-State which condition triggered and the next step: resolve the blocker, or `/make-plan update <path>`, then re-invoke `/execute-plan`. Ambiguous *content* inside an existing section → clarifying question (Step 2); missing section / unresolved blocker → hard stop.
+State the condition and next step: resolve the blocker, or `/make-plan update <path>`, then re-invoke `/execute-plan`. Ambiguous *content* inside an existing section → clarifying question (Step 2).
 
 ## Step 2.6 — Plan lock
 
-`Read` [execution-status.md](execution-status.md) § Plan lock. Run the code block under that section — the lines inside the fence between the `plan-sha` markers (`plan_body` / `plan_sha`) — and compare its `plan_sha` output to the frontmatter `plan_sha`. Do not reimplement the hash. Do not dual-write on this step.
+`<skill-dir>` is the absolute directory of this `SKILL.md`. Do not reimplement the hash. Do not write status on this step. A script refusal is the hard stop: quote stderr verbatim.
 
-- No `plan_sha` → warn `legacy plan (no plan_sha)` and continue.
-- Mismatch → hard stop with `plan body changed since approval; re-approve with /make-plan update <path>`.
+```bash
+bash <skill-dir>/scripts/plan-status.sh lock <plan>
+```
+
+- Exit 0, stdout `ok` → continue.
+- Exit 0, stdout `legacy` (stderr `WARN: legacy plan (no plan_sha)`) → warn and continue.
+- Exit 3 or exit 2 → stop. Quote stderr.
 
 ## Step 2.75 — Execution map (required before implement)
 
-Do **not** invent silent sequential steps and proceed. An Execution map must exist and be validated before Step 4.
+Do **not** invent silent sequential steps. An Execution map must exist and be validated before Step 4.
 
-Accept a v2 map or a legacy map. Column sets, defaults, and the remaining Review constraints live in [../make-plan/drafting-rules.md](../make-plan/drafting-rules.md) § Map v2 rules. Do not restate per-tool pins.
+Accept a v2 or legacy map. Column sets, defaults, and the remaining Review constraints live in [../make-plan/drafting-rules.md](../make-plan/drafting-rules.md) § Map v2 rules. Do not restate per-tool pins.
 
 ### Map present
 
-1. **Normalize, then default.** Legacy tiers: `opus` → `top`, `auto` / `sonnet` → `mid`, `haiku` → `low`. If Tier is `—`, the row is **not scheduled**: treat it as `skipped`, do not default Runner, Model, or Review, and exclude it from the tier set check below. Wave `—` on that row is not placed in any wave (same scheduling sense as a skipped step). Then, on **scheduled** rows only: a missing Runner defaults per the drafting rules (`top` → `session`, anything else → `subagent`); a missing Review defaults to `mid`; a missing Model column is empty.
-2. **Validate** (scheduled rows only — Tier not `—`).
-   - Every Implementation step has a map ID (or clear sub-bullet coverage).
-   - Tier is one of `top` | `execute` | `mid` | `low`.
-   - Runner is one of `session` | `delegate:cursor` | `delegate:devin` | `delegate:agy` | `subagent`.
-   - Model is empty, or `auto` / `auto(router)` only with `low` + `delegate:cursor`.
-   - Review is one of `top@session` | `top@claude-task` | `top@devin-fusion` | `top@cursor-ask` | `top@agy-plan` | `mid` | `none`. `none` only on a `low` row with an Acceptance command. Rows in one (wave, Runner) batch share a single `top@*` value.
-   - A `top` row never uses `delegate:*`.
-   - **Files overlap, per wave.** On a v2 map, the same path must not appear on two rows of one wave (`—` overlaps nothing). A legacy map with no Files column keeps today's inferred check: same-wave rows do not share write paths. Conflict → ask to re-wave or serialize.
-3. Use the map as the schedule. Do **not** rewrite unless the user asks.
-4. **Hard follow:** never collapse the map into a single whole-plan Task; never invent extra implementation steps outside the map without explicit user approval.
+```bash
+mkdir -p .claude/tmp
+bash <skill-dir>/scripts/plan-status.sh rows <plan> claude-code [ID…] \
+  > .claude/tmp/exec-claude-rows.json
+```
 
-On a scheduled row, an invalid tier (any value other than `top` | `execute` | `mid` | `low` — Tier `—` is handled above), Runner, Model, or Review, or a `top` row on `delegate:*`, is a hard stop: name the row and the field. Tell the user to fix it with `/make-plan update <path>`. Do not silently rewrite. Do not dual-write.
+Pass step-scope IDs when the user gave them. Warn not to commit the rows file. Exit 3 or exit 2 → delete that file, quote stderr verbatim, stop. Do not `start`. Exit 0 with `selected: []` is not a refusal (only skips remain). `blocked` is `[{id, on}]` for an in-scope row that depends on an unfinished delegate row or on a blocked row — not a refusal.
+
+Do not re-check tier, Runner, Model, Review, review batches, or selected-row Files overlap — `rows` does. Tier `—` is unscheduled (`skipped` / `not scheduled`, or a refusal if that ID was requested). Do **not** rewrite the map unless the user asks.
+
+Still confirm every Implementation step has a map ID (or clear sub-bullet coverage). A gap is a hard stop: name it and send the user to `/make-plan update <path>`. A legacy map with no Files column keeps the inferred overlap check: same-wave rows must not share write paths. Conflict → ask to re-wave or serialize.
+
+**Hard follow:** never collapse the map into a single whole-plan Task; never invent extra implementation steps outside the map without explicit user approval.
 
 ### Map absent
 
@@ -85,13 +90,13 @@ If the plan has **`plan_sha`** (Step 2.6 did not warn `legacy plan (no plan_sha)
 
 **Legacy (no `plan_sha` only)** — draft-confirm-persist in place:
 
-1. Draft a v2 map biased to **smallest mechanical units**: tiers `low` for tightly scoped work, `execute` for interface-level work, `mid` for judgment; avoid `top` for implement rows. Use the drafting-rules columns (Runner, Files, Acceptance, Review). Prefer parallel waves when Files do not overlap. Split coarse steps into map rows (and split plan bullets if needed).
+1. Draft a v2 map biased to **smallest mechanical units**: tiers `low` for tightly scoped work, `execute` for interface-level work, `mid` for judgment; avoid `top` for implement rows. Use the drafting-rules columns (Runner, Files, Acceptance, Review). Prefer parallel waves when Files do not overlap. Split coarse steps into map rows (and plan bullets).
 2. Present for confirmation (`AskQuestion`: approve / revise / abort).
 3. **On approve:** write `## Execution map` into the **same plan file** (after Implementation steps if present), then re-read.
 4. **On revise:** iterate until approved — do not start Step 3/4 until confirmed. **On abort:** stop.
 5. If Implementation steps are too coarse for a safe map, offer `/make-plan update <path>`; default remains in-place map (+ split bullets as needed).
 
-Re-run validation after legacy confirm/persist (or when the map was already present); fix or ask before Step 4.
+Re-run `rows` after legacy confirm/persist. A refusal is the hard stop, quoted verbatim, before Step 4.
 
 ## Step 3 — Pre-flight checks
 
@@ -104,11 +109,49 @@ Re-run validation after legacy confirm/persist (or when the map was already pres
 
 ## Status audit (orchestrator dual-write)
 
-`Read` [execution-status.md](execution-status.md) for schema, `%` formula, placement, and dual-write rule. Dual-write YAML frontmatter + `## Execution log` in **one edit** at:
+Do not hand-edit the plan. `plan-status.sh` writes the schema, `%`, placement, and the dual-write. `<rows-json>` is `.claude/tmp/exec-claude-rows.json`. One UTC stamp (`date -u +%Y-%m-%dT%H:%M:%SZ`) is `--now` on `start` and `--started` on `terminal`. Exit 3 or 2 → quote stderr and stop.
 
-1. **Start** — after Step 3 (and map validation) pass, before or as Step 4 begins: ensure frontmatter + log exist; `status: in-progress`; `started_at` if unset. In-scope rows this run will implement: `pending` with Notes cleared (leave prior `done` rows untouched). Outside step-scope: `skipped` with Notes `out of step-scope`. In-scope `delegate:*`: `skipped` with Notes `out of step-scope (dispatch via delegate)`. Both skips only if the row is not already `done`. Confirm with the user before resetting an already-`completed` plan.
-2. **After each wave** (success or wave-failure stop): update those row statuses + frontmatter `%` / `updated_at`.
-3. **Terminal** — at Step 6 (or earlier abort/hard stop): set overall `status` (`completed` / `partial` / `failed` / `aborted`), `completed_at` iff `completed`, final `%`, one `### Run …` stanza with its `Run:` line, and append one `runs:` entry (fields in [execution-status.md](execution-status.md) § Run records): `backend: claude-code`; `model_requested` / `model_resolved` = the distinct implementer models in run order (resolved = what the Tasks actually ran on); `effort` = their tier efforts; `review_findings` = `blocking` + `important` findings from every review pass this run; `fix_loops` = fix rounds after review; `fallback` = `null` or the reason (for example a `low` row that fell back to `mid`). A Note that begins with `out of step-scope` does not satisfy `completed`; stopping for step-scope, for an unfinished delegate row, or because the final top pass was deferred to `/delegate:review` is `partial`.
+1. **Start** — after Step 3 and map validation, before or as Step 4 begins:
+
+```bash
+bash <skill-dir>/scripts/plan-status.sh start <plan> execute-plan .claude/tmp/exec-claude-rows.json --now <TS>
+```
+
+Exit 4 (stderr `plan already completed; confirm re-execute`) → ask. On confirm, rewrite the rows file and restart (new `<TS>`):
+
+```bash
+bash <skill-dir>/scripts/plan-status.sh rows --reexecute <plan> claude-code [ID…] \
+  > .claude/tmp/exec-claude-rows.json
+bash <skill-dir>/scripts/plan-status.sh start <plan> execute-plan .claude/tmp/exec-claude-rows.json --now <TS> --reexecute
+```
+
+Decline → stop. `start` marks `selected` rows `pending` (prior `done` stays unless `--reexecute`) and writes `skipped` notes from the rows file unless the row is `done`.
+
+2. **After each wave** (success or wave-failure stop):
+
+```bash
+bash <skill-dir>/scripts/plan-status.sh batch <plan> execute-plan --done ID… [--failed ID…] [--skipped ID --note TEXT]
+```
+
+3. **Terminal** — once, at Step 6 or an earlier abort/hard stop. Skip when a delegate-dependency stop already wrote this run's `runs:` entry. Implementer models comma-separated in run order; `--model-resolved` is what the Tasks ran on; `--effort` their tier efforts likewise; no Task ran → `none` for all three. `--findings` = `blocking` + `important`. `--fix-loops` = fix rounds after review. `--fallback` is `null` or the reason. Omit `--usage`. `--notes`: one short paragraph; never claim `completed`. Every call but a clean finish passes `--done` with this run's completed IDs.
+
+**End states** (Steps 4–6 cite it; do not restate outcomes):
+
+| End state | Call |
+| --- | --- |
+| `delegate:review` skip | `batch <plan> execute-plan --skipped <ID> --note 'out of step-scope (dispatch via delegate:review)'` |
+| Delegate-dependency stop, or deferred final review | `terminal … --outcome pass --deferred-review` |
+| Clean finish | `terminal … --outcome pass` |
+| Failed wave | `terminal … --outcome fail` |
+| User abort | `terminal … --outcome abort` |
+
+```bash
+bash <skill-dir>/scripts/plan-status.sh terminal <plan> execute-plan .claude/tmp/exec-claude-rows.json \
+  --outcome pass|fail|abort --backend claude-code \
+  --model-requested <slugs> --model-resolved "<slugs>" --effort <efforts> \
+  --started <TS> --findings <N> --fix-loops <N> --fallback "<reason-or-null>" \
+  [--deferred-review] [--done ID…] [--notes "<TEXT>"] [--now <TS>]
+```
 
 ## Step 4 — Delegate implementation by waves
 
@@ -121,16 +164,16 @@ Resolve `top`, `mid`, and `low` via [model-tiers.md](model-tiers.md). Resolve `e
 ### Wave schedule
 
 1. Group in-scope map rows by **Wave** (ascending). Leave rows that are already `done` as `done`. Decide what to launch from the current step-scope, Runner, and status — never from Notes left by an earlier run.
-2. **Delegate rows.** Do not implement a `delegate:*` row here. An in-scope one that is not already `done` was dual-written at Start as `skipped` with Notes `out of step-scope (dispatch via delegate)`. Print the matching `## Dispatch` lines now (each line whose command names those IDs), and tell the user to `/commit` this run's changes before running any `/delegate:execute-via-*` line — delegates refuse a dirty working tree. If `## Dispatch` is missing, print `/delegate:execute-via-<b> <plan> <IDs>` from the row's Runner with the same commit-first note. A delegate row outside step-scope keeps the plain `out of step-scope` note.
+2. **Delegate rows.** Do not implement a `delegate:*` row here. Print the matching `## Dispatch` lines now (each line whose command names those IDs), and tell the user to `/commit` this run's changes before running any `/delegate:execute-via-*` line — delegates refuse a dirty working tree. If `## Dispatch` is missing, print `/delegate:execute-via-<b> <plan> <IDs>` from the row's Runner with the same commit-first note. A delegate row outside step-scope keeps the plain `out of step-scope` note.
 3. For each wave, in order:
-   1. **Stop before a dependent wave.** If any row in this wave `Depends on` a delegate row that is not `done`, stop. Do not start this wave or any later wave. Print the matching Dispatch lines for those unfinished delegate rows (with the commit-first note from step 2). If this run already implemented rows, run their Acceptance commands plus the Verification commands whose files already exist — step 4's partial-scope rule — then run the Step 5 review loop over this run's diff. If nothing was implemented this run, skip verification and review and say so in the Step 6 summary. Dual-write terminal `partial` once (Status audit #3), then present the Step 6 summary. Do not append a second `runs:` entry.
+   1. **Stop before a dependent wave.** A row listed in `blocked`, or any row in this wave that `Depends on` a delegate row that is not `done`: stop. Do not start this wave or any later wave. Print the matching Dispatch lines for those unfinished delegate rows (with the commit-first note from step 2). If this run already implemented rows, run step 4's partial-scope verification, then the Step 5 review loop over this run's diff. If nothing was implemented this run, skip verification and review and say so in the Step 6 summary. Then the delegate-dependency-stop row of the end-state table, once, and present the Step 6 summary. Do not call `terminal` again.
    2. For every remaining row in the wave with no unmet `Depends on`:
-      - **`session` and Files `—`:** a decision or note. Do not edit implementation source. When Review is an external runner (`top@devin-fusion`, `top@cursor-ask`, `top@agy-plan`) and the host tool is not that runner's tool (`top@devin-fusion` → Devin, `top@cursor-ask` → Cursor, `top@agy-plan` → agy), do not run the row: dual-write it `skipped` with Notes `out of step-scope (dispatch via delegate:review)` and print its `/delegate:review` Dispatch line (the `## Dispatch` line whose command names this ID; if `## Dispatch` is missing or no line names this ID, print `/delegate:review <plan> <ID>`). When the host is that runner's tool, or Review is anything else, do the row in this session, record the outcome, and mark it `done` in this wave's dual-write.
+      - **`session` and Files `—`:** a decision or note. Do not edit implementation source. When Review is an external runner (`top@devin-fusion`, `top@cursor-ask`, `top@agy-plan`) and the host tool is not that runner's tool (`top@devin-fusion` → Devin, `top@cursor-ask` → Cursor, `top@agy-plan` → agy), do not run the row: the `delegate:review` skip row of the end-state table, and print its `/delegate:review` Dispatch line (the `## Dispatch` line whose command names this ID; if `## Dispatch` is missing or no line names this ID, print `/delegate:review <plan> <ID>`). When the host is that runner's tool, or Review is anything else, do the row in this session, record the outcome, and mark it `done` in this wave's `batch`.
       - **Any other `session` row** (Files lists paths, or a legacy map has no Files column): launch one top-tier `Task` (`generalPurpose`). The orchestrator never edits source.
       - **`subagent`:** launch **one `Task` (`generalPurpose`) per step**, model from Model resolution. Same-wave Tasks run **in parallel**.
-   3. Wait for the wave. **Orchestrator quality gate (lint before tests):** each Task report must show **lint+tests status** — (a) lint/type-check results when those tools exist, (b) tests added/updated or justified skip, (c) no failing commands in scope. On failure, **stop the wave** — do not start later waves; dual-write status (Status audit #2) then ask or resume that step. If any step reports unresolved issues, ask the user how to proceed before continuing to review. An in-session `session` row is done when its decision or note is recorded; it does not run this gate.
-   4. Next wave only after every prior in-wave Task passed the gate; dual-write status after each successful wave (Status audit #2).
-4. After the **last** wave this run implemented: when step-scope covers every map row that is not yet `done` (this run finishes the plan), run the full Verification suite once via a mid-tier Task unless the last wave already ran an equivalent full suite successfully. Otherwise (partial scope), run only the in-scope rows' Acceptance commands plus the Verification commands whose files already exist; list every deferred Verification command in the Step 6 summary and never fix forward into out-of-scope rows.
+   3. Wait for the wave. **Orchestrator quality gate (lint before tests):** each Task report must show **lint+tests status** — (a) lint/type-check results when those tools exist, (b) tests added/updated or justified skip, (c) no failing commands in scope. On failure, **stop the wave** — do not start later waves; `batch` the failed rows (Status audit #2; end-state table: failed wave) then ask or resume that step. If any step reports unresolved issues, ask the user how to proceed before continuing to review. An in-session `session` row is done when its decision or note is recorded; it does not run this gate.
+   4. Next wave only after every prior in-wave Task passed the gate; `batch --done` after each successful wave (Status audit #2).
+4. After the **last** wave this run implemented, verify in this session per [implementer.md](implementer.md) § Full verification. When step-scope covers every map row not yet `done`, the commands file is the full Verification suite unless the last wave already ran that suite. Otherwise (partial scope): in-scope Acceptance commands plus Verification commands whose files already exist. List every deferred command in the Step 6 summary. Never fix forward into out-of-scope rows.
 
 Track each Task's agent ID, map tier, and resolved platform model for the final report and resume-on-fix.
 
@@ -140,15 +183,13 @@ Track each Task's agent ID, map tier, and resolved platform model for the final 
 
 The final top pass uses the strongest Review among the rows this run marked `done` (`none` < `mid` < `top@*`). Do not count a row skipped for `delegate:review`. When several `top@*` values tie, use the `top@*` from the last wave this run marked `done`.
 
-If this run skipped a `session` + Files `—` row for `delegate:review`: do not run the in-host final top pass, and do not print a second, different command. When any row was marked `done`, run the mid-tier loop until clean, then stop that loop. When no row was marked `done`, skip the review loop and say so in the Step 6 summary. Report `final top-tier review: deferred` and repeat each such row's `/delegate:review <plan> <ID>` line — the same line Step 4 printed (the `## Dispatch` line whose command names that ID, or `/delegate:review <plan> <ID>` when Dispatch is missing or names no such ID). Terminal status stays `partial` until that ID form passes.
+If this run skipped a `session` + Files `—` row for `delegate:review`, or the strongest Review is an external runner on another tool (`top@devin-fusion`, `top@cursor-ask`, or `top@agy-plan` whose tool is not the host), whether or not every in-scope row is `done`: do not run the in-host final top pass. For a skipped row, the Dispatch line is Step 4's. Otherwise Step 4 printed no `/delegate:review` line: print `/delegate:review <plan> base=<Step 3 HEAD> runner=<x>` (`<ID>` on that line when an ID is also required). Print exactly one `/delegate:review` command in total, however many rows were skipped. When any row was marked `done`, run the mid-tier loop until clean, then stop that loop, and do not send the review to Cursor, Devin, or agy. When no row was marked `done`, skip the review loop and say so in the Step 6 summary. Outcome: the deferred-final-review row of the end-state table.
 
-Otherwise, when that strongest Review is an external runner on another tool (`top@devin-fusion`, `top@cursor-ask`, or `top@agy-plan` whose tool is not the host), whether or not every in-scope row is `done`: when any row was marked `done`, run the mid-tier loop until clean, then do not run the in-host final top pass and do not send the review to Cursor, Devin, or agy. Print `/delegate:review <plan> base=<Step 3 HEAD> runner=<x>` and report `final top-tier review: deferred`. If a base and an ID are both required, print one line that includes the ID (`/delegate:review <plan> <ID> base=<Step 3 HEAD> runner=<x>`), never a second command. Terminal status stays `partial` until `/delegate:review` passes.
-
-`top@session`, `top@claude-task`, or an external runner whose tool is the host (`top@cursor-ask` on Cursor, `top@devin-fusion` on Devin, `top@agy-plan` on agy) runs in-host — the same top-tier pass this loop already runs. When the strongest Review is `mid` or `none`, the in-host loop stands. Those in-host paths apply only when no `session` + Files `—` row was skipped for `delegate:review` and the strongest Review among `done` rows is one of those.
+When the strongest Review is `mid` or `none`, the in-host loop stands. The in-host final (`top@session`, `top@claude-task`, a matching host) and the `mid`/`none` loop apply only when no `session` + Files `—` row was skipped for `delegate:review` and the strongest Review among `done` rows is one of those.
 
 ## Step 6 — Final summary
 
-Dual-write terminal status first (Status audit #3). If a delegate-dependency stop already wrote that terminal `runs:` entry, present from it and do not write another. Present: plan path (note if map was drafted/persisted this run); **plan lock** (matched, or the legacy-plan warning); **step-scope** (the IDs, or the whole map) and any `out of step-scope` rows; **delegate** rows skipped `out of step-scope (dispatch via delegate)` and the Dispatch lines printed for them — with the note to `/commit` this run's changes first, since delegates refuse a dirty tree; **audit** (`execution.status`, `progress_pct`, `steps_done`/`steps_total`, `last_skill`); files changed; test/coverage results; deferred Verification commands (partial scope); verification/review skipped (delegate stop before any implementation); **orchestrator** model; **each implementer/fix Task** (map ID, tier, resolved model, lint+tests status); **each reviewer** (tier `mid` for intermediate passes, `top` for the final pass or escalation — review.md still names those passes `auto` and `opus`; resolved model); whether the **final top-tier review converged** (`clean` or `dirty` — `/critique change` keys off this); **reviews** — the strongest Review among rows this run marked `done` (not rows skipped for `delegate:review`). If a `session` + Files `—` row was skipped for `delegate:review`: report `final top-tier review: deferred`, repeat that row's `/delegate:review <plan> <ID>` line from Step 4, and do not print a different command (not converged; terminal status stays `partial` until that ID form passes); if no row was marked `done`, say the review loop was skipped. Otherwise, when that strongest Review is an external runner on another tool, even if some in-scope rows are not `done`: report `final top-tier review: deferred` and the single line `/delegate:review <plan> base=<Step 3 HEAD> runner=<x>` (include `<ID>` on that same line when an ID is also required; not converged; terminal status stays `partial` until `/delegate:review` passes). Otherwise name the in-host final (`top@session`, `top@claude-task`, or a matching host, or the in-host loop when the strongest Review is `mid` or `none`); remaining notes; clear statement that changes are **uncommitted**.
+Run the matching end-state row first (Status audit #3). If a delegate-dependency stop already wrote that `runs:` entry, present from it and do not write another. Present: plan path (note if map was drafted/persisted this run); **plan lock** (matched, or the legacy-plan warning); **step-scope** (the IDs, or the whole map) and any `out of step-scope` rows; **delegate** rows skipped `out of step-scope (dispatch via delegate)` and the Dispatch lines printed for them; **audit** (`execution.status`, `progress_pct`, `steps_done`/`steps_total`, `last_skill`); files changed; test/coverage results; deferred Verification commands (partial scope); verification/review skipped (delegate stop before any implementation); **orchestrator** model; **each implementer/fix Task** (map ID, tier, resolved model, lint+tests status); **each reviewer** (tier `mid` for intermediate passes, `top` for the final pass or escalation — review.md still names those passes `auto` and `opus`; resolved model); whether the **final top-tier review converged** (`clean` or `dirty` — `/critique change` keys off this); **reviews** — the strongest Review among rows this run marked `done` (not rows skipped for `delegate:review`). Report the Step 5 deferral when one applies (same command already printed: Step 4's for a skipped row, else Step 5's; not converged; outcome is the end-state table). Otherwise name the in-host final (`top@session`, `top@claude-task`, or a matching host, or the in-host loop when the strongest Review is `mid` or `none`). Remaining notes. Changes are **uncommitted**.
 
 Offer: `/critique change` · `/commit` · `/gh-create-pr` (clean tree / commits first). Do not commit or push unless explicitly asked.
 

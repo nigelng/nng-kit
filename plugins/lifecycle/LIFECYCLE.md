@@ -36,12 +36,24 @@ same plan audit metadata as `/execute-plan`.
   Stage 2: make-plan                 writes or updates docs/plans/**
   Stage 3: critique plan             skips critique only for Plan size: small
   Gate B (hard)                      Approve / Refine (back to Stage 2) / Abort;
-                                       never bypassed by args; an executed-plan resume
-                                       with a matching plan lock counts as having
-                                       passed Gate B
+                                       never bypassed by args. Approve runs
+                                       plan-status.sh approve, which writes gate_b_sha.
+                                       Continue here, or in a fresh session
+                                       (recommended unless Plan size: small). That
+                                       session starts at Stage 4 only when
+                                       lock --gate matches; a mismatch, a missing
+                                       stamp, or a legacy plan still requires Gate B.
+                                       An executed-plan resume with a matching plan
+                                       lock already passed Gate B
   Stage 4: execute-plan              ensures feature branch first unless finish=none
   Stage 5: critique change           whole branch + working tree + untracked files;
-                                       full review + security, then re-run Verification
+                                       review Tasks receive a base ref and run the
+                                       diff themselves. Phase A (lean mid rounds)
+                                       skips only when this session's Stage 4
+                                       fingerprint is unchanged and head equals the
+                                       review base. The closing top pass and the
+                                       security pass always run, then re-run
+                                       Verification
   Stage 6: finish                    push = branch + commit + push (default);
                                        pr = push + PR + CI watch;
                                        none = uncommitted, no branch/commit/push/PR
@@ -69,7 +81,10 @@ same plan audit metadata as `/execute-plan`.
                                        requires Execution map (draft→confirm→persist if
                                        missing); runs waves per ## Dispatch
                                        (execute/low implementers; mid review passes;
-                                       top-tier final pass, until clean)
+                                       top-tier final pass, until clean). Lock, map
+                                       rows, and status writes go through
+                                       plan-status.sh; Verification goes through
+                                       delegate-verify.sh
 
 /delegate:execute-via-cursor <path>  Claude Code–only alternative (`delegate` plugin):
   → uncommitted working-tree diff     Cursor `agent` CLI implements (default tier
@@ -204,7 +219,10 @@ Portable map tiers: **`top`** | **`execute`** | **`mid`** | **`low`** (legacy
 `/critique plan` — map tier **`top`** resolves to **`top-review`**. Per-skill
 session/Task requirements: that skill's `SKILL.md`. Canonical chains, fallback,
 and per-tool resolution: [model-tiers.md](model-tiers.md) — **edit tier policy
-there**, then run `bash scripts/sync-model-tiers.sh`. Full v2 map columns,
+there**, then run `bash scripts/sync-model-tiers.sh`. The five lifecycle skill
+copies are compact: a generated header, then Fallback, Per-tool resolution,
+Review runners, and the summary block. The canonical file and the delegate
+copy stay full. Full v2 map columns,
 **`## Dispatch`**, naming, plan lock, and recency:
 [skills/execute-plan/execution-status.md](skills/execute-plan/execution-status.md).
 
@@ -249,7 +267,8 @@ codebase.
   not re-plan or expand scope.
 - **Execute skills persist progress on the plan.** `/execute-plan`,
   `/delegate:execute-via-cursor`, `/delegate:execute-via-agy`, and `/delegate:execute-via-devin` record row status and
-  run history in the plan file (frontmatter + `## Execution log`) per `skills/execute-plan/execution-status.md`. Each
+  run history in the plan file (frontmatter + `## Execution log`) per `skills/execute-plan/execution-status.md`,
+  by calling `plan-status.sh`. Do not hand-edit `plan_sha` or `gate_b_sha`. Each
   finished run also appends a `runs:` record: backend, requested and resolved model (`auto(unresolved)` when the
   CLI reports none), effort, start/end, review findings, FIX loops and any fallback.
 - **Refuse, don't guess, when a plan is unsafe to execute.** Execute skills
@@ -276,7 +295,46 @@ Cursor warns when a skill **body** exceeds ~**5,000 tokens**. Keep each
 in sibling reference files one level deep (e.g. `plan-template.md`) and link
 them from `SKILL.md`. Home Manager installs each skill as a whole directory
 (one store symlink) and the plugin ships whole skill directories, so those
-companions ship with the skill.
+companions ship with the skill. `scripts/skill-budget.sh` measures that
+closure — the skill file plus every `.md` it links directly, counted once
+per path and not followed further — and checks it against
+`scripts/nng-kit-skill-budgets.tsv`.
+
+## Deterministic scripts
+
+Bookkeeping that must not depend on the model following prose is a bash 3.2
+script. Skills call one as `bash <skill-dir>/<relative>/scripts/<name>.sh`,
+with `<skill-dir>` the absolute directory of the calling `SKILL.md`. Files
+under `nng-kit/` stay mode 0644. Devin and agy install lifecycle without
+delegate, so they run the copies under `skills/execute-plan/scripts/`.
+`bash scripts/sync-kit-scripts.sh` writes those copies from
+`plugins/delegate/scripts/` (`--check` fails when a copy drifts).
+
+| Script | Role |
+| --- | --- |
+| `plan-status.sh` | Lock, Execution-map selection, and every status write. Source of truth in delegate; lifecycle copy next to `execute-plan`. |
+| `delegate-verify.sh` | Run a Verification commands file from the repo root. Exit 0 pass, 1 command failure, 3 tree changed, 2 usage. |
+| `pr-artifacts.sh` | Read-only JSON for `/gh-create-pr`: added and modified plans (with `execution.status`), sibling notes at HEAD, relay files (`current_branch`, `mirror`), dropped plans (resolved SHA), and paths skipped for an unusual name. Never runs `git rm`. |
+| `git-preflight.sh` | Read-only `key=value` facts for `/commit` and the release skills. |
+| `skill-budget.sh` | Own and closure bytes for each kit `SKILL.md`, checked against `scripts/nng-kit-skill-budgets.tsv`. |
+| `sync-model-tiers.sh` | Regenerate the tier copies from [model-tiers.md](model-tiers.md). |
+
+`plan-status.sh` commands the lifecycle skills use:
+
+- `lock <plan>` — stdout `ok` when `plan_sha` matches, `legacy` when the plan has none (exit 0), exit 3 when the body changed.
+- `lock --gate <plan>` — exit 0 and print `gate_b_at` only when `gate_b_sha` equals both the frontmatter `plan_sha` and the computed hash. A mismatch, a missing stamp, or no `plan_sha` exits 3. `--gate` must be the first argument; any extra or unknown argument exits 2. `/conduct` uses this to start a fresh session at Stage 4.
+- `rows <plan> claude-code [ID…]` — selects `session` and `subagent` rows, including `top`. `delegate:*` rows are skips (`out of step-scope (dispatch via delegate)`). A selected row that depends on an unfinished delegate row is reported as `blocked`, not refused. Exit 0 with an empty selection when only skips remain.
+- `rows --lint <plan>` — validates every scheduled row: the same row checks, plus Acceptance on non-`top` rows and Files overlap across a wave. Does not refuse for dependencies or an empty selection. `/make-plan` runs it before presenting; `/critique plan` cites it.
+- `start`, `batch`, `terminal`, `review` — the status writers. `batch` takes `--done`, `--failed`, and `--skipped ID --note TEXT`. `terminal --deferred-review` forces status `partial` even when `--outcome` is `pass`, and with it only explicit `--done` IDs are marked. Auto-marking by `terminal` never overwrites a `skipped` row, never marks a `blocked` row (direct or indirect) `done` or `failed`; an explicit `--done` still applies.
+- `stamp <plan>` — writes `plan_sha` and `approved_at`, never `created_at`. Prints the body size and warns over 15,000 bytes. `/make-plan` calls it. Do not hand-edit `plan_sha`.
+- `recent <dir>` — prints the newest plan (`created_at`, then the filename date, then mtime), ignoring `*.notes.md`. Exit 3 on a tie.
+- `approve <plan>` — after a passing lock, writes `gate_b_sha` and `gate_b_at`. Only `/conduct` calls it, at Gate B Approve. Exit 3 writes nothing.
+
+`git-preflight.sh` subcommands, all read-only: `state` (default branch with no hardcoded name, current branch, clean, upstream, ahead/behind after fetch), `version [<tag>]` (manifest version, unreleased changelog heading and its version, last tag, and whether `<tag>` exists locally and on the remote; `remote_tag=unknown` when `git ls-remote` fails), `bump <type> [<from>]` (`to=` from `<from>`, a tag ending in `x.y.z` such as `v1.2.3` or `lifecycle-v0.13.0`, default the manifest; `skip=yes` when the manifest is already at or past `to=`), and `fingerprint` (hash of `git diff HEAD` plus untracked file contents, excluding `docs/plans/**` and `docs/brainstorms/**`, plus `head=<sha>`). `/conduct` records `fingerprint` on a clean Stage 4 review and compares it at Stage 5.
+
+`skill-budget.sh --write <tsv>` records current sizes and keeps targets. `--check <tsv>` fails when a current size exceeds the recorded one. `--targets <tsv>` lists every row still above its target and exits 1 if any.
+
+`sync-model-tiers.sh` writes the compact copies described under Execution tiers into `brainstorm`, `make-plan`, `critique`, `execute-plan`, and `commit`. `--check` fails on drift.
 
 ## Skills in this chain
 

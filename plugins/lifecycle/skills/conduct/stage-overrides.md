@@ -35,15 +35,21 @@ Read [execute-plan/SKILL.md](../execute-plan/SKILL.md).
 - In **Step 3 ("Pre-flight checks"), item 3**, auto-proceed through the dirty-tree check only when every dirty path is conductor-owned or is a foreign path the user already accepted at conductor Step 0.6 ("Preflight + baseline"). Otherwise ask proceed / stash / abort. An accepted foreign path remains foreign and excluded from staging; accepting it at Step 0.6 already requires `finish=none`.
 - Skip **Step 3 ("Pre-flight checks"), item 6** (the optional critique-plan offer): Stage 3 and Gate B already handle it.
 - Keep all other execution checks, quality gates, independent review and status audit writes. In **Step 6 ("Final summary")**, retain the summary and terminal status write, but replace the `/critique change` / `/commit` / `/gh-create-pr` offers with the transition to conductor **Stage 5**.
-- If the map contains `delegate:*` rows, or the final review is deferred to `/delegate:review`, end the run with terminal **partial** status and print its matching **Dispatch** lines (or the fallback commands it specifies). Do not implement delegate rows or silently substitute an in-host review. Apply the conductor's downgrade rule: `finish=none`, stop before commit and report the outstanding dispatch/review work.
+- If the map contains `delegate:*` rows, or terminal `execution.status` is `partial` after `terminal --deferred-review` (a Step 5/6 deferral with a printed `/delegate:review` line), print the matching **Dispatch** lines (or the fallback commands it specifies). Do not implement delegate rows or silently substitute an in-host review. Apply the conductor's downgrade rule: `finish=none`, stop before commit and report the outstanding dispatch/review work. No `deferred` label.
 
 ## Critique change
 
 Read [critique/SKILL.md](../critique/SKILL.md).
 
-- In **Step 1 ("Detect review context")**, select explicit **change mode**. Override **Change mode / Resolve the diff** to review the whole branch plus working tree, not only the latest commit or `git diff HEAD`.
-- Run `git fetch origin <default>` first, using the default branch from conductor Step 0.6 ("Preflight + baseline"). Set `<merge-base>` to `git merge-base origin/<default> HEAD`, then capture `git diff <merge-base>` (branch commits plus staged and unstaged changes). If there is no `origin`, use the HEAD SHA recorded at Step 0.6 as the base instead. A failed fetch or base resolution stops this stage and triggers the conductor's downgrade rule; it is never permission to use a stale or narrower diff.
-- Include untracked files from `git ls-files --others --exclude-standard`: read their contents as part of the review. Exclude `docs/brainstorms/**` and `docs/plans/**` from both the tracked diff and untracked review input.
-- Disable **After execute-plan or a converged delegate PASS**: a converged execution review does not skip this stage. Run **Phase A** (at most two mid-tier reviews), **Phase B** (at most one top-tier escalation, only when triggered), and **Final `/critique change`** (one top-tier closing pass when ship-ready). Preserve separate read-only reviewers and fix agents, the two-top-pass ceiling, and the stop rule for remaining blocking or unresolved important findings.
+- In **Step 1 ("Detect review context")**, select explicit **change mode**. Override **Change mode / Resolve the diff** to review the whole branch plus working tree, not only the latest commit or `git diff HEAD`. `<skill-dir>` is the absolute directory of [SKILL.md](SKILL.md).
+
+```bash
+bash <skill-dir>/../commit/scripts/git-preflight.sh state
+bash <skill-dir>/../commit/scripts/git-preflight.sh fingerprint
+```
+
+Review base, fetch failure, and exclusions: [SKILL.md](SKILL.md) Stage 5.
+
+- Disable **After execute-plan or a converged delegate PASS** as a reason to skip the closing pass or the security pass. Phase A skip: [SKILL.md](SKILL.md) Stage 5. Always run **Final `/critique change`** (one top-tier closing pass when ship-ready). Preserve separate read-only reviewers and fix agents, the two-top-pass ceiling, and the stop rule for remaining blocking or unresolved important findings.
 - Run **Security pass (change mode)** once, using platform `security-review` when available or the skill's trust-boundary fallback. Do not take its docs-only skip under `/conduct`; unattended commit/push/PR authority remains a security-sensitive boundary.
-- After critique fixes, the conductor re-runs the plan's **Verification** commands, including after closing-pass fixes that critique otherwise labels **unverified**. Report the results separately from review convergence; verification does not replace a review. Any failed verification or remaining blocking/unresolved important finding triggers the conductor's downgrade rule and prevents commit.
+- After critique fixes, the conductor re-runs the plan's **Verification** commands, including after closing-pass fixes that critique otherwise labels **unverified**. Report the results separately from review convergence; verification does not replace a review or authorize another review loop. Any failed verification or remaining blocking/unresolved important finding triggers the conductor's downgrade rule and prevents commit.

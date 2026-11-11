@@ -92,19 +92,28 @@ chore: bump node to 24 and update jest config
 
 ### 5. Propose version bump
 
-If a `package.json` exists (or equivalent package manifest like `pyproject.toml`, `Cargo.toml`), compute **one** proposed version for the whole `/commit` session from the highest-priority commit type in the plan, using semantic versioning:
+`<skill-dir>` is the absolute directory of this `SKILL.md`.
 
-- `BREAKING CHANGE` or `!:` → major (e.g. 1.2.3 → 2.0.0)
-- `feat:` → minor (e.g. 1.2.3 → 1.3.0)
-- `fix:` → patch (e.g. 1.2.3 → 1.2.4)
-- `chore:`, `refactor:`, `docs:`, `style:`, `perf:`, `test:`, `build:`, `ci:`, `revert:` → no version change
+```bash
+bash <skill-dir>/scripts/git-preflight.sh version
+```
+
+Empty `manifest=` → no package manifest; skip this step. Otherwise one proposal for the session, from the highest-priority commit type (`<last_tag>` is `last_tag=` when it ends in `x.y.z`, else omit):
+
+```bash
+bash <skill-dir>/scripts/git-preflight.sh bump <type> [<last_tag>]
+```
+
+`<type>` is `major` (`BREAKING CHANGE` or `!:`), else `feat`, else `fix`, else `none` (`chore`, `refactor`, `docs`, `style`, `perf`, `test`, `build`, `ci`, `revert`). `bump=none` → no version change. Otherwise `to=` is the proposal.
 
 **Apply rules:**
-1. Propose the version once for the session; apply it only on the **first** commit in a multi-commit plan.
-2. If CHANGELOG has a versioned unreleased heading (`## [x.y.z] — unreleased`), skip proposing/applying only when that `x.y.z` is already at or past the proposed version (from last tag via `git describe --tags --abbrev=0`). A bare `## [Unreleased]` does **not** skip — still propose when the commit type warrants a bump. If an existing versioned heading is below the proposed bump, propose the higher version (and update the heading).
-3. Skip if the package manifest version is already at or past the proposed version since the last tag (`git describe --tags --abbrev=0`).
+1. Propose once for the session; apply only on the **first** commit in a multi-commit plan.
+2. If `changelog_version=` is set, skip proposing/applying only when that version is already at or past `to=` (`last_tag=` is the comparison point). A bare `## [Unreleased]` leaves `changelog_version` empty and does **not** skip. If `changelog_version` is below `to=`, propose `to=` and update the heading.
+3. Skip only when `skip=yes` (`manifest=` ≥ `to=`).
 
-Present the suggested version to the user for approval via AskQuestion. If the user declines, skip the version change.
+`bump` exit 2 (base not `x.y.z`) → no proposal; skip this step.
+
+Present `to=` for approval via AskQuestion. If the user declines, skip the version change.
 
 ### 6. Update CHANGELOG
 

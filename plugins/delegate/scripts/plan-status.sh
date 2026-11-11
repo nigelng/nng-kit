@@ -5,12 +5,16 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: plan-status.sh lock <plan>" >&2
+  echo "usage: plan-status.sh lock [--gate] <plan>" >&2
   echo "       plan-status.sh rows [--reexecute] <plan> <backend> [ID...]" >&2
+  echo "       plan-status.sh rows --lint <plan>" >&2
   echo "       plan-status.sh start <plan> <last_skill> <rows-json> [--now TS] [--reexecute]" >&2
-  echo "       plan-status.sh batch <plan> <last_skill> --done ID... [--failed ID...] [--now TS]" >&2
-  echo "       plan-status.sh terminal <plan> <last_skill> <rows-json> --outcome pass|fail|abort --backend B --model-requested S --model-resolved S --effort E --started TS --findings N --fix-loops N --fallback R|null [--usage <json>] [--done ID...] [--notes TEXT] [--now TS]" >&2
+  echo "       plan-status.sh batch <plan> <last_skill> (--done ID... | --failed ID... | --skipped ID --note TEXT)... [--now TS]" >&2
+  echo "       plan-status.sh terminal <plan> <last_skill> <rows-json> --outcome pass|fail|abort --backend B --model-requested S --model-resolved S --effort E --started TS --findings N --fix-loops N --fallback R|null [--usage <json>] [--done ID...] [--notes TEXT] [--now TS] [--deferred-review]" >&2
   echo "       plan-status.sh review <plan> [ID] --outcome pass|fail --runner <top@…> --findings N [--notes TEXT] [--now TS]" >&2
+  echo "       plan-status.sh stamp <plan> [--now TS]" >&2
+  echo "       plan-status.sh recent <dir>" >&2
+  echo "       plan-status.sh approve <plan> [--now TS]" >&2
 }
 
 is_blank_dash() {
@@ -291,6 +295,20 @@ skip_row() {
   SKIPPED_JSON=$(jq -n -c --argjson arr "$SKIPPED_JSON" --argjson obj "$obj" '$arr + [$obj]')
 }
 
+block_row() {
+  local id=$1 on=$2 obj
+  obj=$(jq -n -c --arg id "$id" --arg on "$on" '{id:$id,on:$on}')
+  BLOCKED_JSON=$(jq -n -c --argjson arr "$BLOCKED_JSON" --argjson obj "$obj" '$arr + [$obj]')
+  BLOCKED_SET+="${id}"$'\n'
+}
+
+is_blocked() {
+  case $'\n'"$BLOCKED_SET" in
+    *$'\n'"$1"$'\n'*) return 0 ;;
+  esac
+  return 1
+}
+
 header_index() {
   local name=$1 i h
   for ((i = 0; i < ${#CELLS[@]}; i++)); do
@@ -518,17 +536,22 @@ execution_status_of() {
 }
 
 frontmatter_plan_sha() {
-  awk '
+  frontmatter_top_key "$1" plan_sha
+}
+
+frontmatter_top_key() {
+  local file=$1 key=$2
+  awk -v key="$key" '
     NR == 1 && /^---[[:space:]]*$/ { fm = 1; next }
     fm == 1 && /^---[[:space:]]*$/ { exit }
-    fm == 1 && /^plan_sha:[[:space:]]*/ {
-      sub(/^plan_sha:[[:space:]]*/, "")
+    fm == 1 && index($0, key ":") == 1 {
+      sub("^" key ":[[:space:]]*", "")
       gsub(/^["'\'']|["'\'']$/, "")
       gsub(/[[:space:]]/, "")
       print
       exit
     }
-  ' "$1"
+  ' "$file"
 }
 
 parse_done() {
@@ -618,9 +641,12 @@ id_requested() {
 load_lock_fns() {
   local dir ref snippet
   dir=$(cd "$(dirname "$0")" && pwd)
-  ref="$dir/../references/execution-status.md"
-  if [[ ! -f "$ref" ]]; then
-    echo "usage: plan-status.sh: missing $ref" >&2
+  if [[ -f "$dir/../references/execution-status.md" ]]; then
+    ref="$dir/../references/execution-status.md"
+  elif [[ -f "$dir/../execution-status.md" ]]; then
+    ref="$dir/../execution-status.md"
+  else
+    echo "usage: plan-status.sh: missing execution-status.md (looked beside $dir)" >&2
     exit 2
   fi
   snippet=$(awk '
@@ -637,14 +663,36 @@ load_lock_fns() {
 }
 
 cmd_lock() {
+  local gate=0
+  if [[ "${1:-}" == "--gate" ]]; then
+    gate=1
+    shift
+  fi
   local plan=${1:-}
-  if [[ -z "$plan" || ! -f "$plan" ]]; then
+  if [[ -z "$plan" || ! -f "$plan" || $# -gt 1 ]]; then
     usage
     exit 2
   fi
   load_lock_fns
-  local key have want
+  local key have want gsha gat
   key=$(frontmatter_plan_sha "$plan")
+  if [[ $gate -eq 1 ]]; then
+    if [[ -z "$key" ]]; then
+      exit 3
+    fi
+    have=$(plan_sha "$plan")
+    have=$(lower_ascii "$have")
+    have=${have//[[:space:]]/}
+    want=$(lower_ascii "$key")
+    gsha=$(frontmatter_top_key "$plan" gate_b_sha)
+    gat=$(frontmatter_top_key "$plan" gate_b_at)
+    gsha=$(lower_ascii "$gsha")
+    if [[ -n "$gsha" && "$gsha" == "$want" && "$gsha" == "$have" && -n "$gat" ]]; then
+      printf '%s\n' "$gat"
+      exit 0
+    fi
+    exit 3
+  fi
   if [[ -z "$key" ]]; then
     printf '%s\n' "WARN: legacy plan (no plan_sha)" >&2
     printf '%s\n' legacy
@@ -782,6 +830,16 @@ consider_row() {
     fi
     return
   fi
+  if [[ "${BACKEND:-}" == claude-code && "$runner" == delegate:* ]]; then
+    skip_row "$id" "out of step-scope (dispatch via delegate)"
+    return
+  fi
+  if [[ "${BACKEND:-}" == claude-code ]]; then
+    case "$runner" in
+      session | subagent) SEL+=("$i") ;;
+    esac
+    return
+  fi
   if [[ "$tier" == top ]]; then
     if [[ "$runner" == delegate:* || $requested -eq 1 ]]; then
       refuse "$id: top rows never run on a delegate"
@@ -816,8 +874,19 @@ row_is_selected() {
   return 1
 }
 
+runner_of_id() {
+  local id=$1 i
+  for ((i = 0; i < ROW_N; i++)); do
+    if [[ "${ROW_ID[$i]}" == "$id" ]]; then
+      printf '%s' "${ROW_RUNNER[$i]}"
+      return 0
+    fi
+  done
+  return 1
+}
+
 check_deps() {
-  local si id dep
+  local si id dep dep_runner changed=1
   if [[ ${#SEL[@]} -eq 0 ]]; then
     return
   fi
@@ -831,8 +900,40 @@ check_deps() {
       if is_done "$dep"; then
         continue
       fi
+      if [[ "${BACKEND:-}" == claude-code ]]; then
+        dep_runner=""
+        if dep_runner=$(runner_of_id "$dep"); then
+          case "$dep_runner" in
+            delegate:*)
+              block_row "$id" "$dep"
+              continue
+              ;;
+          esac
+        fi
+      fi
       refuse "$id: depends on $dep (not done)"
     done <<< "${ROW_DEP[$si]}"
+  done
+  if [[ "${BACKEND:-}" != claude-code ]]; then
+    return
+  fi
+  # A selected row that depends on a blocked row cannot run either (fixpoint).
+  while [[ $changed -eq 1 ]]; do
+    changed=0
+    for si in "${SEL[@]}"; do
+      id=${ROW_ID[$si]}
+      if is_blocked "$id"; then
+        continue
+      fi
+      while IFS= read -r dep; do
+        [[ -n "$dep" ]] || continue
+        if is_blocked "$dep"; then
+          block_row "$id" "$dep"
+          changed=1
+          break
+        fi
+      done <<< "${ROW_DEP[$si]}"
+    done
   done
 }
 
@@ -870,6 +971,30 @@ check_overlap() {
   done
 }
 
+check_acceptance_lint() {
+  local i
+  for ((i = 0; i < ROW_N; i++)); do
+    [[ ${ROW_UNSCHED[$i]} -eq 1 || ${ROW_BAD[$i]} -eq 1 ]] && continue
+    if [[ ${ROW_TIER[$i]} != top && -z ${ROW_ACC[$i]} ]]; then
+      refuse "${ROW_ID[$i]}: missing Acceptance"
+    fi
+  done
+}
+
+check_overlap_all() {
+  local i j
+  for ((i = 0; i < ROW_N; i++)); do
+    [[ ${ROW_UNSCHED[$i]} -eq 1 || ${ROW_BAD[$i]} -eq 1 ]] && continue
+    for ((j = i + 1; j < ROW_N; j++)); do
+      [[ ${ROW_UNSCHED[$j]} -eq 1 || ${ROW_BAD[$j]} -eq 1 ]] && continue
+      [[ ${ROW_WAVE[$i]} == "${ROW_WAVE[$j]}" ]] || continue
+      if files_share "${ROW_FILES[$i]}" "${ROW_FILES[$j]}"; then
+        refuse "${ROW_ID[$j]}: files overlap with ${ROW_ID[$i]}"
+      fi
+    done
+  done
+}
+
 tier_rank() {
   case "$1" in
     low) printf '1' ;;
@@ -882,8 +1007,11 @@ tier_rank() {
 emit_json() {
   local si id tier wave acc model review dep_json files_json obj
   local best=0 rank name launch="" router_ok=1 file seen union_json='[]'
+  if [[ ${#SEL[@]} -eq 0 ]]; then
+    router_ok=0
+  fi
   SELECTED_JSON='[]'
-  for si in "${SEL[@]}"; do
+  for si in ${SEL[@]+"${SEL[@]}"}; do
     id=${ROW_ID[$si]}
     tier=${ROW_TIER[$si]}
     wave=${ROW_WAVE[$si]}
@@ -934,43 +1062,19 @@ emit_json() {
     --argjson router "$router_json" \
     --argjson selected "$SELECTED_JSON" \
     --argjson skipped "$SKIPPED_JSON" \
+    --argjson blocked "${BLOCKED_JSON:-[]}" \
     --argjson files_union "$union_json" \
-    '{map:$map,launch_tier:$launch_tier,router:$router,selected:$selected,skipped:$skipped,files_union:$files_union}'
+    '{map:$map,launch_tier:$launch_tier,router:$router,selected:$selected,skipped:$skipped,blocked:$blocked,files_union:$files_union}'
 }
 
 print_refuses() {
   local r
-  for r in "${REFUSES[@]}"; do
+  for r in ${REFUSES[@]+"${REFUSES[@]}"}; do
     printf '%s\n' "$r" >&2
   done
 }
 
-cmd_rows() {
-  local reexecute=0 plan backend status
-  if [[ "${1:-}" == "--reexecute" ]]; then
-    reexecute=1
-    shift
-  fi
-  if [[ $# -lt 2 ]]; then
-    usage
-    exit 2
-  fi
-  plan=$1
-  backend=$2
-  shift 2
-  case "$backend" in
-    cursor | agy | devin) ;;
-    *)
-      usage
-      exit 2
-      ;;
-  esac
-  if [[ ! -f "$plan" ]]; then
-    usage
-    exit 2
-  fi
-  BACKEND=$backend
-  REQ=("$@")
+reset_row_state() {
   REFUSES=()
   SEL=()
   ROW_N=0
@@ -987,8 +1091,73 @@ cmd_rows() {
   ROW_UNSCHED=()
   ROW_BAD=()
   SKIPPED_JSON='[]'
+  BLOCKED_JSON='[]'
+  BLOCKED_SET=$'\n'
   UNION_SET=""
   DONE_SET=$'\n'
+}
+
+cmd_rows_lint() {
+  local plan=$1
+  if [[ ! -f "$plan" ]]; then
+    usage
+    exit 2
+  fi
+  reset_row_state
+  parse_map "$plan"
+  if [[ "$MAP_KIND" == none ]]; then
+    parse_steps "$plan"
+  fi
+  validate_rows
+  if [[ "$MAP_KIND" == v2 ]]; then
+    check_acceptance_lint
+  fi
+  check_overlap_all
+  if [[ ${#REFUSES[@]} -gt 0 ]]; then
+    print_refuses
+    exit 3
+  fi
+  printf '%s\n' ok
+}
+
+cmd_rows() {
+  local reexecute=0 lint=0 plan backend status
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --reexecute) reexecute=1; shift ;;
+      --lint) lint=1; shift ;;
+      *) break ;;
+    esac
+  done
+  if [[ $lint -eq 1 ]]; then
+    if [[ $reexecute -eq 1 || $# -ne 1 ]]; then
+      usage
+      exit 2
+    fi
+    cmd_rows_lint "$1"
+    return
+  fi
+  if [[ $# -lt 2 ]]; then
+    usage
+    exit 2
+  fi
+  plan=$1
+  backend=$2
+  shift 2
+  case "$backend" in
+    cursor | agy | devin | claude-code) ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
+  if [[ ! -f "$plan" ]]; then
+    usage
+    exit 2
+  fi
+  BACKEND=$backend
+  REQ=("$@")
+  reset_row_state
   parse_map "$plan"
   if [[ "$MAP_KIND" == none ]]; then
     parse_steps "$plan"
@@ -1019,6 +1188,10 @@ cmd_rows() {
     exit 3
   fi
   if [[ ${#SEL[@]} -eq 0 ]]; then
+    if [[ "$BACKEND" == claude-code ]]; then
+      emit_json
+      return
+    fi
     printf '%s\n' "REFUSE: no rows routed to delegate:${BACKEND}" >&2
     exit 3
   fi
@@ -1104,6 +1277,26 @@ normalize_resolved() {
   fi
 }
 
+slug_ok() {
+  local s=$1
+  [[ -n "$s" && "$s" != null && "$s" =~ $MODEL_RE ]]
+}
+
+# A single slug or a comma-separated list of slugs. Empty pieces fail.
+model_list_ok() {
+  local raw=$1 rest part
+  rest=$raw
+  [[ -n "$rest" ]] || return 1
+  while [[ "$rest" == *","* ]]; do
+    part=${rest%%,*}
+    rest=${rest#*,}
+    part=$(trim_ws "$part")
+    slug_ok "$part" || return 1
+  done
+  part=$(trim_ws "$rest")
+  slug_ok "$part"
+}
+
 note_blocks_completed() {
   case "$1" in
     "out of step-scope"*) return 0 ;;
@@ -1129,11 +1322,13 @@ load_rows_json() {
   SEL_IDS=()
   SKIP_IDS=()
   SKIP_NOTES=()
+  BLOCKED_IDS=""
   local id obj note
   while IFS= read -r id; do
     [[ -n "$id" ]] || continue
     SEL_IDS+=("$id")
   done < <(jq -r '.selected[]? | .id // empty' <<<"$ROWS_JSON")
+  BLOCKED_IDS=$(jq -r '.blocked[]? | .id // empty' <<<"$ROWS_JSON")
   while IFS= read -r obj; do
     [[ -n "$obj" ]] || continue
     id=$(jq -r '.id // empty' <<<"$obj")
@@ -1581,12 +1776,18 @@ apply_failed_ids() {
 }
 
 mark_selected_done() {
-  local s
+  local s idx
   if [[ ${#SEL_IDS[@]} -eq 0 ]]; then
     return
   fi
   for s in "${SEL_IDS[@]}"; do
-    set_row_status "$s" done 0
+    idx=$(row_index "$s") || continue
+    case $'\n'"$BLOCKED_IDS"$'\n' in
+      *$'\n'"$s"$'\n'*) continue ;;
+    esac
+    if [[ ${NEW_ST[$idx]} != skipped ]]; then
+      set_row_status "$s" done 0
+    fi
   done
 }
 
@@ -1597,7 +1798,10 @@ mark_selected_failed_unless_done() {
   fi
   for s in "${SEL_IDS[@]}"; do
     idx=$(row_index "$s") || continue
-    if [[ ${NEW_ST[$idx]} != done ]]; then
+    case $'\n'"$BLOCKED_IDS"$'\n' in
+      *$'\n'"$s"$'\n'*) continue ;;
+    esac
+    if [[ ${NEW_ST[$idx]} != done && ${NEW_ST[$idx]} != skipped ]]; then
       NEW_ST[$idx]=failed
     fi
   done
@@ -1898,8 +2102,8 @@ cmd_start() {
 }
 
 cmd_batch() {
-  local plan skill now=""
-  local -a done_ids=() failed_ids=()
+  local plan skill now="" sid snote i idx
+  local -a done_ids=() failed_ids=() skip_ids=() skip_notes=()
   if [[ $# -lt 2 ]]; then
     die_usage
   fi
@@ -1927,6 +2131,18 @@ cmd_batch() {
           shift
         done
         ;;
+      --skipped)
+        [[ $# -ge 4 ]] || die_usage
+        shift
+        sid=$1
+        shift
+        [[ "${1:-}" == "--note" ]] || die_usage
+        shift
+        snote=$1
+        shift
+        skip_ids+=("$sid")
+        skip_notes+=("$snote")
+        ;;
       *) die_usage ;;
     esac
   done
@@ -1937,7 +2153,7 @@ cmd_batch() {
   else
     now=$(now_ts)
   fi
-  if [[ ${#done_ids[@]} -eq 0 && ${#failed_ids[@]} -eq 0 ]]; then
+  if [[ ${#done_ids[@]} -eq 0 && ${#failed_ids[@]} -eq 0 && ${#skip_ids[@]} -eq 0 ]]; then
     die_usage
   fi
   prepare_write "$plan"
@@ -1947,12 +2163,23 @@ cmd_batch() {
   if [[ ${#failed_ids[@]} -gt 0 ]]; then
     require_known "${failed_ids[@]}"
   fi
+  if [[ ${#skip_ids[@]} -gt 0 ]]; then
+    require_known "${skip_ids[@]}"
+  fi
   if [[ ${#failed_ids[@]} -gt 0 ]]; then
     apply_failed_ids "${failed_ids[@]}"
   fi
   if [[ ${#done_ids[@]} -gt 0 ]]; then
     apply_done_ids "${done_ids[@]}"
   fi
+  for ((i = 0; i < ${#skip_ids[@]}; i++)); do
+    idx=$(row_index "${skip_ids[$i]}")
+    if [[ ${NEW_ST[$idx]} == done ]]; then
+      continue
+    fi
+    NEW_ST[$idx]=skipped
+    NEW_NOTE[$idx]=${skip_notes[$i]}
+  done
   recalc_progress
   local status started
   status=$(execution_status_of "$plan")
@@ -1982,7 +2209,7 @@ cmd_terminal() {
   local tokens_in=null tokens_cached=null tokens_out=null
   local -a done_ids=()
   local saw_fallback=0 saw_outcome=0 saw_backend=0 saw_requested=0 saw_resolved=0
-  local saw_effort=0 saw_started=0 saw_findings=0 saw_loops=0
+  local saw_effort=0 saw_started=0 saw_findings=0 saw_loops=0 deferred=0
   if [[ $# -lt 3 ]]; then
     die_usage
   fi
@@ -2068,6 +2295,10 @@ cmd_terminal() {
           shift
         done
         ;;
+      --deferred-review)
+        deferred=1
+        shift
+        ;;
       *) die_usage ;;
     esac
   done
@@ -2117,7 +2348,7 @@ cmd_terminal() {
   fi
   case "$outcome" in
     pass)
-      if [[ ${#done_ids[@]} -eq 0 ]]; then
+      if [[ ${#done_ids[@]} -eq 0 && $deferred -eq 0 ]]; then
         mark_selected_done
       fi
       ;;
@@ -2129,7 +2360,9 @@ cmd_terminal() {
   local status completed=""
   case "$outcome" in
     pass)
-      if rows_satisfy_completed; then
+      if [[ $deferred -eq 1 ]]; then
+        status=partial
+      elif rows_satisfy_completed; then
         status=completed
       else
         status=partial
@@ -2157,8 +2390,16 @@ cmd_terminal() {
   fi
   RUN_SKILL=$skill
   RUN_BACKEND=$backend
-  RUN_REQUESTED=$(single_line "$requested")
-  RUN_RESOLVED=$(normalize_resolved "$resolved_raw")
+  if [[ "$backend" == claude-code ]]; then
+    # `none` = no implementer Task ran (delegate stop, early abort, session-only rows).
+    [[ "$requested" == none ]] || model_list_ok "$requested" || die_usage
+    [[ "$resolved_raw" == none ]] || model_list_ok "$resolved_raw" || die_usage
+    RUN_REQUESTED=$(single_line "$requested")
+    RUN_RESOLVED=$(single_line "$resolved_raw")
+  else
+    RUN_REQUESTED=$(single_line "$requested")
+    RUN_RESOLVED=$(normalize_resolved "$resolved_raw")
+  fi
   RUN_EFFORT=$(single_line "$effort")
   RUN_STARTED=$started_run
   RUN_FINDINGS=$findings
@@ -2309,6 +2550,187 @@ cmd_review() {
   commit_write "$plan" "$status" review "$now" "$started" "$completed" 2
 }
 
+# Replace or insert top-level frontmatter keys. Never creates or changes created_at.
+# Other lines, including the execution: block, are copied verbatim.
+upsert_top_keys() {
+  local plan=$1
+  shift
+  local tmp spec
+  tmp=$(mktemp "$(dirname "$plan")/.plan-status.XXXXXX")
+  spec=$(mktemp "${TMPDIR:-/tmp}/plan-status-keys.XXXXXX")
+  while [[ $# -ge 2 ]]; do
+    printf '%s\t%s\n' "$1" "$2" >>"$spec"
+    shift 2
+  done
+  awk -F '\t' '
+    BEGIN { n = 0 }
+    NR == FNR { key[n] = $1; val[n] = $2; n++; next }
+    FNR == 1 && $0 !~ /^---[[:space:]]*$/ {
+      print "---"
+      for (i = 0; i < n; i++) printf "%s: \"%s\"\n", key[i], val[i]
+      print "---"
+      print
+      next
+    }
+    FNR == 1 { fm = 1; print; next }
+    fm == 1 && $0 ~ /^execution:[[:space:]]*$/ {
+      for (i = 0; i < n; i++) if (!(key[i] in done)) printf "%s: \"%s\"\n", key[i], val[i]
+      for (i = 0; i < n; i++) done[key[i]] = 1
+      print
+      next
+    }
+    fm == 1 && $0 ~ /^---[[:space:]]*$/ {
+      for (i = 0; i < n; i++) if (!(key[i] in done)) printf "%s: \"%s\"\n", key[i], val[i]
+      fm = 2
+      print
+      next
+    }
+    fm == 1 {
+      replaced = 0
+      for (i = 0; i < n; i++) {
+        if (index($0, key[i] ":") == 1) {
+          printf "%s: \"%s\"\n", key[i], val[i]
+          done[key[i]] = 1
+          replaced = 1
+          break
+        }
+      }
+      if (!replaced) print
+      next
+    }
+    { print }
+  ' "$spec" "$plan" >"$tmp"
+  rm -f "$spec"
+  apply_source_mode "$plan" "$tmp"
+  mv "$tmp" "$plan"
+}
+
+take_now() {
+  local now=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --now)
+        [[ $# -ge 2 ]] || die_usage
+        now=$2
+        shift 2
+        ;;
+      *) die_usage ;;
+    esac
+  done
+  if [[ -n "$now" ]]; then
+    require_iso_ts "$now"
+  else
+    now=$(now_ts)
+  fi
+  printf '%s' "$now"
+}
+
+cmd_stamp() {
+  local plan now bytes sha
+  [[ $# -ge 1 ]] || die_usage
+  plan=$1
+  shift
+  require_plan_file "$plan"
+  now=$(take_now "$@")
+  load_lock_fns
+  bytes=$(plan_body "$plan" | wc -c | tr -d '[:space:]')
+  sha=$(plan_sha "$plan")
+  sha=$(lower_ascii "$sha")
+  sha=${sha//[[:space:]]/}
+  upsert_top_keys "$plan" plan_sha "$sha" approved_at "$now"
+  printf '%s\n' "$bytes"
+  if [[ "$bytes" -gt 15000 ]]; then
+    printf 'WARN: plan body is %s bytes (over 15000)\n' "$bytes" >&2
+  fi
+}
+
+local_to_utc() {
+  local spec=$1 epoch
+  # GNU date: parse the wall time in the local zone, then print UTC.
+  # `date -u -d` would treat the string as already UTC.
+  if epoch=$(date -d "$spec" +%s 2>/dev/null); then
+    date -u -d "@$epoch" +%Y-%m-%dT%H:%M:%SZ
+    return
+  fi
+  epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "$spec" "+%s")
+  date -u -r "$epoch" +%Y-%m-%dT%H:%M:%SZ
+}
+
+recency_ts() {
+  local f=$1 base created yy year
+  base=$(basename "$f")
+  created=$(frontmatter_top_key "$f" created_at)
+  if [[ "$created" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
+    printf '%s' "$created"
+    return
+  fi
+  if [[ "$base" =~ ^([0-9]{4})-([0-9]{2})-([0-9]{2})- ]]; then
+    local_to_utc "${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]} 00:00:00"
+    return
+  fi
+  if [[ "$base" =~ ^([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})- ]]; then
+    yy=$((10#${BASH_REMATCH[1]}))
+    year=$((2000 + yy))
+    local_to_utc "$(printf '%04d-%s-%s %s:%s:00' "$year" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[4]}" "${BASH_REMATCH[5]}")"
+    return
+  fi
+  date -u -r "$f" +%Y-%m-%dT%H:%M:%SZ
+}
+
+cmd_recent() {
+  local dir=${1:-} f base ts best_ts="" best_path="" tie=0
+  [[ -n "$dir" && -d "$dir" ]] || die_usage
+  shopt -s nullglob
+  for f in "$dir"/*.md; do
+    base=$(basename "$f")
+    case "$base" in
+      *.notes.md) continue ;;
+    esac
+    [[ -f "$f" ]] || continue
+    ts=$(recency_ts "$f")
+    if [[ -z "$best_ts" || "$ts" > "$best_ts" ]]; then
+      best_ts=$ts
+      best_path=$f
+      tie=0
+    elif [[ "$ts" == "$best_ts" ]]; then
+      tie=1
+    fi
+  done
+  shopt -u nullglob
+  if [[ -z "$best_path" ]]; then
+    echo "usage: plan-status.sh: no plans in $dir" >&2
+    exit 2
+  fi
+  if [[ $tie -eq 1 ]]; then
+    echo "tie" >&2
+    exit 3
+  fi
+  printf '%s\n' "$best_path"
+}
+
+cmd_approve() {
+  local plan now key have want
+  [[ $# -ge 1 ]] || die_usage
+  plan=$1
+  shift
+  require_plan_file "$plan"
+  now=$(take_now "$@")
+  load_lock_fns
+  key=$(frontmatter_plan_sha "$plan")
+  if [[ -z "$key" ]]; then
+    exit 3
+  fi
+  have=$(plan_sha "$plan")
+  have=$(lower_ascii "$have")
+  have=${have//[[:space:]]/}
+  want=$(lower_ascii "$key")
+  if [[ "$have" != "$want" ]]; then
+    printf '%s\n' "plan body changed since approval; re-approve with /make-plan update $plan" >&2
+    exit 3
+  fi
+  upsert_top_keys "$plan" gate_b_sha "$want" gate_b_at "$now"
+}
+
 main() {
   local cmd=${1:-}
   if [[ -z "$cmd" ]]; then
@@ -2323,6 +2745,9 @@ main() {
     batch) cmd_batch "$@" ;;
     terminal) cmd_terminal "$@" ;;
     review) cmd_review "$@" ;;
+    stamp) cmd_stamp "$@" ;;
+    recent) cmd_recent "$@" ;;
+    approve) cmd_approve "$@" ;;
     *)
       usage
       exit 2

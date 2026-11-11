@@ -36,9 +36,10 @@ Each map-row Task must finish to the quality bar below before reporting success.
 
 ## Full verification (after all waves)
 
-Re-run the plan's Verification section:
+Write `.claude/tmp/exec-claude-verify.txt` (not a tracked path; do not commit it). One command per line, as delegate `execute-via-core.md` Step 7.1 does: in-scope Acceptance, then copy-pastable Verification commands. A pipeline is one line. Skip empty acceptance and prose. Step 4 of `SKILL.md` chooses full suite or partial scope. Docs-only: validate/portable/nix commands, not a unit suite. `<skill-dir>` is the absolute directory of `execute-plan/SKILL.md`. From the repo root:
 
-1. Full test suite (or docs-only validate/portable/nix when the whole run is docs/config).
-2. If coverage is available: command vs target — extend tests if below; never delete tests unless replacing with equal/better coverage. Skip if unavailable.
-3. Project-wide (or Verification-listed) lint/type-check/build — fix via `auto` or mechanical `haiku` Task on failure.
-4. On any failure: fix (resume a wave agent when possible), then re-verify.
+```bash
+bash <skill-dir>/scripts/delegate-verify.sh /absolute/repo/root .claude/tmp/exec-claude-verify.txt
+```
+
+Exit 1 → fix Task (resume a wave agent when possible; `auto`, or `haiku` when mechanical), then re-run. Exit 3 (tree changed) → stop and ask. Exit 2 → stop and show stderr. Do not re-run the commands yourself. From the output, check prose Verification bullets and coverage against the target: extend tests if below when available; never delete tests unless the replacement is equal or better. No coverage gate when Verification says unavailable.

@@ -4,6 +4,43 @@ Notable changes to the nng-kit plugins, newest first. Each sync commit on
 nigelng/nng-kit quotes the lines added here since the previous sync, so write
 for plugin users. This file is public: keep private names and paths out.
 
+## 2026-11-11
+
+- lifecycle 0.13.0: lock, map selection, and status writes go through
+  `plan-status.sh` (`rows claude-code`, `rows --lint`, `stamp`, `recent`,
+  `approve`, `lock --gate`, `batch --skipped`, `terminal --deferred-review`).
+  `/execute-plan` runs Verification through `delegate-verify.sh`. Review
+  tasks receive a base ref and produce the diff themselves. `/gh-create-pr`
+  inventories plans and relay files with `pr-artifacts.sh` (read-only; it
+  never runs `git rm`). `/commit` and the release skills read branch,
+  version, bump, and fingerprint facts from `git-preflight.sh`.
+  `sync-kit-scripts.sh` copies `plan-status.sh` and `delegate-verify.sh`
+  from delegate into the lifecycle skill. The five lifecycle
+  `model-tiers.md` copies are a compact generated excerpt (Fallback,
+  per-tool resolution, review runners, and the summary); edit the canonical
+  file and run `sync-model-tiers.sh`. `skill-budget.sh` checks each skill's
+  own bytes and its closure (the skill file plus the `.md` files it links
+  directly) against `scripts/nng-kit-skill-budgets.tsv`.
+- lifecycle 0.13.0: `/conduct` Gate B Approve writes `gate_b_sha` via
+  `plan-status.sh approve`, then offers a fresh session. That session
+  starts at Stage 4 only when `lock --gate` matches. A mismatch, a missing
+  stamp, or a legacy plan still requires Gate B. Stage 5 skips its lean
+  review rounds only when this session's execute fingerprint is unchanged
+  and `head` equals the review base. The closing top pass and the security
+  pass still run.
+- lifecycle 0.13.0: three budget targets are the achieved size, because
+  meeting the original number would drop a rule. `execute-plan` own 18864
+  (was 14000) and closure 60991 (was 58500), blocked by the wave schedule
+  and single Dispatch-line rule, the in-host top@session paragraph, the
+  summary checklist, and the closure's linked references. `gh-create-pr`
+  own 12014 (was 9500), blocked by the Keep/Drop questions, the printed
+  git rm, `/relay:discard`, and `/commit` commands, the stop rules, and
+  Safety.
+- delegate 0.9.0: `plan-status.sh` gains the lifecycle commands above.
+  Delegate-backend `rows` selection is unchanged. `delegate-verify.sh`
+  remains the verification runner. The delegate `model-tiers.md` copy
+  stays the full canonical file.
+
 ## 2026-11-09
 
 - lifecycle 0.12.2: Cursor plugin manifests (`.cursor-plugin/`) so the

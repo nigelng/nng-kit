@@ -57,13 +57,19 @@ writes: stop and tell the user to switch to Agent mode.
 
 ## Step 1 — Detect review context
 
-Determine whether this is a **plan review** or a **change review**. Run `git status`, `git diff`, `git log --oneline -10`, and `Glob docs/plans/*.md` in parallel first. Drop `*.notes.md` hits; a notes file is never a plan. Most-recent selection follows [Plan recency](../execute-plan/execution-status.md).
+Determine whether this is a **plan review** or a **change review**. Run `git status`, `git diff`, `git log --oneline -10`, and `Glob docs/plans/*.md` in parallel first. Drop `*.notes.md` hits; a notes file is never a plan. `<skill-dir>` is the absolute directory of this `SKILL.md`. Newest plan:
+
+```bash
+bash <skill-dir>/../execute-plan/scripts/plan-status.sh recent docs/plans
+```
+
+Exit 3 (`tie`) → ask which plan. Exit 2 → no plan.
 
 Parse the user's slash-command or message args.
 
 ### Explicit mode (args start with a mode keyword)
 
-- `critique plan [path]` → **plan mode**. If a path is given, use it unless it is `*.notes.md` (ask which plan). Otherwise pick the most recent plan per [Plan recency](../execute-plan/execution-status.md) (ask if several files share the newest timestamp).
+- `critique plan [path]` → **plan mode**. If a path is given, use it unless it is `*.notes.md` (ask which plan). Otherwise use the plan `recent` printed.
 - `critique change [ref|range|#PR]` → **change mode**. Parse the ref per "Change mode — Resolve the diff" below.
 - `critique <path-or-ref>` (no keyword) → resolve the argument:
   - If it's an existing file path ending in `.md` under `docs/plans/` (or matches a plan file) and is not `*.notes.md` → **plan mode** with that path.
@@ -80,7 +86,7 @@ Evaluate in this order (ambiguous before uncommitted→change):
    - Option C: "Other".
    - **Recommendation: A** if the plan was drafted in this session, otherwise **B**.
 2. **Has uncommitted changes** (staged or unstaged) → **change mode** (review `git diff HEAD`).
-3. **Working tree clean, has commits** → among `docs/plans/*.md`, skip `*.notes.md` and pick the most recent plan per [Plan recency](../execute-plan/execution-status.md). Compare that plan to the latest commit's author date by `approved_at`, then `created_at`, then the recency fallback (filename prefix, then mtime):
+3. **Working tree clean, has commits** → the plan `recent` printed. Compare its `approved_at`, then `created_at`, then the filename prefix (local time, as `recent` uses it), then mtime, to the latest commit's author date:
    - If that timestamp is newer than the commit's author date → **plan mode**.
    - Otherwise → **change mode** (review the latest commit, `git show HEAD`).
 4. **No commits and no plan files** → tell the user there's nothing to review and stop.
@@ -160,7 +166,11 @@ items — no third automatic plan critique.
 2. **Failure modes & unsafe half-done states**
 3. **Sequencing / blast radius / irreversibility** gaps
 4. **Verification gaps** — missing commands, coverage claim without tooling, Success criteria vs Verification mismatch
-5. **Map v2 rule violations** — only on a v2 map (columns in [Map v2 rules](../make-plan/drafting-rules.md); a legacy map with no Files column is not a hit). Report: a `top` row on `delegate:*`; overlapping **Files** in a wave; a **Model** that is neither empty nor `auto` nor `auto(router)`, or `auto` / `auto(router)` **Model** on any row that isn't `low` + `delegate:cursor`; missing **Acceptance** (`—` only on `top` rows).
+5. **Map v2 rule violations** — only on a v2 map (columns in [Map v2 rules](../make-plan/drafting-rules.md); a legacy map with no Files column is not a hit). Run `rows --lint` and cite each `REFUSE:` line. Exit 0 is not a hit. Exit 2 → stop and show stderr.
+
+```bash
+bash <skill-dir>/../execute-plan/scripts/plan-status.sh rows --lint <plan>
+```
 
 Also flag **security-sensitive scope** (auth, crypto, PII, network trust boundaries) so a change-mode security pass will be needed later. Do **not** run Cursor `security-review` on a plan file alone (diff-based tool).
 
@@ -173,7 +183,11 @@ not invent answers). Main agent edits **only** the plan file; summarize fixes
 in 1–2 sentences per finding. Unverifiable paths via `Glob`/`Read` → finding,
 not a guess.
 
-After any edit to a plan under `docs/plans/**` (including a second pass), re-stamp `plan_sha` and `approved_at` per [execution-status.md](../execute-plan/execution-status.md) (Plan metadata / Plan lock). Run the marked snippet; do not reimplement it: `eval` the lines inside the code fence between the `plan-sha` markers in that file, then set `plan_sha` to `plan_sha <path>`. Set `approved_at` to the current UTC time (`YYYY-MM-DDTHH:MM:SSZ`). Do not change `created_at`. Keep both keys above `execution:` when that block is present.
+After any edit to a plan under `docs/plans/**` (including a second pass), stamp. Do not change `created_at`. Do not hand-edit `plan_sha`. Exit 2 → stop and show stderr.
+
+```bash
+bash <skill-dir>/../execute-plan/scripts/plan-status.sh stamp <plan>
+```
 
 ---
 
@@ -190,7 +204,7 @@ Using the ref from Step 1 (or auto-detected):
 - **PR number** → `gh pr diff` / `gh pr view` when `gh` is available.
 - **No ref:** dirty tree → `git diff HEAD`; clean → `git show HEAD`.
 
-Capture diff, changed files, base ref. For lean review: if the diff is huge, pass `git diff --stat` + file list and instruct the reviewer to `Read` hottest files — still require evidence before findings.
+Resolve the base ref and changed-file list. Pass each review Task that base ref and the criteria only. The Task runs `git diff <base>` itself (and lists untracked files when the review includes them). Do not paste the diff. If the diff is huge, the Task may start from `git diff --stat` and `Read` the hottest files — still require evidence before findings.
 
 **Working tree vs commit:** Fixes always land in the working tree (never rewrite history). Tell the user when the reviewed ref was a commit but fixes are uncommitted.
 

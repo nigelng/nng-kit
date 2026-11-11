@@ -7,7 +7,7 @@
       "name": "lifecycle",
       "source": "./plugins/lifecycle",
       "description": "Idea-to-shipped skill chain: conduct, brainstorm, make-plan, critique, execute-plan, commit, gh-create-pr, gh-draft-release, gh-tag-release",
-      "version": "0.12.2"
+      "version": "0.13.0"
     },
     {
       "name": "exec-observe",
@@ -19,7 +19,7 @@
       "name": "delegate",
       "source": "./plugins/delegate",
       "description": "Delegate fleet plan implementation to headless Cursor CLI, Google Antigravity CLI, or Devin CLI while Claude Code gates, reviews, and drives the verdict loop: /delegate:execute-via-cursor, /delegate:execute-via-agy, /delegate:execute-via-devin; /delegate:review runs the final whole-branch review through the plan's Review runner",
-      "version": "0.8.0"
+      "version": "0.9.0"
     },
     {
       "name": "relay",

@@ -183,7 +183,7 @@ Only after both pass:
 ## Status audit (via `plan-status.sh`)
 
 `Read` [execution-status.md](execution-status.md) (or `../../references/execution-status.md`) for
-schema, `%` formula, placement, dual-write rule — do **not** paste the contract into skill bodies.
+schema, row statuses, dual-write rule — do **not** paste the contract into skill bodies.
 **Claude** (never the backend CLI) runs `plan-status.sh`; it dual-writes YAML frontmatter +
 `## Execution log`, sets `last_skill: <last_skill>`. Do not hand-edit the plan.
 

@@ -61,7 +61,7 @@ Committed under `plugins/delegate/scripts/` (mode `100644`, run with `bash`):
 
 | Script | Role |
 | --- | --- |
-| `plan-status.sh` | Plan lock, Execution-map `rows` selection, and status writes (`start`, `batch`, `terminal`, `review`) |
+| `plan-status.sh` | Plan lock (`lock`, `lock --gate`), Execution-map selection (`rows`, `rows --lint`), status writes (`start`, `batch` including `--skipped`, `terminal` including `--deferred-review`, `review`), plus `stamp`, `recent`, and `approve` |
 | `delegate-launch.sh` | Build and run the backend CLI (headless background, or `--interactive` / `--print`) |
 | `delegate-verdict.sh` | Classify one run's logs (`ok`, model, session id) |
 | `delegate-review-launch.sh` | Review git guard (`snapshot`/`check`), `scope` check, external read-only reviewer `run`, and `verdict` (review trailer → JSON) |
@@ -70,6 +70,13 @@ Committed under `plugins/delegate/scripts/` (mode `100644`, run with `bash`):
 
 Skills invoke them as `bash <skill-dir>/../../scripts/<name>.sh` (see
 [execute-via-core.md](references/execute-via-core.md)).
+`bash scripts/sync-kit-scripts.sh` copies `plan-status.sh` and
+`delegate-verify.sh` into `lifecycle/skills/execute-plan/scripts/` (mode
+0644) so a host that installs lifecycle without delegate still runs them.
+`references/model-tiers.md` here is a full copy of the lifecycle canonical
+file. The five lifecycle skill copies are compact (Fallback, Per-tool
+resolution, Review runners, and the summary block). Regenerate both with
+`bash scripts/sync-model-tiers.sh`.
 
 **Row routing (`plan-status.sh rows`):** On a v2 Execution map, only rows whose
 `Runner` is `delegate:<backend>` for the active skill (`delegate:cursor`,
@@ -84,6 +91,21 @@ selected rows (`low` < `execute` < `mid`). Launch model comes from
 `model-tiers.md` for that tier unless the JSON has `router: true` (every
 selected row is `Model: auto` on Cursor `delegate:cursor`) → pass `--model auto`
 and record `auto(router)`.
+
+**Lifecycle commands on the same script.** `rows <plan> claude-code` selects
+`session` and `subagent` rows, including `top`; `delegate:*` rows are skips
+(`out of step-scope (dispatch via delegate)`). A selected row blocked on an
+unfinished delegate row is reported as `blocked`, not refused, and an empty
+selection still exits 0. `rows --lint <plan>` validates every scheduled row
+and does not refuse for dependencies or an empty selection. `batch --skipped
+ID --note TEXT` records a skip. `terminal --deferred-review` forces status
+`partial` even on `--outcome pass`. `stamp` writes `plan_sha` and
+`approved_at` (never `created_at`). `recent <dir>` prints the newest plan,
+ignoring `*.notes.md` (exit 3 on a tie). `approve` writes `gate_b_sha` and
+`gate_b_at` after a passing lock; only `/conduct` calls it, at Gate B.
+`lock --gate` prints `gate_b_at` only when that stamp still equals both the
+frontmatter and the computed `plan_sha`. A mismatch, a missing stamp, or a
+legacy plan (no `plan_sha`) exits 3, and `/conduct` still requires Gate B.
 
 ## Review runners
 

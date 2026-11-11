@@ -4,10 +4,14 @@ Run this guide only at `/conduct` Stage 6, except **Branch**, which runs at Stag
 
 ## Branch
 
-At Stage 4 entry, when `finish` is `push` or `pr`:
+At Stage 4 entry, when `finish` is `push` or `pr`, `<skill-dir>` is the absolute directory of [SKILL.md](SKILL.md):
 
-1. Read the current branch and use the default branch resolved in Step 0.6; never hardcode its name.
-2. If already on a non-default branch, reuse it. The Step 0.6 preflight owns approval to ship any existing commits.
+```bash
+bash <skill-dir>/../commit/scripts/git-preflight.sh state
+```
+
+1. `branch=` is the current branch. Use the default branch resolved in Step 0.6; never hardcode its name. `default=` from `state` may be empty and does not replace it. Do not treat `clean=`, `ahead=`, or `behind=` as the Step 0.6 foreign-path list or the ahead-of-`origin/<default>` count.
+2. If `branch=` is already a non-default branch, reuse it. The Step 0.6 preflight owns approval to ship any existing commits.
 3. On the default branch, derive `<type>/<plan-slug>`: use `feat` unless the plan's Purpose is clearly `fix`, `docs`, `chore` or `refactor`. The slug is the plan basename without `.md` and its date prefix.
 4. Check the candidate against local branches and branch names on `origin`, including remote heads not fetched locally. If it exists in either place, try `-2`, then `-3`, and so on until free.
 5. Run `git switch -c <type>/<plan-slug>` with the chosen free name. If creation fails, stop and report; do not implement on the default branch.
@@ -16,7 +20,7 @@ Do not defer branch creation until Stage 6. If Stage 6 finds the current branch 
 
 ## Commit
 
-For `finish=push` or `finish=pr`, first apply the downgrade rule in [SKILL.md](SKILL.md). Re-read the current branch immediately before committing; if it equals the default branch, downgrade and stop. The up-front finish choice authorizes the commit when `confirm=no`; it never overrides the safety checks.
+For `finish=push` or `finish=pr`, first apply the downgrade rule in [SKILL.md](SKILL.md). Re-run the **Branch** `state` command immediately before committing; if `branch=` equals the Step 0.6 default, downgrade and stop. The up-front finish choice authorizes the commit when `confirm=no`; it never overrides the safety checks.
 
 Read [../commit/SKILL.md](../commit/SKILL.md) and follow these steps with the overrides below:
 
@@ -41,7 +45,7 @@ A rejecting hook overrides Step 10 **Hook failure and amend**: do not fix and re
 
 ## Push
 
-Only for `finish=push` or `finish=pr`, after the commit step creates a commit, or when a Step 0.6-approved reused branch has commits to ship, re-read the current branch. Refuse to push if it equals the default branch; stop and report.
+Only for `finish=push` or `finish=pr`, after the commit step creates a commit, or when a Step 0.6-approved reused branch has commits to ship, re-run the **Branch** `state` command. Refuse to push if `branch=` equals the Step 0.6 default; stop and report.
 
 ```bash
 git push -u origin HEAD

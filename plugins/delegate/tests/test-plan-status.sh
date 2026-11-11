@@ -131,20 +131,20 @@ awk -v sum="$sum" '
   { print }
 ' "$work/lock.md" >"$work/lock-ok.md"
 
-run_cmd bash "$SCRIPT" lock "$work/lock-ok.md"
+run_cmd "$BASH" "$SCRIPT" lock "$work/lock-ok.md"
 assert_rc "lock ok exits 0" 0
 assert_stdout "lock ok prints ok" "ok"
 
 # A log edit stays inside the excluded section.
 awk '/^\| S1 \| pending/ { print "| S1 | done | edited |"; next } { print }' \
   "$work/lock-ok.md" >"$work/lock-log.md"
-run_cmd bash "$SCRIPT" lock "$work/lock-log.md"
+run_cmd "$BASH" "$SCRIPT" lock "$work/lock-log.md"
 assert_rc "lock ignores execution log edits" 0
 assert_stdout "lock still ok after log edit" "ok"
 
 awk '/BODYTOKEN/ { print "BODYTOKEN changed"; next } { print }' \
   "$work/lock-ok.md" >"$work/lock-bad.md"
-run_cmd bash "$SCRIPT" lock "$work/lock-bad.md"
+run_cmd "$BASH" "$SCRIPT" lock "$work/lock-bad.md"
 assert_rc "lock mismatch exits 3" 3
 assert_stdout_empty "lock mismatch has no stdout"
 assert_stderr_has "lock mismatch message" \
@@ -160,7 +160,7 @@ execution:
 
 No hash here.
 EOF
-run_cmd bash "$SCRIPT" lock "$work/legacy.md"
+run_cmd "$BASH" "$SCRIPT" lock "$work/legacy.md"
 assert_rc "lock legacy exits 0" 0
 assert_stdout "lock legacy prints legacy" "legacy"
 assert_stderr_has "lock legacy warning" "WARN: legacy plan (no plan_sha)"
@@ -183,7 +183,7 @@ write_v2 "$work/own.md" <<'EOF'
 | S3 | top | session | 1 | — | — | — | top@claude-task |
 | S4 | mid | subagent | 1 | — | `c.sh` | `true` | mid |
 EOF
-run_cmd bash "$SCRIPT" rows "$work/own.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/own.md" cursor
 assert_rc "v2 own-backend exits 0" 0
 assert_jq "v2 map kind" '.map == "v2"'
 assert_jq "v2 selects only cursor row" '[.selected[].id] == ["S1"]'
@@ -194,7 +194,7 @@ assert_jq "v2 launch_tier execute" '.launch_tier == "execute"'
 assert_jq "v2 router false" '.router == false'
 
 # scoped foreign row
-run_cmd bash "$SCRIPT" rows "$work/own.md" cursor S2
+run_cmd "$BASH" "$SCRIPT" rows "$work/own.md" cursor S2
 assert_rc "scoped foreign row exits 3" 3
 assert_stdout_empty "scoped foreign row no stdout"
 assert_stderr_has "scoped foreign row reason" "REFUSE: S2: routed to delegate:agy"
@@ -207,13 +207,13 @@ write_v2 "$work/topdel.md" <<'EOF'
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | S1 | top | delegate:cursor | 1 | — | — | — | mid |
 EOF
-run_cmd bash "$SCRIPT" rows "$work/topdel.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/topdel.md" cursor
 assert_rc "top on delegate exits 3" 3
 assert_stdout_empty "top on delegate no stdout"
 assert_stderr_has "top on delegate reason" "REFUSE: S1: top rows never run on a delegate"
 
 # scoped top on session
-run_cmd bash "$SCRIPT" rows "$work/own.md" cursor S3
+run_cmd "$BASH" "$SCRIPT" rows "$work/own.md" cursor S3
 assert_rc "scoped top exits 3" 3
 assert_stdout_empty "scoped top no stdout"
 assert_stderr_has "scoped top reason" "REFUSE: S3: top rows never run on a delegate"
@@ -227,7 +227,7 @@ write_v2 "$work/mid.md" <<'EOF'
 | S1 | execute | delegate:cursor | 1 | — | `a.sh` | `true` | mid |
 | S2 | mid | delegate:cursor | 1 | — | `b.sh` | `true` | mid |
 EOF
-run_cmd bash "$SCRIPT" rows "$work/mid.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/mid.md" cursor
 assert_rc "cursor mid exits 0" 0
 assert_jq "cursor mid selected" '[.selected[].id] == ["S1","S2"]'
 assert_jq "cursor mid launch_tier" '.launch_tier == "mid"'
@@ -241,7 +241,7 @@ write_v2 "$work/midagy.md" <<'EOF'
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | S1 | mid | delegate:agy | 1 | — | `a.sh` | `true` | mid |
 EOF
-run_cmd bash "$SCRIPT" rows "$work/midagy.md" agy
+run_cmd "$BASH" "$SCRIPT" rows "$work/midagy.md" agy
 assert_rc "agy mid allowed" 0
 assert_jq "agy mid selected" '[.selected[].id] == ["S1"]'
 assert_jq "agy mid launch_tier" '.launch_tier == "mid"'
@@ -255,7 +255,7 @@ write_v2 "$work/dep-undone.md" <<'EOF'
 | S1 | execute | subagent | 1 | — | `a.sh` | `true` | mid |
 | S2 | execute | delegate:cursor | 2 | S1 | `b.sh` | `true` | mid |
 EOF
-run_cmd bash "$SCRIPT" rows "$work/dep-undone.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/dep-undone.md" cursor
 assert_rc "dep on undone exits 3" 3
 assert_stdout_empty "dep on undone no stdout"
 assert_stderr_has "dep on undone reason" "REFUSE: S2: depends on S1 (not done)"
@@ -281,17 +281,17 @@ execution:
 | S1 | done | earlier |
 | S2 | pending | |
 EOF
-run_cmd bash "$SCRIPT" rows "$work/dep-done.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/dep-done.md" cursor
 assert_rc "dep on done row exits 0" 0
 assert_jq "done row omitted, dependent selected" '[.selected[].id] == ["S2"]'
 
-run_cmd bash "$SCRIPT" rows --reexecute "$work/dep-done.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows --reexecute "$work/dep-done.md" cursor
 assert_rc "reexecute keeps done candidates" 0
 assert_jq "reexecute selects done and dependent" '[.selected[].id] == ["S1","S2"]'
 
 awk '/status: in-progress/ { print "  status: completed"; next } { print }' \
   "$work/dep-done.md" >"$work/dep-completed.md"
-run_cmd bash "$SCRIPT" rows "$work/dep-completed.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/dep-completed.md" cursor
 assert_rc "completed plan keeps candidates" 0
 assert_jq "completed selects done rows" '[.selected[].id] == ["S1","S2"]'
 
@@ -304,7 +304,7 @@ write_v2 "$work/dep-co.md" <<'EOF'
 | S1 | execute | delegate:cursor | 1 | — | `a.sh` | `true` | mid |
 | S2 | execute | delegate:cursor | 2 | S1 | `b.sh` | `true` | mid |
 EOF
-run_cmd bash "$SCRIPT" rows "$work/dep-co.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/dep-co.md" cursor
 assert_rc "dep on co-selected exits 0" 0
 assert_jq "co-selected both rows" '[.selected[].id] == ["S1","S2"]'
 
@@ -317,7 +317,7 @@ write_v2 "$work/overlap.md" <<'EOF'
 | S1 | execute | delegate:cursor | 1 | — | `a.sh` | `true` | mid |
 | S2 | execute | delegate:cursor | 1 | — | `a.sh` | `true` | mid |
 EOF
-run_cmd bash "$SCRIPT" rows "$work/overlap.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/overlap.md" cursor
 assert_rc "overlap exits 3" 3
 assert_stdout_empty "overlap no stdout"
 assert_stderr_has "overlap reason" "REFUSE: S2: files overlap with S1"
@@ -330,7 +330,7 @@ write_v2 "$work/overlap-wave.md" <<'EOF'
 | S1 | execute | delegate:cursor | 1 | — | `a.sh` | `true` | mid |
 | S2 | execute | delegate:cursor | 2 | S1 | `a.sh` | `true` | mid |
 EOF
-run_cmd bash "$SCRIPT" rows "$work/overlap-wave.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/overlap-wave.md" cursor
 assert_rc "overlap across waves allowed" 0
 assert_jq "different waves both selected" '[.selected[].id] == ["S1","S2"]'
 
@@ -342,7 +342,7 @@ write_v2 "$work/brace.md" <<'EOF'
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | S1 | low | delegate:cursor | 1 | — | `dir/{a,b}.sh` | `true` | mid |
 EOF
-run_cmd bash "$SCRIPT" rows "$work/brace.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/brace.md" cursor
 assert_rc "brace expansion exits 0" 0
 assert_jq "brace files" '.selected[0].files == ["dir/a.sh","dir/b.sh"]'
 assert_jq "brace files_union" '.files_union == ["dir/a.sh","dir/b.sh"]'
@@ -355,7 +355,7 @@ write_v2 "$work/pipe.md" <<'EOF'
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | S1 | execute | delegate:cursor | 1 | — | `f.sh` | `echo a \| b` | mid |
 EOF
-run_cmd bash "$SCRIPT" rows "$work/pipe.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/pipe.md" cursor
 assert_rc "escaped pipe exits 0" 0
 assert_jq "escaped pipe acceptance" '.selected[0].acceptance == "echo a | b"'
 
@@ -370,7 +370,7 @@ Runners are advisory until Phase 2 makes delegates read them.
 | S2 | edit | haiku | 1 | — | delegate:cursor · `true` |
 | S3 | parked | — | — | — | not a scheduled row |
 EOF
-run_cmd bash "$SCRIPT" rows "$work/legacy-map.md" agy
+run_cmd "$BASH" "$SCRIPT" rows "$work/legacy-map.md" agy
 assert_rc "legacy map exits 0" 0
 assert_jq "legacy map kind" '.map == "legacy"'
 assert_jq "legacy selects non-top" '[.selected[].id] == ["S2"]'
@@ -388,7 +388,7 @@ write_v2 "$work/phase.md" <<'EOF'
 | S1 | alpha | execute | delegate:cursor | 1 | — | `a.sh` | `true` | mid |
 | S2 | beta | execute | delegate:agy | 1 | — | `b.sh` | `true` | mid |
 EOF
-run_cmd bash "$SCRIPT" rows "$work/phase.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/phase.md" cursor
 assert_rc "phase column exits 0" 0
 assert_jq "phase column ignored" '[.selected[].id] == ["S1"]'
 assert_jq "phase column still v2" '.map == "v2"'
@@ -401,7 +401,7 @@ write_v2 "$work/badrow.md" <<'EOF'
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | S9 | execute | delegate:cursor |
 EOF
-run_cmd bash "$SCRIPT" rows "$work/badrow.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/badrow.md" cursor
 assert_rc "malformed row exits 3" 3
 assert_stdout_empty "malformed row no stdout"
 assert_stderr_has "malformed row reason" "REFUSE: S9: malformed row (cell count)"
@@ -414,7 +414,7 @@ write_v2 "$work/nomap.md" <<'EOF'
 
    1. nested item is not its own step
 EOF
-run_cmd bash "$SCRIPT" rows "$work/nomap.md" devin
+run_cmd "$BASH" "$SCRIPT" rows "$work/nomap.md" devin
 assert_rc "no map exits 0" 0
 assert_jq "no map kind" '.map == "none"'
 assert_jq "no map ids" '[.selected[].id] == ["I1","I2"]'
@@ -422,7 +422,7 @@ assert_jq "no map tier" '.selected[0].tier == "execute"'
 assert_jq "no map launch_tier" '.launch_tier == "execute"'
 
 # unknown ID
-run_cmd bash "$SCRIPT" rows "$work/own.md" cursor S99
+run_cmd "$BASH" "$SCRIPT" rows "$work/own.md" cursor S99
 assert_rc "unknown ID exits 3" 3
 assert_stdout_empty "unknown ID no stdout"
 assert_stderr_has "unknown ID reason" "REFUSE: S99: unknown ID"
@@ -436,7 +436,7 @@ write_v2 "$work/router.md" <<'EOF'
 | S1 | low | delegate:cursor | 1 | — | `a.sh` | `true` | auto | mid |
 | S2 | low | delegate:cursor | 1 | — | `b.sh` | `true` | auto(router) | mid |
 EOF
-run_cmd bash "$SCRIPT" rows "$work/router.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/router.md" cursor
 assert_rc "router true exits 0" 0
 assert_jq "router true" '.router == true'
 assert_jq "router launch_tier low" '.launch_tier == "low"'
@@ -449,19 +449,19 @@ write_v2 "$work/mixed.md" <<'EOF'
 | S1 | low | delegate:cursor | 1 | — | `a.sh` | `true` | auto | mid |
 | S2 | execute | delegate:cursor | 2 | — | `b.sh` | `true` |  | mid |
 EOF
-run_cmd bash "$SCRIPT" rows "$work/mixed.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/mixed.md" cursor
 assert_rc "mixed tier exits 0" 0
 assert_jq "mixed launch_tier execute" '.launch_tier == "execute"'
 assert_jq "mixed router false" '.router == false'
 
 # empty selection
-run_cmd bash "$SCRIPT" rows "$work/own.md" devin
+run_cmd "$BASH" "$SCRIPT" rows "$work/own.md" devin
 assert_rc "no rows exits 3" 3
 assert_stdout_empty "no rows no stdout"
 assert_stderr_has "no rows reason" "REFUSE: no rows routed to delegate:devin"
 
 # bad usage
-run_cmd bash "$SCRIPT" rows "$work/own.md" nope
+run_cmd "$BASH" "$SCRIPT" rows "$work/own.md" nope
 assert_rc "bad backend exits 2" 2
 
 # --- writes (start / batch / terminal) ---
@@ -507,7 +507,7 @@ assert_fm_same() {
 
 assert_lock_ok() {
   local label=$1 file=$2
-  run_cmd bash "$SCRIPT" lock "$file"
+  run_cmd "$BASH" "$SCRIPT" lock "$file"
   if [[ "$LAST_RC" -eq 0 && "$LAST_OUT" == ok ]]; then
     pass "$label"
   else
@@ -590,10 +590,10 @@ $MAP_TABLE
 FILEMARKER scaffold
 EOF
 cp "$work/scaffold.md" "$work/scaffold.before"
-run_cmd bash "$SCRIPT" rows "$work/scaffold.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/scaffold.md" cursor
 assert_rc "scaffold rows exits 0" 0
 printf '%s\n' "$LAST_OUT" >"$work/scaffold-rows.json"
-run_cmd bash "$SCRIPT" start "$work/scaffold.md" execute-via-cursor "$work/scaffold-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" start "$work/scaffold.md" execute-via-cursor "$work/scaffold-rows.json" --now 2026-04-01T00:00:00Z
 assert_rc "start scaffold exits 0" 0
 assert_stdout_empty "start scaffold no stdout"
 assert_fm_same "start scaffold keeps non-execution keys" "$work/scaffold.before" "$work/scaffold.md"
@@ -631,10 +631,10 @@ $MAP_TABLE
 FILEMARKER legacy
 EOF
 cp "$work/legacy-nolog.md" "$work/legacy-nolog.before"
-run_cmd bash "$SCRIPT" rows "$work/legacy-nolog.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/legacy-nolog.md" cursor
 assert_rc "legacy-no-log rows exits 0" 0
 printf '%s\n' "$LAST_OUT" >"$work/legacy-rows.json"
-run_cmd bash "$SCRIPT" start "$work/legacy-nolog.md" execute-via-cursor "$work/legacy-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" start "$work/legacy-nolog.md" execute-via-cursor "$work/legacy-rows.json" --now 2026-04-01T00:00:00Z
 assert_rc "start legacy-no-log exits 0" 0
 assert_fm_same "legacy-no-log keeps non-execution keys" "$work/legacy-nolog.before" "$work/legacy-nolog.md"
 assert_lock_ok "lock ok after legacy-no-log start" "$work/legacy-nolog.md"
@@ -684,10 +684,10 @@ FILEMARKER eof
 - Notes: kept-run
 EOF
 cp "$work/log-eof.md" "$work/log-eof.before"
-run_cmd bash "$SCRIPT" rows "$work/log-eof.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/log-eof.md" cursor
 assert_rc "log-at-EOF rows exits 0" 0
 printf '%s\n' "$LAST_OUT" >"$work/eof-rows.json"
-run_cmd bash "$SCRIPT" start "$work/log-eof.md" execute-via-cursor "$work/eof-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" start "$work/log-eof.md" execute-via-cursor "$work/eof-rows.json" --now 2026-04-01T00:00:00Z
 assert_rc "start log-at-EOF exits 0" 0
 assert_fm_same "log-at-EOF keeps non-execution keys" "$work/log-eof.before" "$work/log-eof.md"
 assert_lock_ok "lock ok after log move" "$work/log-eof.md"
@@ -733,11 +733,11 @@ $MAP_TABLE
 FILEMARKER prior
 EOF
 cp "$work/prior-done.md" "$work/prior-done.before"
-run_cmd bash "$SCRIPT" rows "$work/prior-done.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/prior-done.md" cursor
 assert_rc "prior-done rows exits 0" 0
 assert_jq "prior-done rows omits done row" '[.selected[].id] == ["S2"]'
 printf '%s\n' "$LAST_OUT" >"$work/prior-rows.json"
-run_cmd bash "$SCRIPT" start "$work/prior-done.md" execute-via-cursor "$work/prior-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" start "$work/prior-done.md" execute-via-cursor "$work/prior-rows.json" --now 2026-04-01T00:00:00Z
 assert_rc "start keeps prior done exits 0" 0
 assert_fm_same "prior-done keeps non-execution keys" "$work/prior-done.before" "$work/prior-done.md"
 assert_lock_ok "lock ok after prior-done start" "$work/prior-done.md"
@@ -747,7 +747,7 @@ assert_file_has "skipped note written" "$work/prior-done.md" "| S3 | skipped | o
 assert_file_has "prior-done keeps started_at" "$work/prior-done.md" 'started_at: "2026-03-01T00:00:00Z"'
 
 cp "$work/prior-done.before" "$work/prior-sel.md"
-run_cmd bash "$SCRIPT" start "$work/prior-sel.md" execute-via-cursor \
+run_cmd "$BASH" "$SCRIPT" start "$work/prior-sel.md" execute-via-cursor \
   '{"selected":[{"id":"S1"},{"id":"S2"}],"skipped":[{"id":"S3","note":"out of step-scope"}]}' \
   --now 2026-04-01T00:00:00Z
 assert_rc "inline json start exits 0" 0
@@ -793,10 +793,10 @@ $MAP_TABLE
 FILEMARKER completed
 EOF
 cp "$work/completed.md" "$work/completed.before"
-run_cmd bash "$SCRIPT" rows "$work/completed.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/completed.md" cursor
 assert_rc "completed rows exits 0" 0
 printf '%s\n' "$LAST_OUT" >"$work/completed-rows.json"
-run_cmd bash "$SCRIPT" start "$work/completed.md" execute-via-cursor "$work/completed-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" start "$work/completed.md" execute-via-cursor "$work/completed-rows.json" --now 2026-04-01T00:00:00Z
 assert_rc "completed start refuses" 4
 assert_stdout_empty "completed refuse no stdout"
 assert_stderr_has "completed refuse message" "plan already completed; confirm re-execute"
@@ -805,7 +805,7 @@ if cmp -s "$work/completed.md" "$work/completed.before"; then
 else
   fail "completed refuse leaves file unchanged"
 fi
-run_cmd bash "$SCRIPT" start "$work/completed.md" execute-via-cursor "$work/completed-rows.json" \
+run_cmd "$BASH" "$SCRIPT" start "$work/completed.md" execute-via-cursor "$work/completed-rows.json" \
   --now 2026-04-01T04:00:00Z --reexecute
 assert_rc "reexecute start exits 0" 0
 assert_fm_same "reexecute keeps non-execution keys" "$work/completed.before" "$work/completed.md"
@@ -841,15 +841,15 @@ $MAP_TABLE
 FILEMARKER batch
 EOF
 cp "$work/batch.md" "$work/batch.before"
-run_cmd bash "$SCRIPT" rows "$work/batch.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/batch.md" cursor
 assert_rc "batch rows exits 0" 0
 printf '%s\n' "$LAST_OUT" >"$work/batch-rows.json"
-run_cmd bash "$SCRIPT" start "$work/batch.md" execute-via-cursor "$work/batch-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" start "$work/batch.md" execute-via-cursor "$work/batch-rows.json" --now 2026-04-01T00:00:00Z
 assert_rc "batch start exits 0" 0
 assert_lock_ok "lock ok after batch start" "$work/batch.md"
 assert_file_has "start progress is 1/3 rounded" "$work/batch.md" "- **Overall:** in-progress ${EM} 33% (1/3)"
 assert_file_has "start steps_done 1" "$work/batch.md" "  steps_done: 1"
-run_cmd bash "$SCRIPT" batch "$work/batch.md" execute-via-cursor --done S1 --failed S2 --now 2026-04-01T01:00:00Z
+run_cmd "$BASH" "$SCRIPT" batch "$work/batch.md" execute-via-cursor --done S1 --failed S2 --now 2026-04-01T01:00:00Z
 assert_rc "batch exits 0" 0
 assert_stdout_empty "batch no stdout"
 assert_fm_same "batch keeps non-execution keys" "$work/batch.before" "$work/batch.md"
@@ -893,12 +893,12 @@ EOF
 # terminal pass, every row done → completed
 term_base "$work/pass-all.md"
 cp "$work/pass-all.md" "$work/pass-all.before"
-run_cmd bash "$SCRIPT" rows "$work/pass-all.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/pass-all.md" cursor
 assert_rc "pass-all rows exits 0" 0
 printf '%s\n' "$LAST_OUT" >"$work/pass-all-rows.json"
-run_cmd bash "$SCRIPT" start "$work/pass-all.md" execute-via-cursor "$work/pass-all-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" start "$work/pass-all.md" execute-via-cursor "$work/pass-all-rows.json" --now 2026-04-01T00:00:00Z
 assert_rc "pass-all start exits 0" 0
-run_cmd bash "$SCRIPT" terminal "$work/pass-all.md" execute-via-cursor "$work/pass-all-rows.json" \
+run_cmd "$BASH" "$SCRIPT" terminal "$work/pass-all.md" execute-via-cursor "$work/pass-all-rows.json" \
   --outcome pass --backend cursor --model-requested grok-4.7-high \
   --model-resolved "Grok 4.7 256K High" --effort high \
   --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 --fallback null \
@@ -932,12 +932,12 @@ assert_count "pass one runs entry" "$work/pass-all.md" '^    - skill:' 1
 
 # terminal --usage writes token fields into the runs entry and Run line
 term_base "$work/usage.md"
-run_cmd bash "$SCRIPT" rows "$work/usage.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/usage.md" cursor
 assert_rc "usage rows exits 0" 0
 printf '%s\n' "$LAST_OUT" >"$work/usage-rows.json"
-run_cmd bash "$SCRIPT" start "$work/usage.md" execute-via-cursor "$work/usage-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" start "$work/usage.md" execute-via-cursor "$work/usage-rows.json" --now 2026-04-01T00:00:00Z
 assert_rc "usage start exits 0" 0
-run_cmd bash "$SCRIPT" terminal "$work/usage.md" execute-via-cursor "$work/usage-rows.json" \
+run_cmd "$BASH" "$SCRIPT" terminal "$work/usage.md" execute-via-cursor "$work/usage-rows.json" \
   --outcome pass --backend cursor --model-requested grok-4.7-high \
   --model-resolved "Grok 4.7 256K High" --effort high \
   --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 --fallback null \
@@ -952,12 +952,12 @@ assert_file_has "usage run line tokens" "$work/usage.md" \
 
 # partial nulls are allowed; bad shapes are usage errors
 term_base "$work/usage-null.md"
-run_cmd bash "$SCRIPT" rows "$work/usage-null.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/usage-null.md" cursor
 assert_rc "usage-null rows exits 0" 0
 printf '%s\n' "$LAST_OUT" >"$work/usage-null-rows.json"
-run_cmd bash "$SCRIPT" start "$work/usage-null.md" execute-via-cursor "$work/usage-null-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" start "$work/usage-null.md" execute-via-cursor "$work/usage-null-rows.json" --now 2026-04-01T00:00:00Z
 assert_rc "usage-null start exits 0" 0
-run_cmd bash "$SCRIPT" terminal "$work/usage-null.md" execute-via-cursor "$work/usage-null-rows.json" \
+run_cmd "$BASH" "$SCRIPT" terminal "$work/usage-null.md" execute-via-cursor "$work/usage-null-rows.json" \
   --outcome pass --backend agy --model-requested gemini-4-argon-medium \
   --model-resolved "gemini-4-argon-medium" --effort high \
   --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 --fallback null \
@@ -971,7 +971,7 @@ assert_file_has "usage-null tokens_out" "$work/usage-null.md" "      tokens_out:
 for bad in 'not json' '{"tokens_in":-1,"tokens_cached":null,"tokens_out":null}' \
   '{"tokens_in":"5","tokens_cached":null,"tokens_out":null}' \
   '{"tokens_in":1,"tokens_out":null}' ; do
-  run_cmd bash "$SCRIPT" terminal "$work/usage.md" execute-via-cursor "$work/usage-rows.json" \
+  run_cmd "$BASH" "$SCRIPT" terminal "$work/usage.md" execute-via-cursor "$work/usage-rows.json" \
     --outcome pass --backend cursor --model-requested grok-4.7-high \
     --model-resolved "Grok 4.7 256K High" --effort high \
     --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 --fallback null \
@@ -1001,9 +1001,9 @@ $MAP_TABLE
 FILEMARKER skip
 EOF
 printf '%s\n' '{"selected":[{"id":"S1"}],"skipped":[{"id":"S2","note":"not scheduled"}]}' >"$work/pass-skip-rows.json"
-run_cmd bash "$SCRIPT" start "$work/pass-skip.md" execute-via-cursor "$work/pass-skip-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" start "$work/pass-skip.md" execute-via-cursor "$work/pass-skip-rows.json" --now 2026-04-01T00:00:00Z
 assert_rc "not-scheduled start exits 0" 0
-run_cmd bash "$SCRIPT" terminal "$work/pass-skip.md" execute-via-cursor "$work/pass-skip-rows.json" \
+run_cmd "$BASH" "$SCRIPT" terminal "$work/pass-skip.md" execute-via-cursor "$work/pass-skip-rows.json" \
   --outcome pass --backend cursor --model-requested grok-4.7-high \
   --model-resolved "Grok 4.7 256K High" --effort high \
   --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 --fallback null \
@@ -1035,12 +1035,12 @@ $MAP_TABLE
 FILEMARKER scoped
 EOF
 cp "$work/scoped.md" "$work/scoped.before"
-run_cmd bash "$SCRIPT" rows "$work/scoped.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/scoped.md" cursor
 assert_rc "scoped rows exits 0" 0
 printf '%s\n' "$LAST_OUT" >"$work/scoped-rows.json"
-run_cmd bash "$SCRIPT" start "$work/scoped.md" execute-via-cursor "$work/scoped-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" start "$work/scoped.md" execute-via-cursor "$work/scoped-rows.json" --now 2026-04-01T00:00:00Z
 assert_rc "scoped start exits 0" 0
-run_cmd bash "$SCRIPT" terminal "$work/scoped.md" execute-via-cursor "$work/scoped-rows.json" \
+run_cmd "$BASH" "$SCRIPT" terminal "$work/scoped.md" execute-via-cursor "$work/scoped-rows.json" \
   --outcome pass --backend cursor --model-requested grok-4.7-high \
   --model-resolved "Grok 4.7 256K High" --effort high \
   --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 --fallback null \
@@ -1087,7 +1087,7 @@ FILEMARKER fail
 EOF
 cp "$work/fail.md" "$work/fail.before"
 printf '%s\n' '{"selected":[{"id":"S1"},{"id":"S2"}],"skipped":[]}' >"$work/fail-rows.json"
-run_cmd bash "$SCRIPT" terminal "$work/fail.md" execute-via-cursor "$work/fail-rows.json" \
+run_cmd "$BASH" "$SCRIPT" terminal "$work/fail.md" execute-via-cursor "$work/fail-rows.json" \
   --outcome fail --backend cursor --model-requested grok-4.7-high \
   --model-resolved "Grok 4.7 256K High" --effort high \
   --started 2026-04-01T00:00:00Z --findings 2 --fix-loops 1 --fallback quota \
@@ -1126,12 +1126,12 @@ $MAP_TABLE
 
 FILEMARKER abort
 EOF
-run_cmd bash "$SCRIPT" rows "$work/abort.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/abort.md" cursor
 assert_rc "abort rows exits 0" 0
 printf '%s\n' "$LAST_OUT" >"$work/abort-rows.json"
-run_cmd bash "$SCRIPT" start "$work/abort.md" execute-via-cursor "$work/abort-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" start "$work/abort.md" execute-via-cursor "$work/abort-rows.json" --now 2026-04-01T00:00:00Z
 assert_rc "abort start exits 0" 0
-run_cmd bash "$SCRIPT" terminal "$work/abort.md" execute-via-cursor "$work/abort-rows.json" \
+run_cmd "$BASH" "$SCRIPT" terminal "$work/abort.md" execute-via-cursor "$work/abort-rows.json" \
   --outcome abort --backend cursor --model-requested grok-4.7-high \
   --model-resolved "Grok 4.7 256K High" --effort high \
   --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 --fallback null \
@@ -1166,16 +1166,16 @@ $MAP_TABLE
 FILEMARKER abort2
 EOF
 cp "$work/abort-partial.md" "$work/abort-partial.before"
-run_cmd bash "$SCRIPT" rows "$work/abort-partial.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/abort-partial.md" cursor
 assert_rc "abort-partial rows exits 0" 0
 printf '%s\n' "$LAST_OUT" >"$work/abort-partial-rows.json"
-run_cmd bash "$SCRIPT" start "$work/abort-partial.md" execute-via-cursor "$work/abort-partial-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" start "$work/abort-partial.md" execute-via-cursor "$work/abort-partial-rows.json" --now 2026-04-01T00:00:00Z
 assert_rc "abort-partial start exits 0" 0
 assert_lock_ok "lock ok after abort-partial start" "$work/abort-partial.md"
-run_cmd bash "$SCRIPT" batch "$work/abort-partial.md" execute-via-cursor --done S1 --now 2026-04-01T01:00:00Z
+run_cmd "$BASH" "$SCRIPT" batch "$work/abort-partial.md" execute-via-cursor --done S1 --now 2026-04-01T01:00:00Z
 assert_rc "abort-partial batch exits 0" 0
 assert_lock_ok "lock ok after abort-partial batch" "$work/abort-partial.md"
-run_cmd bash "$SCRIPT" terminal "$work/abort-partial.md" execute-via-cursor "$work/abort-partial-rows.json" \
+run_cmd "$BASH" "$SCRIPT" terminal "$work/abort-partial.md" execute-via-cursor "$work/abort-partial-rows.json" \
   --outcome abort --backend cursor --model-requested grok-4.7-high \
   --model-resolved "Grok 4.7 256K High" --effort high \
   --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 --fallback null \
@@ -1189,7 +1189,7 @@ assert_file_has "abort after done leaves S2 pending" "$work/abort-partial.md" "|
 assert_file_has "abort after done outcome" "$work/abort-partial.md" "- Outcome: partial"
 assert_file_has "first run notes" "$work/abort-partial.md" "- Notes: first-run"
 first_runs=$(extract_runs "$work/abort-partial.md")
-run_cmd bash "$SCRIPT" terminal "$work/abort-partial.md" execute-via-cursor "$work/abort-partial-rows.json" \
+run_cmd "$BASH" "$SCRIPT" terminal "$work/abort-partial.md" execute-via-cursor "$work/abort-partial-rows.json" \
   --outcome fail --backend cursor --model-requested grok-4.7-high \
   --model-resolved "auto(router)" --effort unknown \
   --started 2026-04-01T02:00:00Z --findings 1 --fix-loops 0 --fallback null \
@@ -1232,10 +1232,10 @@ $MAP_TABLE
 FILEMARKER evil
 EOF
 printf '%s\n' '{"selected":[{"id":"S1"}],"skipped":[]}' >"$work/evil-rows.json"
-run_cmd bash "$SCRIPT" start "$work/evil.md" execute-via-cursor "$work/evil-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" start "$work/evil.md" execute-via-cursor "$work/evil-rows.json" --now 2026-04-01T00:00:00Z
 assert_rc "evil start exits 0" 0
 evil=$'evil\n  status: pwned'
-run_cmd bash "$SCRIPT" terminal "$work/evil.md" execute-via-cursor "$work/evil-rows.json" \
+run_cmd "$BASH" "$SCRIPT" terminal "$work/evil.md" execute-via-cursor "$work/evil-rows.json" \
   --outcome pass --backend cursor --model-requested grok-4.7-high \
   --model-resolved "$evil" --effort high \
   --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 --fallback null \
@@ -1245,7 +1245,7 @@ assert_lock_ok "lock ok after malicious model" "$work/evil.md"
 assert_file_has "newline model becomes unresolved" "$work/evil.md" '      model_resolved: "auto(unresolved)"'
 assert_file_lacks "newline model is not written" "$work/evil.md" "status: pwned"
 assert_file_has "run line uses unresolved" "$work/evil.md" "model=grok-4.7-high${AR}auto(unresolved)"
-run_cmd bash "$SCRIPT" terminal "$work/evil.md" execute-via-cursor "$work/evil-rows.json" \
+run_cmd "$BASH" "$SCRIPT" terminal "$work/evil.md" execute-via-cursor "$work/evil-rows.json" \
   --outcome pass --backend cursor --model-requested grok-4.7-high \
   --model-resolved 'bad"model' --effort high \
   --started 2026-04-01T02:00:00Z --findings 0 --fix-loops 0 --fallback null \
@@ -1258,7 +1258,7 @@ assert_count "both malicious runs are unresolved" "$work/evil.md" 'model_resolve
 
 evil_fb=$'quota-exceeded\ninjected_key: evil'
 evil_notes=$'note line one\n## Injected Heading\nnote line two'
-run_cmd bash "$SCRIPT" terminal "$work/evil.md" execute-via-cursor "$work/evil-rows.json" \
+run_cmd "$BASH" "$SCRIPT" terminal "$work/evil.md" execute-via-cursor "$work/evil-rows.json" \
   --outcome pass --backend cursor --model-requested grok-4.7-high \
   --model-resolved "auto(router)" --effort high \
   --started 2026-04-01T03:00:00Z --findings 0 --fix-loops 0 --fallback "$evil_fb" \
@@ -1273,7 +1273,7 @@ assert_count "injected heading not an H2" "$work/evil.md" '^## Injected Heading'
 assert_count "only three H2 headings in evil plan" "$work/evil.md" '^## ' 3
 
 # subsequent write still succeeds and keeps lock ok
-run_cmd bash "$SCRIPT" terminal "$work/evil.md" execute-via-cursor "$work/evil-rows.json" \
+run_cmd "$BASH" "$SCRIPT" terminal "$work/evil.md" execute-via-cursor "$work/evil-rows.json" \
   --outcome pass --backend cursor --model-requested grok-4.7-high \
   --model-resolved "auto(router)" --effort high \
   --started 2026-04-01T04:00:00Z --findings 0 --fix-loops 0 --fallback null \
@@ -1303,10 +1303,10 @@ custom_key: "nomap-keep"
 FILEMARKER nomap
 EOF
 cp "$work/nomap-write.md" "$work/nomap-write.before"
-run_cmd bash "$SCRIPT" rows "$work/nomap-write.md" devin
+run_cmd "$BASH" "$SCRIPT" rows "$work/nomap-write.md" devin
 assert_rc "nomap write rows exits 0" 0
 printf '%s\n' "$LAST_OUT" >"$work/nomap-rows.json"
-run_cmd bash "$SCRIPT" start "$work/nomap-write.md" execute-via-devin "$work/nomap-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" start "$work/nomap-write.md" execute-via-devin "$work/nomap-rows.json" --now 2026-04-01T00:00:00Z
 assert_rc "nomap start exits 0" 0
 assert_fm_same "nomap keeps non-execution keys" "$work/nomap-write.before" "$work/nomap-write.md"
 assert_lock_ok "lock ok after nomap start" "$work/nomap-write.md"
@@ -1357,18 +1357,18 @@ FILEMARKER mode
 EOF
 chmod 644 "$work/mode.md"
 assert_mode "mode fixture is 0644" "$work/mode.md" "644"
-run_cmd bash "$SCRIPT" rows "$work/mode.md" cursor
+run_cmd "$BASH" "$SCRIPT" rows "$work/mode.md" cursor
 assert_rc "mode rows exits 0" 0
 printf '%s\n' "$LAST_OUT" >"$work/mode-rows.json"
-run_cmd bash "$SCRIPT" start "$work/mode.md" execute-via-cursor "$work/mode-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" start "$work/mode.md" execute-via-cursor "$work/mode-rows.json" --now 2026-04-01T00:00:00Z
 assert_rc "mode start exits 0" 0
 assert_stdout_empty "mode start no stdout"
 assert_mode "start keeps 0644" "$work/mode.md" "644"
-run_cmd bash "$SCRIPT" batch "$work/mode.md" execute-via-cursor --done S1 --now 2026-04-01T01:00:00Z
+run_cmd "$BASH" "$SCRIPT" batch "$work/mode.md" execute-via-cursor --done S1 --now 2026-04-01T01:00:00Z
 assert_rc "mode batch exits 0" 0
 assert_stdout_empty "mode batch no stdout"
 assert_mode "batch keeps 0644" "$work/mode.md" "644"
-run_cmd bash "$SCRIPT" terminal "$work/mode.md" execute-via-cursor "$work/mode-rows.json" \
+run_cmd "$BASH" "$SCRIPT" terminal "$work/mode.md" execute-via-cursor "$work/mode-rows.json" \
   --outcome pass --backend cursor --model-requested grok-4.7-high \
   --model-resolved "Grok 4.7 256K High" --effort high \
   --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 --fallback null \
@@ -1457,7 +1457,7 @@ review_now=2026-05-02T03:04:05Z
 write_review_plan "$work/review-pass-id.md" done pending ""
 cp "$work/review-pass-id.md" "$work/review-pass-id.before"
 runs_before=$(extract_runs "$work/review-pass-id.md")
-run_cmd bash "$SCRIPT" review "$work/review-pass-id.md" S2 \
+run_cmd "$BASH" "$SCRIPT" review "$work/review-pass-id.md" S2 \
   --outcome pass --runner top@session --findings 0 --now "$review_now"
 assert_rc "review pass with ID exits 0" 0
 assert_stdout_empty "review pass with ID no stdout"
@@ -1496,7 +1496,7 @@ assert_file_has "review pass with ID marker" "$work/review-pass-id.md" "FILEMARK
 
 write_review_plan "$work/review-pass-noid.md" done done "keep-me"
 cp "$work/review-pass-noid.md" "$work/review-pass-noid.before"
-run_cmd bash "$SCRIPT" review "$work/review-pass-noid.md" \
+run_cmd "$BASH" "$SCRIPT" review "$work/review-pass-noid.md" \
   --outcome pass --runner top@session --findings 0 --now "$review_now"
 assert_rc "review pass without ID exits 0" 0
 assert_lock_ok "lock ok after review pass without ID" "$work/review-pass-noid.md"
@@ -1510,7 +1510,7 @@ assert_fm_same "review pass without ID keeps non-execution keys" \
   "$work/review-pass-noid.before" "$work/review-pass-noid.md"
 
 write_review_plan "$work/review-partial.md" pending pending ""
-run_cmd bash "$SCRIPT" review "$work/review-partial.md" S2 \
+run_cmd "$BASH" "$SCRIPT" review "$work/review-partial.md" S2 \
   --outcome pass --runner top@session --findings 0 --now "$review_now"
 assert_rc "review pass undone exits 0" 0
 assert_lock_ok "lock ok after review pass undone" "$work/review-partial.md"
@@ -1524,7 +1524,7 @@ assert_file_has "review pass undone overall" "$work/review-partial.md" \
   "- **Overall:** partial ${EM} 50% (1/2)"
 
 write_review_plan "$work/review-fail.md" done pending ""
-run_cmd bash "$SCRIPT" review "$work/review-fail.md" S2 \
+run_cmd "$BASH" "$SCRIPT" review "$work/review-fail.md" S2 \
   --outcome fail --runner top@session --findings 2 --now "$review_now"
 assert_rc "review fail exits 0" 0
 assert_lock_ok "lock ok after review fail" "$work/review-fail.md"
@@ -1537,7 +1537,7 @@ assert_file_has "review fail notes" "$work/review-fail.md" "- Notes: review=top@
 assert_count "review fail runs count unchanged" "$work/review-fail.md" '^    - skill:' 1
 
 write_review_plan "$work/review-notes.md" done pending ""
-run_cmd bash "$SCRIPT" review "$work/review-notes.md" S2 \
+run_cmd "$BASH" "$SCRIPT" review "$work/review-notes.md" S2 \
   --outcome pass --runner top@claude-task --findings 0 --notes "looks fine" --now "$review_now"
 assert_rc "review custom notes exits 0" 0
 assert_file_has "review custom notes row uses runner" "$work/review-notes.md" \
@@ -1588,24 +1588,24 @@ $MAP_TABLE
 FILEMARKER refuse
 EOF
 cp "$work/review-refuse.md" "$work/review-refuse.before"
-run_cmd bash "$SCRIPT" review "$work/review-refuse.md" Sexec \
+run_cmd "$BASH" "$SCRIPT" review "$work/review-refuse.md" Sexec \
   --outcome pass --runner top@session --findings 0 --now "$review_now"
 assert_rc "review non-top exits 3" 3
 assert_stdout_empty "review non-top no stdout"
 assert_stderr_has "review non-top reason" "REFUSE: Sexec: Tier is not top"
-run_cmd bash "$SCRIPT" review "$work/review-refuse.md" Sdel \
+run_cmd "$BASH" "$SCRIPT" review "$work/review-refuse.md" Sdel \
   --outcome pass --runner top@devin-fusion --findings 0 --now "$review_now"
 assert_rc "review delegate exits 3" 3
 assert_stderr_has "review delegate reason" "REFUSE: Sdel: Runner is not session"
-run_cmd bash "$SCRIPT" review "$work/review-refuse.md" Sfiles \
+run_cmd "$BASH" "$SCRIPT" review "$work/review-refuse.md" Sfiles \
   --outcome pass --runner top@cursor-ask --findings 0 --now "$review_now"
 assert_rc "review files row exits 3" 3
 assert_stderr_has "review files row reason" "REFUSE: Sfiles: Files is not"
-run_cmd bash "$SCRIPT" review "$work/review-refuse.md" Smid \
+run_cmd "$BASH" "$SCRIPT" review "$work/review-refuse.md" Smid \
   --outcome pass --runner top@session --findings 0 --now "$review_now"
 assert_rc "review non-top@ exits 3" 3
 assert_stderr_has "review non-top@ reason" "REFUSE: Smid: Review is not top@*"
-run_cmd bash "$SCRIPT" review "$work/review-refuse.md" S99 \
+run_cmd "$BASH" "$SCRIPT" review "$work/review-refuse.md" S99 \
   --outcome pass --runner top@session --findings 0 --now "$review_now"
 assert_rc "review unknown ID exits 3" 3
 assert_stderr_has "review unknown ID reason" "REFUSE: S99: unknown ID"
@@ -1615,9 +1615,9 @@ else
   fail "review refusals leave the plan unchanged"
 fi
 
-run_cmd bash "$SCRIPT" review "$work/review-refuse.md"
+run_cmd "$BASH" "$SCRIPT" review "$work/review-refuse.md"
 assert_rc "review missing flags exits 2" 2
-run_cmd bash "$SCRIPT" review "$work/review-refuse.md" Sexec \
+run_cmd "$BASH" "$SCRIPT" review "$work/review-refuse.md" Sexec \
   --outcome pass --runner mid --findings 0 --now "$review_now"
 assert_rc "review bad runner exits 2" 2
 if cmp -s "$work/review-refuse.before" "$work/review-refuse.md"; then
@@ -1625,6 +1625,533 @@ if cmp -s "$work/review-refuse.before" "$work/review-refuse.md"; then
 else
   fail "review usage errors leave the plan unchanged"
 fi
+
+# --- S2 extensions: layout lock, claude-code rows, lint, batch, terminal, stamp, recent, approve ---
+
+layout="$work/skills/execute-plan"
+mkdir -p "$layout/scripts"
+cp "$SCRIPT" "$layout/scripts/plan-status.sh"
+cp "$SOT" "$layout/execution-status.md"
+run_cmd "$BASH" "$layout/scripts/plan-status.sh" lock "$work/lock-ok.md"
+assert_rc "lock from skills/execute-plan/scripts layout exits 0" 0
+assert_stdout "lock from skills layout prints ok" "ok"
+
+mkdir -p "$layout/references"
+printf 'no snippet here\n' >"$layout/execution-status.md"
+cp "$SOT" "$layout/references/execution-status.md"
+run_cmd "$BASH" "$layout/scripts/plan-status.sh" lock "$work/lock-ok.md"
+assert_rc "lock prefers references/execution-status.md exits 0" 0
+assert_stdout "lock prefers references prints ok" "ok"
+
+printf 'no snippet here\n' >"$layout/references/execution-status.md"
+cp "$SOT" "$layout/execution-status.md"
+run_cmd "$BASH" "$layout/scripts/plan-status.sh" lock "$work/lock-ok.md"
+assert_rc "existing references file wins over parent exits 2" 2
+
+cat >"$work/cc.md" <<'EOF'
+---
+execution:
+  status: not-started
+---
+
+## Execution map
+
+| ID | Tier | Runner | Wave | Depends on | Files | Acceptance | Review |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| S1 | top | session | 1 | - | — | — | top@session |
+| S2 | mid | subagent | 1 | - | `a.sh` | `true` | mid |
+| S3 | mid | delegate:cursor | 1 | - | `b.sh` | `true` | mid |
+| S4 | mid | subagent | 2 | S3 | `c.sh` | `true` | mid |
+
+## Execution log
+
+| ID | Status | Notes |
+| --- | --- | --- |
+| S1 | pending | |
+| S2 | pending | |
+| S3 | pending | |
+| S4 | pending | |
+EOF
+run_cmd "$BASH" "$SCRIPT" rows "$work/cc.md" claude-code
+assert_rc "claude-code rows exits 0" 0
+assert_jq "claude-code selects session and subagent including top" '[.selected[].id] == ["S1","S2","S4"]'
+assert_jq "claude-code skips delegate rows" '.skipped[] | select(.id=="S3") | .note == "out of step-scope (dispatch via delegate)"'
+assert_jq "unfinished delegate dependency is blocked, not refused" '.blocked == [{"id":"S4","on":"S3"}]'
+
+run_cmd "$BASH" "$SCRIPT" rows "$work/cc.md" claude-code S3
+assert_rc "only a delegate id still exits 0" 0
+assert_jq "only skips leave selected empty" '.selected == []'
+assert_jq "named delegate id is a skip" '.skipped[] | select(.id=="S3") | .note == "out of step-scope (dispatch via delegate)"'
+
+run_cmd "$BASH" "$SCRIPT" rows "$work/cc.md" claude-code S2
+assert_rc "claude-code step-scope S2 exits 0" 0
+assert_jq "unnamed delegate row outside step-scope keeps the plain note" '.skipped[] | select(.id=="S3") | .note == "out of step-scope"'
+assert_jq "step-scope S2 selects only S2" '[.selected[].id] == ["S2"]'
+
+run_cmd "$BASH" "$SCRIPT" rows "$work/cc.md" claude-code S2 S3
+assert_jq "named delegate row keeps the dispatch note" '.skipped[] | select(.id=="S3") | .note == "out of step-scope (dispatch via delegate)"'
+
+run_cmd "$BASH" "$SCRIPT" rows "$work/cc.md" claude-code S99
+assert_rc "claude-code unknown id exits 3" 3
+assert_stderr_has "claude-code unknown id" "REFUSE: S99: unknown ID"
+
+cat >"$work/cc-bad.md" <<'EOF'
+---
+execution:
+  status: not-started
+---
+
+## Execution map
+
+| ID | Tier | Runner | Wave | Depends on | Files | Acceptance | Model | Review |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S1 | mid | session | 1 | - | `a.sh` | `true` | nope | mid |
+EOF
+run_cmd "$BASH" "$SCRIPT" rows "$work/cc-bad.md" claude-code
+assert_rc "claude-code still refuses an invalid model" 3
+assert_stderr_has "claude-code invalid model" "REFUSE: S1: invalid Model"
+
+cat >"$work/lint-ok.md" <<'EOF'
+---
+execution:
+  status: not-started
+---
+
+## Execution map
+
+| ID | Tier | Runner | Wave | Depends on | Files | Acceptance | Review |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| S1 | top | session | 1 | - | — | — | top@session |
+| S2 | mid | delegate:cursor | 1 | S9 | `a.sh` | `true` | mid |
+| S3 | mid | subagent | 2 | - | `b.sh` | `true` | mid |
+EOF
+run_cmd "$BASH" "$SCRIPT" rows --lint "$work/lint-ok.md"
+assert_rc "lint ignores dependencies and empty-runner mix" 0
+assert_stdout "lint ok prints ok" "ok"
+
+cat >"$work/lint-bad.md" <<'EOF'
+---
+execution:
+  status: not-started
+---
+
+## Execution map
+
+| ID | Tier | Runner | Wave | Depends on | Files | Acceptance | Review |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| S1 | top | session | 1 | - | — | — | top@session |
+| S2 | mid | subagent | 1 | - | `a.sh` | — | mid |
+| S3 | mid | delegate:cursor | 1 | - | `a.sh` | `true` | mid |
+EOF
+run_cmd "$BASH" "$SCRIPT" rows --lint "$work/lint-bad.md"
+assert_rc "lint refuses missing acceptance and overlap" 3
+assert_stderr_has "lint missing acceptance" "REFUSE: S2: missing Acceptance"
+assert_stderr_has "lint file overlap" "REFUSE: S3: files overlap with S2"
+
+cat >"$work/lint-empty.md" <<'EOF'
+# no map
+EOF
+run_cmd "$BASH" "$SCRIPT" rows --lint "$work/lint-empty.md"
+assert_rc "lint of a plan with no rows exits 0" 0
+
+cat >"$work/lint-legacy.md" <<'EOF'
+## Execution map
+
+| ID | Step summary | Tier | Wave | Depends on | Notes (runner · acceptance) |
+| --- | --- | --- | --- | --- | --- |
+| S1 | review | opus | 1 | — | session · top work |
+| S2 | edit | haiku | 1 | — | delegate:cursor · `true` |
+EOF
+run_cmd "$BASH" "$SCRIPT" rows --lint "$work/lint-legacy.md"
+assert_rc "lint accepts a legacy map without an Acceptance column" 0
+assert_stdout "lint legacy prints ok" "ok"
+
+write_stamped "$work/skip-batch.md" <<EOF
+---
+created_at: "2026-01-01T00:00:00Z"
+plan_sha: "placeholder"
+approved_at: "2026-01-02T00:00:00Z"
+execution:
+  status: in-progress
+---
+
+## Execution map
+
+$MAP_TABLE
+| S1 | execute | delegate:cursor | 1 | - | \`a.sh\` | \`true\` | mid |
+| S2 | mid | subagent | 1 | - | \`b.sh\` | \`true\` | mid |
+
+## Execution log
+
+| ID | Status | Notes |
+| --- | --- | --- |
+| S1 | done | keep |
+| S2 | pending | |
+EOF
+run_cmd "$BASH" "$SCRIPT" batch "$work/skip-batch.md" execute-plan \
+  --skipped S1 --note 'out of step-scope (dispatch via delegate)' \
+  --skipped S2 --note 'out of step-scope (dispatch via delegate)' \
+  --now 2026-04-01T03:00:00Z
+assert_rc "batch --skipped exits 0" 0
+assert_file_has "batch --skipped does not downgrade done" "$work/skip-batch.md" "| S1 | done | keep |"
+assert_file_has "batch --skipped writes the note" "$work/skip-batch.md" "| S2 | skipped | out of step-scope (dispatch via delegate) |"
+
+term_base "$work/defer.md"
+run_cmd "$BASH" "$SCRIPT" rows "$work/defer.md" cursor
+printf '%s\n' "$LAST_OUT" >"$work/defer-rows.json"
+run_cmd "$BASH" "$SCRIPT" start "$work/defer.md" execute-plan "$work/defer-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" terminal "$work/defer.md" execute-plan "$work/defer-rows.json" \
+  --outcome pass --backend claude-code \
+  --model-requested 'grok-4-7-high,composer-2-5' \
+  --model-resolved 'grok-4-7-high,composer-2-5' \
+  --effort high --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 \
+  --fallback null --deferred-review --now 2026-04-01T04:00:00Z
+assert_rc "deferred-review terminal exits 0" 0
+assert_file_has "deferred-review forces partial" "$work/defer.md" "  status: partial"
+assert_file_has "deferred-review leaves completed_at null" "$work/defer.md" "  completed_at: null"
+assert_file_has "claude-code model list is stored" "$work/defer.md" 'model_requested: "grok-4-7-high,composer-2-5"'
+assert_file_has "deferred outcome is partial" "$work/defer.md" "      outcome: partial"
+
+cp "$work/defer.md" "$work/defer.before"
+run_cmd "$BASH" "$SCRIPT" terminal "$work/defer.md" execute-plan "$work/defer-rows.json" \
+  --outcome pass --backend claude-code \
+  --model-requested 'not a slug!' \
+  --model-resolved 'grok-4-7-high' \
+  --effort high --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 \
+  --fallback null --now 2026-04-01T05:00:00Z
+assert_rc "invalid claude-code model list exits 2" 2
+if cmp -s "$work/defer.before" "$work/defer.md"; then
+  pass "invalid model list leaves the plan unchanged"
+else
+  fail "invalid model list leaves the plan unchanged"
+fi
+
+# terminal with no implementer Task: `none` is accepted for claude-code
+term_base "$work/none.md"
+run_cmd "$BASH" "$SCRIPT" rows "$work/none.md" cursor
+printf '%s\n' "$LAST_OUT" >"$work/none-rows.json"
+run_cmd "$BASH" "$SCRIPT" start "$work/none.md" execute-plan "$work/none-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" terminal "$work/none.md" execute-plan "$work/none-rows.json" \
+  --outcome abort --backend claude-code \
+  --model-requested none --model-resolved none --effort none \
+  --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 \
+  --fallback null --now 2026-04-01T01:00:00Z
+assert_rc "claude-code terminal with none model fields exits 0" 0
+assert_file_has "none is stored as model_requested" "$work/none.md" 'model_requested: "none"'
+assert_file_has "none is stored as model_resolved" "$work/none.md" 'model_resolved: "none"'
+assert_file_has "none is stored as effort" "$work/none.md" 'effort: "none"'
+
+cp "$work/none.md" "$work/none.before"
+run_cmd "$BASH" "$SCRIPT" terminal "$work/none.md" execute-plan "$work/none-rows.json" \
+  --outcome abort --backend claude-code \
+  --model-requested none --model-resolved 'bad slug!' --effort none \
+  --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 \
+  --fallback null --now 2026-04-01T02:00:00Z
+assert_rc "claude-code none beside a bad slug still exits 2" 2
+run_cmd "$BASH" "$SCRIPT" terminal "$work/none.md" execute-plan "$work/none-rows.json" \
+  --outcome abort --backend claude-code \
+  --model-requested 'not a slug!' --model-resolved none --effort none \
+  --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 \
+  --fallback null --now 2026-04-01T02:00:00Z
+assert_rc "claude-code bad requested slug still exits 2" 2
+if cmp -s "$work/none.before" "$work/none.md"; then
+  pass "rejected none-case terminal leaves the plan unchanged"
+else
+  fail "rejected none-case terminal leaves the plan unchanged"
+fi
+
+# terminal pass must not mark rows that never ran or were skipped
+term_cc_base() {
+  write_stamped "$1" <<EOF
+---
+created_at: "2026-01-01T00:00:00Z"
+plan_sha: "placeholder"
+approved_at: "2026-01-02T00:00:00Z"
+execution:
+  status: not-started
+---
+
+## Execution map
+
+$MAP_TABLE
+| S1 | mid | subagent | 1 | - | \`a.sh\` | \`true\` | mid |
+| S2 | mid | delegate:cursor | 1 | - | \`b.sh\` | \`true\` | mid |
+| S3 | mid | subagent | 2 | S2 | \`c.sh\` | \`true\` | mid |
+
+## Execution log
+
+- **Overall:** not-started
+
+| ID | Status | Notes |
+| --- | --- | --- |
+| S1 | pending | |
+| S2 | pending | |
+| S3 | pending | |
+EOF
+}
+term_cc() {
+  local plan=$1
+  shift
+  run_cmd "$BASH" "$SCRIPT" terminal "$plan" execute-plan "$work/tcc-rows.json" \
+    --outcome pass --backend claude-code \
+    --model-requested grok-4-7-high --model-resolved grok-4-7-high \
+    --effort high --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 \
+    --fallback null --now 2026-04-01T04:00:00Z "$@"
+}
+
+term_cc_base "$work/tcc.md"
+run_cmd "$BASH" "$SCRIPT" rows "$work/tcc.md" claude-code
+assert_rc "blocked rows exits 0" 0
+assert_jq "blocked row S3 waits on S2" '.blocked == [{"id":"S3","on":"S2"}]'
+printf '%s\n' "$LAST_OUT" >"$work/tcc-rows.json"
+run_cmd "$BASH" "$SCRIPT" start "$work/tcc.md" execute-plan "$work/tcc-rows.json" --now 2026-04-01T00:00:00Z
+assert_rc "blocked start exits 0" 0
+run_cmd "$BASH" "$SCRIPT" batch "$work/tcc.md" execute-plan --done S1 --now 2026-04-01T01:00:00Z
+assert_rc "blocked batch --done exits 0" 0
+term_cc "$work/tcc.md" --deferred-review
+assert_rc "deferred-review terminal with a blocked row exits 0" 0
+assert_file_has "deferred-review keeps the done row" "$work/tcc.md" "| S1 | done |"
+assert_file_has "deferred-review keeps the blocked row pending" "$work/tcc.md" "| S3 | pending |"
+
+term_cc_base "$work/tcc-skip.md"
+run_cmd "$BASH" "$SCRIPT" start "$work/tcc-skip.md" execute-plan "$work/tcc-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" batch "$work/tcc-skip.md" execute-plan --skipped S2 --note 'delegate:review skipped' --now 2026-04-01T01:00:00Z
+assert_rc "skip then batch --skipped exits 0" 0
+term_cc "$work/tcc-skip.md"
+assert_rc "clean terminal pass after a skip exits 0" 0
+assert_file_has "terminal pass leaves a skipped row skipped" "$work/tcc-skip.md" "| S2 | skipped | delegate:review skipped |"
+assert_file_has "terminal pass still marks the selected row done" "$work/tcc-skip.md" "| S1 | done |"
+
+term_cc_base "$work/tcc-skip2.md"
+run_cmd "$BASH" "$SCRIPT" start "$work/tcc-skip2.md" execute-plan "$work/tcc-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" batch "$work/tcc-skip2.md" execute-plan --skipped S2 --note 'delegate:review skipped' --now 2026-04-01T01:00:00Z
+term_cc "$work/tcc-skip2.md" --deferred-review
+assert_file_has "deferred terminal leaves a skipped row skipped" "$work/tcc-skip2.md" "| S2 | skipped | delegate:review skipped |"
+assert_file_has "deferred terminal does not auto-mark S1" "$work/tcc-skip2.md" "| S1 | pending |"
+
+term_cc_base "$work/tcc-done.md"
+run_cmd "$BASH" "$SCRIPT" start "$work/tcc-done.md" execute-plan "$work/tcc-rows.json" --now 2026-04-01T00:00:00Z
+term_cc "$work/tcc-done.md"
+assert_rc "clean terminal pass auto-marks selected rows" 0
+assert_file_has "clean terminal pass marks S1 done" "$work/tcc-done.md" "| S1 | done |"
+assert_file_has "clean terminal pass leaves S3 pending" "$work/tcc-done.md" "| S3 | pending |"
+
+# indirect dependents of a blocked row are blocked too
+term_cc_chain() {
+  write_stamped "$1" <<EOF
+---
+created_at: "2026-01-01T00:00:00Z"
+plan_sha: "placeholder"
+approved_at: "2026-01-02T00:00:00Z"
+execution:
+  status: not-started
+---
+
+## Execution map
+
+$MAP_TABLE
+| S1 | mid | delegate:cursor | 1 | - | \`a.sh\` | \`true\` | mid |
+| S2 | mid | subagent | 2 | S1 | \`b.sh\` | \`true\` | mid |
+| S3 | mid | subagent | 1 | - | \`c.sh\` | \`true\` | mid |
+| S4 | mid | subagent | 3 | S2 | \`d.sh\` | \`true\` | mid |
+
+## Execution log
+
+- **Overall:** not-started
+
+| ID | Status | Notes |
+| --- | --- | --- |
+| S1 | pending | |
+| S2 | pending | |
+| S3 | pending | |
+| S4 | pending | |
+EOF
+}
+term_cc_chain "$work/tcc-chain.md"
+run_cmd "$BASH" "$SCRIPT" rows "$work/tcc-chain.md" claude-code
+assert_rc "chain rows exits 0" 0
+assert_jq "indirect dependent S4 is blocked on S2" '.blocked == [{"id":"S2","on":"S1"},{"id":"S4","on":"S2"}]'
+printf '%s\n' "$LAST_OUT" >"$work/tcc-chain-rows.json"
+run_cmd "$BASH" "$SCRIPT" start "$work/tcc-chain.md" execute-plan "$work/tcc-chain-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" terminal "$work/tcc-chain.md" execute-plan "$work/tcc-chain-rows.json" \
+  --outcome pass --backend claude-code \
+  --model-requested grok-4-7-high --model-resolved grok-4-7-high \
+  --effort high --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 \
+  --fallback null --now 2026-04-01T04:00:00Z
+assert_rc "clean terminal pass with a blocked chain exits 0" 0
+assert_file_has "chain pass marks the unblocked row done" "$work/tcc-chain.md" "| S3 | done |"
+assert_file_has "chain pass leaves the blocked S2 pending" "$work/tcc-chain.md" "| S2 | pending |"
+assert_file_has "chain pass leaves the indirect S4 pending" "$work/tcc-chain.md" "| S4 | pending |"
+
+term_cc_chain "$work/tcc-chain-fail.md"
+run_cmd "$BASH" "$SCRIPT" start "$work/tcc-chain-fail.md" execute-plan "$work/tcc-chain-rows.json" --now 2026-04-01T00:00:00Z
+run_cmd "$BASH" "$SCRIPT" terminal "$work/tcc-chain-fail.md" execute-plan "$work/tcc-chain-rows.json" \
+  --outcome fail --backend claude-code \
+  --model-requested grok-4-7-high --model-resolved grok-4-7-high \
+  --effort high --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 \
+  --fallback null --now 2026-04-01T04:00:00Z
+assert_file_has "fail terminal marks the unblocked row failed" "$work/tcc-chain-fail.md" "| S3 | failed |"
+assert_file_has "fail terminal leaves the blocked S2 pending" "$work/tcc-chain-fail.md" "| S2 | pending |"
+assert_file_has "fail terminal leaves the indirect S4 pending" "$work/tcc-chain-fail.md" "| S4 | pending |"
+
+write_stamped "$work/stamp.md" <<'EOF'
+---
+created_at: "2026-01-01T00:00:00Z"
+plan_sha: "placeholder"
+approved_at: "2026-01-02T00:00:00Z"
+execution:
+  status: not-started
+---
+
+# Stamp
+
+BODY
+EOF
+created_before=$(awk '/^created_at:/ { print; exit }' "$work/stamp.md")
+run_cmd "$BASH" "$SCRIPT" stamp "$work/stamp.md" --now 2026-05-01T00:00:00Z
+assert_rc "stamp exits 0" 0
+assert_file_has "stamp sets approved_at" "$work/stamp.md" 'approved_at: "2026-05-01T00:00:00Z"'
+assert_file_has "stamp keeps created_at" "$work/stamp.md" "$created_before"
+if grep -q '^created_at:' "$work/stamp.md" && [[ $(grep -c '^created_at:' "$work/stamp.md") -eq 1 ]]; then
+  pass "stamp does not add a second created_at"
+else
+  fail "stamp does not add a second created_at"
+fi
+sum=$(plan_sha_of "$work/stamp.md")
+assert_file_has "stamp writes plan_sha" "$work/stamp.md" "plan_sha: \"$sum\""
+[[ "$LAST_OUT" =~ ^[0-9]+$ ]] && pass "stamp prints body bytes" || fail "stamp prints body bytes (got $LAST_OUT)"
+
+python3 -c 'print("x"*16000)' >"$work/big-body.txt"
+{
+  printf '%s\n' '---' 'plan_sha: "placeholder"' '---' '# big'
+  cat "$work/big-body.txt"
+} >"$work/big.md"
+run_cmd "$BASH" "$SCRIPT" stamp "$work/big.md" --now 2026-05-01T00:00:00Z
+assert_rc "stamp over the soft cap still exits 0" 0
+assert_stderr_has "stamp warns over 15000" "over 15000"
+if grep -q '^created_at:' "$work/big.md"; then
+  fail "stamp of a plan without created_at invented one"
+else
+  pass "stamp does not invent created_at"
+fi
+
+mkdir -p "$work/recency"
+cat >"$work/recency/2026-11-08-older.md" <<'EOF'
+# older filename
+EOF
+cat >"$work/recency/2611081032-newer.md" <<'EOF'
+# newer filename
+EOF
+cat >"$work/recency/2611091032-skip.notes.md" <<'EOF'
+---
+created_at: "2099-01-01T00:00:00Z"
+---
+# notes
+EOF
+cat >"$work/recency/created.md" <<'EOF'
+---
+created_at: "2026-12-01T00:00:00Z"
+---
+# created wins
+EOF
+TZ=Asia/Bangkok run_cmd "$BASH" "$SCRIPT" recent "$work/recency"
+assert_rc "recent picks created_at over filenames" 0
+assert_stdout "recent prints the created_at plan" "$work/recency/created.md"
+rm "$work/recency/created.md"
+TZ=Asia/Bangkok run_cmd "$BASH" "$SCRIPT" recent "$work/recency"
+assert_rc "recent uses filename prefixes and ignores notes" 0
+assert_stdout "recent prints the yymmddhhmm plan" "$work/recency/2611081032-newer.md"
+cp "$work/recency/2611081032-newer.md" "$work/recency/also.md"
+# Give also.md the same filename-derived instant by copying the winning name's prefix via created_at of the computed ts.
+# Two files with the same created_at tie.
+cat >"$work/recency/tie-a.md" <<'EOF'
+---
+created_at: "2026-06-01T00:00:00Z"
+---
+EOF
+cat >"$work/recency/tie-b.md" <<'EOF'
+---
+created_at: "2026-06-01T00:00:00Z"
+---
+EOF
+rm "$work/recency/2611081032-newer.md" "$work/recency/2026-11-08-older.md" "$work/recency/also.md"
+run_cmd "$BASH" "$SCRIPT" recent "$work/recency"
+assert_rc "recent tie exits 3" 3
+assert_stderr_has "recent tie message" "tie"
+
+# Filename prefixes are local wall time. 2611081032 in +07 is 03:32Z, which is
+# before created_at 05:00Z. 2026-11-08 at local midnight is 17:00Z the day
+# before, which is before created_at 18:00Z. Both must hold for GNU and BSD date.
+mkdir -p "$work/recency-tz"
+cat >"$work/recency-tz/2611081032-x.md" <<'EOF'
+# filename prefix
+EOF
+cat >"$work/recency-tz/created-later.md" <<'EOF'
+---
+created_at: "2026-11-08T05:00:00Z"
+---
+# later
+EOF
+TZ=Asia/Bangkok run_cmd "$BASH" "$SCRIPT" recent "$work/recency-tz"
+assert_rc "yymmddhhmm prefix is older than created_at 05:00Z" 0
+assert_stdout "recent prefers created_at 05:00Z over 2611081032-x" "$work/recency-tz/created-later.md"
+rm -rf "$work/recency-tz"
+mkdir -p "$work/recency-tz"
+cat >"$work/recency-tz/2026-11-08-x.md" <<'EOF'
+# date prefix
+EOF
+cat >"$work/recency-tz/created-later.md" <<'EOF'
+---
+created_at: "2026-11-07T18:00:00Z"
+---
+# later
+EOF
+TZ=Asia/Bangkok run_cmd "$BASH" "$SCRIPT" recent "$work/recency-tz"
+assert_rc "YYYY-MM-DD prefix is older than created_at 18:00Z" 0
+assert_stdout "recent prefers created_at 18:00Z over 2026-11-08-x" "$work/recency-tz/created-later.md"
+
+cp "$work/stamp.md" "$work/approve.md"
+run_cmd "$BASH" "$SCRIPT" approve "$work/approve.md" --now 2026-06-01T00:00:00Z
+assert_rc "approve after a matching lock exits 0" 0
+assert_file_has "approve writes gate_b_sha" "$work/approve.md" "gate_b_sha: \"$sum\""
+assert_file_has "approve writes gate_b_at" "$work/approve.md" 'gate_b_at: "2026-06-01T00:00:00Z"'
+assert_file_has "approve keeps created_at" "$work/approve.md" "$created_before"
+run_cmd "$BASH" "$SCRIPT" lock --gate "$work/approve.md"
+assert_rc "lock --gate exits 0" 0
+assert_stdout "lock --gate prints gate_b_at" "2026-06-01T00:00:00Z"
+
+cp "$work/legacy.md" "$work/approve-legacy.md"
+run_cmd "$BASH" "$SCRIPT" approve "$work/approve-legacy.md" --now 2026-06-01T00:00:00Z
+assert_rc "approve without plan_sha exits 3" 3
+if cmp -s "$work/legacy.md" "$work/approve-legacy.md"; then
+  pass "approve without plan_sha writes nothing"
+else
+  fail "approve without plan_sha writes nothing"
+fi
+
+cp "$work/lock-bad.md" "$work/approve-bad.md"
+run_cmd "$BASH" "$SCRIPT" approve "$work/approve-bad.md" --now 2026-06-01T00:00:00Z
+assert_rc "approve when the lock fails exits 3" 3
+if cmp -s "$work/lock-bad.md" "$work/approve-bad.md"; then
+  pass "approve lock failure writes nothing"
+else
+  fail "approve lock failure writes nothing"
+fi
+
+run_cmd "$BASH" "$SCRIPT" lock "$work/approve.md" --gate
+assert_rc "lock with a trailing --gate exits 2" 2
+assert_stdout_empty "lock with a trailing --gate prints nothing"
+run_cmd "$BASH" "$SCRIPT" lock --gate "$work/approve.md" extra
+assert_rc "lock --gate with an extra argument exits 2" 2
+run_cmd "$BASH" "$SCRIPT" lock --bogus "$work/approve.md"
+assert_rc "lock with an unknown flag exits 2" 2
+run_cmd "$BASH" "$SCRIPT" lock "$work/approve.md" --bogus
+assert_rc "lock with an unknown trailing argument exits 2" 2
+
+printf 'x\n' >>"$work/approve.md"
+run_cmd "$BASH" "$SCRIPT" lock --gate "$work/approve.md"
+assert_rc "lock --gate mismatch exits 3" 3
+assert_stdout_empty "lock --gate mismatch prints nothing"
 
 printf 'PASS/FAIL summary: %s failed\n' "$fails"
 if [[ "$fails" -ne 0 ]]; then

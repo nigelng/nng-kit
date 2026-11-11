@@ -1,19 +1,4 @@
-# Model tiers
-
-Canonical ordered preference lists (`provider-model-version-effort`, left-to-right). Map tiers: `top|execute|mid|low`. Legacy aliases: `opus`→`top`, `auto`/`sonnet`→`mid`, `haiku`→`low`. Per-tool rows carry optional `status: active|parked` (default `active`) and `until: YYYY-MM-DD`.
-
-**Roles:** `top-plan` = `/brainstorm`, `/make-plan` and `/critique plan` sessions. `top-review` = map tier `top`, the `/execute-plan` orchestrator, the batch/final reviews, and `/critique` escalate + closing pass. `top-critique` (optional) = a second-family `/critique plan` pass. `execute` is a map tier: it resolves to the host's `execute` pin, else `mid`. Delegates default to it.
-
-**Grunt-work rule:** `execute`/`mid`/`low` resolve to each tool's own free or included models: Cursor Grok/Composer/Auto (included pool), Devin SWE-2 family first, agy Gemini (Gemini and Argon pools). Paid or third-party models (Claude on Cursor, Claude on agy, Opus/Fusion on Devin) only for `top-plan`/`top-review`. Claude Code is exempt (every model is Claude).
-
-## Master chains
-
-- **top-plan**: `claude-opus-5-5` effort `high` (claude-code; `--effort xhigh` for large/risky plans) → `claude-opus-5-5-high` (cursor) → `fusion-claude-opus-5-5-high-sidekick-swe-2-flash-max` (devin) → `claude-opus-5-5-high` (agy, until 2026-11-26)
-- **top-review**: `claude-opus-5-5-medium` (claude-code | cursor `--mode=ask`) → `fusion-claude-opus-5-5-medium-sidekick-swe-2-flash-max` (devin) → `claude-opus-5-5-medium` (agy `--mode plan`, until 2026-11-26)
-- **top-critique**: `gemini-4-argon-high` (agy, until 2026-11-26)
-- **execute**: `grok-4-7-high` (cursor) → `swe-2-high` (devin, until 2026-11-30) → `gpt-6-1-terra-high` (devin) → `gemini-4-argon-medium` (agy, until 2026-11-26) → `gemini-3-8-flash-high` (agy, until 2026-11-26) *(+ `auto` logged fallback on `cursor`)*
-- **mid** (`auto`): `gpt-6-1-sol-high` (devin) → `gemini-4-argon-medium` (devin, until 2026-12-01 | agy, until 2026-11-26) → `gemini-3-8-flash-high` (agy, until 2026-11-26) → `grok-4-7-high` (cursor) → `claude-sonnet-5-5-high` (claude-code) *(+ `auto` logged fallback on `cursor`)*
-- **low** (`haiku`): `swe-2-flash-high` (devin) → `claude-haiku-5-5-high` (claude-code | devin) → `composer-2-5` (cursor) → `gemini-3-8-flash-high` (agy, until 2026-11-26) *(+ `auto` logged fallback on `cursor`)*
+<!-- Generated from nng-kit/plugins/lifecycle/model-tiers.md. Do not edit. -->
 
 ## Fallback
 
@@ -76,5 +61,3 @@ execute: grok-4-7-high→swe-2-high(until 2026-11-30)→gpt-6-1-terra-high→gem
 mid(auto): gpt-6-1-sol-high→gemini-4-argon-medium(until 2026-12-01)→grok-4-7-high→claude-sonnet-5-5-high
 low(haiku): swe-2-flash-high→claude-haiku-5-5-high→composer-2-5→gemini-3-8-flash-high(until 2026-11-26)
 <!-- tiers:summary:end -->
-
-**Edit:** change this file, then run `bash scripts/sync-model-tiers.sh`.
