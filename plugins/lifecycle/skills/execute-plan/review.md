@@ -2,7 +2,7 @@
 
 The review must be run by a **different subagent** than any that implemented. Use `subagent_type: "generalPurpose"` with an explicit **read-only** contract (do not edit files).
 
-**Review model (per pass):** [model-tiers.md](model-tiers.md) — intermediate passes use mid (`auto`); the final pass and ≤1 escalation use **top-review** (legacy label `opus`). Apply **Review family** from model-tiers.md to mid passes. If the tool cannot pin the final **top-review** model, stop and ask before that pass. Report each review with its tier (`auto` or `opus`) and resolved model.
+**Review model (per pass):** [model-tiers.md](model-tiers.md) — intermediate passes use **mid**; the final pass and ≤1 escalation use **top-review**. Apply **Review family** from model-tiers.md to mid passes. If the tool cannot pin the final **top-review** model, stop and ask before that pass. Report each review with its tier (`mid` or `top`) and resolved model.
 
 ## Review loop (state machine)
 
@@ -49,7 +49,7 @@ If no findings, the sub-agent must explicitly state: "No high-confidence issues 
 For each concrete, high-confidence issue:
 
 - If severity is `nit`, record it for the final summary but **do not** auto-fix unless the user asks.
-- If severity is `blocking` or `important` and the fix is clear and safe, **resume the relevant implementation subagent** (using `Task` with the `resume` parameter and that step's agent ID), or spawn a new fix Task scoped to the finding's files. Prefer **`haiku`** when the fix is mechanical; otherwise **`auto`**. Never use the review subagent to apply fixes.
+- If severity is `blocking` or `important` and the fix is clear and safe, **resume the relevant implementation subagent** (using `Task` with the `resume` parameter and that step's agent ID), or spawn a new fix Task scoped to the finding's files. Prefer **`low`** when the fix is mechanical; otherwise **`mid`**. Never use the review subagent to apply fixes.
 - If the fix is unclear or risky, ask the user before proceeding.
 
 After fixes are applied, rebuild the commands file and re-run `delegate-verify.sh` as [implementer.md](implementer.md) § Full verification describes. Exit 1 → fix Task, then re-run. Exit 3 (tree changed) → stop and ask. Exit 2 → stop and show stderr. Then continue the **Review loop (state machine)** above (next mid-tier pass, final, confirmation, or escalation as that machine directs).

@@ -13,6 +13,8 @@ empty_ignore="$work/empty-gitignore"
 export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0=core.excludesFile
 export GIT_CONFIG_VALUE_0=$empty_ignore
+export XDG_CONFIG_HOME="$work/xdg-config"
+unset NNG_KIT_TIERS
 
 cleanup() { rm -rf "$work"; }
 trap cleanup EXIT
@@ -409,9 +411,14 @@ prompt_for() {
   printf 'Read .claude/tmp/exec-review-%s-brief.md and follow it exactly. Do not edit any file.' "$1"
 }
 
+# Drop the leading `env -i NAME=...` clean-env prefix from argv lines.
+strip_env_prefix() {
+  awk 'BEGIN { head = 1 } head && /^(env|-i|[A-Z_][A-Z0-9_]*=.*)$/ { next } { head = 0; print }'
+}
+
 assert_stdout_eq() {
   local label=$1 want=$2
-  if [[ "$LAST_OUT" == "$want" ]]; then
+  if [[ "$(strip_env_prefix <<<"$LAST_OUT")" == "$want" ]]; then
     pass "$label"
   else
     fail "$label"
@@ -429,6 +436,8 @@ devin_model=fusion-claude-opus-5-5-medium-sidekick-swe-2-flash-max
 cursor_prompt=$(prompt_for cursor-1)
 agy_prompt=$(prompt_for agy-2)
 devin_prompt=$(prompt_for devin-3)
+claude_model=claude-opus-5-5
+claude_prompt=$(prompt_for final-20)
 
 run_cmd bash "$SCRIPT" run --print cursor-ask "$run_repo" cursor-1 "$cursor_model"
 assert_rc "cursor --print exits 0" 0
@@ -456,7 +465,6 @@ assert_stdout_eq "agy --print argv" "$want"
 run_cmd bash "$SCRIPT" run --print devin-fusion "$run_repo" devin-3 "$devin_model"
 assert_rc "devin --print exits 0" 0
 want=$(printf '%s\n' \
-  env -u DEVIN_REFUSAL_FALLBACK \
   devin --model "$devin_model" --permission-mode auto \
   --respect-workspace-trust=false \
   "--print=${devin_prompt}")
@@ -468,18 +476,47 @@ else
   fail "review argv has no write-mode flags"
 fi
 
+run_cmd bash "$SCRIPT" run --print claude-headless "$run_repo" final-20 "$claude_model"
+claude_print=$(strip_env_prefix <<<"$LAST_OUT")
+assert_rc "claude --print exits 0" 0
+assert_stderr_empty "claude --print no stderr"
+want=$(printf '%s\n' \
+  claude -p --model "$claude_model" --effort medium \
+  --permission-mode plan --tools Read,Grep,Glob,Bash \
+  --output-format text --strict-mcp-config \
+  "$claude_prompt")
+want=${want%$'\n'}
+assert_stdout_eq "claude --print argv" "$want"
+
+DELEGATE_MCP=1 run_cmd bash "$SCRIPT" run --print claude-headless "$run_repo" final-20 "$claude_model"
+if [[ "$LAST_OUT" != *--strict-mcp-config* && "$LAST_OUT" == *"--output-format"* ]]; then
+  pass "DELEGATE_MCP=1 omits --strict-mcp-config"
+else
+  fail "DELEGATE_MCP=1 omits --strict-mcp-config"
+fi
+DELEGATE_MCP=0 run_cmd bash "$SCRIPT" run --print claude-headless "$run_repo" final-20 "$claude_model"
+if [[ "$LAST_OUT" == *--strict-mcp-config* ]]; then
+  pass "DELEGATE_MCP=0 keeps --strict-mcp-config"
+else
+  fail "DELEGATE_MCP=0 keeps --strict-mcp-config"
+fi
+
 run_cmd bash "$SCRIPT" run --print devin-fusion "$run_repo" devin-3 "$cursor_model"
 assert_rc "devin without fusion- prefix exits 2" 2
 run_cmd bash "$SCRIPT" run --print cursor-ask "$run_repo" cursor-1 "$devin_model"
 assert_rc "cursor refuses fusion- prefix" 2
 run_cmd bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$devin_model"
 assert_rc "agy refuses fusion- prefix" 2
+run_cmd bash "$SCRIPT" run --print claude-headless "$run_repo" final-20 "$devin_model"
+assert_rc "claude refuses fusion- prefix" 2
 run_cmd bash "$SCRIPT" run --print cursor-ask "$run_repo" cursor-1 'bad model'
 assert_rc "invalid model exits 2" 2
 run_cmd bash "$SCRIPT" run --print cursor-ask "$run_repo" cursor-1 '-bad-flag'
 assert_rc "leading-hyphen model exits 2" 2
 run_cmd bash "$SCRIPT" run --print cursor "$run_repo" cursor-1 "$cursor_model"
 assert_rc "unknown runner exits 2" 2
+run_cmd bash "$SCRIPT" run --print claude-task "$run_repo" cursor-1 "$cursor_model"
+assert_rc "registry runner without argv arm exits 2" 2
 run_cmd bash "$SCRIPT" run --print cursor-ask "$run_repo" nope "$cursor_model"
 assert_rc "run bad rid exits 2" 2
 run_cmd bash "$SCRIPT" run --print cursor-ask relative-root cursor-1 "$cursor_model"
@@ -522,6 +559,34 @@ write_brief "$run_repo" cursor-1
 run_cmd bash "$SCRIPT" run cursor-ask "$run_repo" cursor-1 "$devin_model"
 assert_rc "run rejects cursor fusion- model" 2
 
+# --- NNG_KIT_TIERS override: malformed and extended registries ---
+
+printf '{not json' >"$work/tiers-bad.json"
+run_cmd env NNG_KIT_TIERS="$work/tiers-bad.json" bash "$SCRIPT" run --print cursor-ask "$run_repo" cursor-1 "$cursor_model"
+assert_rc "malformed tiers override --print exits 2" 2
+if [[ "$LAST_ERR" == *"REFUSE: tiers.sh runners failed"* ]]; then
+  pass "malformed tiers override prints REFUSE"
+else
+  fail "malformed tiers override prints REFUSE"
+fi
+
+write_brief "$run_repo" cursor-10
+run_cmd env NNG_KIT_TIERS="$work/tiers-bad.json" bash "$SCRIPT" run cursor-ask "$run_repo" cursor-10 "$cursor_model"
+assert_rc "malformed tiers override run exits 2" 2
+if [[ ! -e "$run_repo/.claude/tmp/exec-review-cursor-10.md" && ! -e "$run_repo/.claude/tmp/exec-review-cursor-10.exit" && ! -e "$run_repo/.claude/tmp/exec-review-cursor-10.snap" && ! -e "$run_repo/.claude/tmp/exec-review-cursor-10.guard.json" ]]; then
+  pass "malformed tiers override writes no launch artifacts"
+else
+  fail "malformed tiers override writes no launch artifacts"
+fi
+
+cat >"$work/tiers-extra.json" <<'EOF'
+{"tools":{"cursor":{"reviewRunners":{"cursor-extra":{"tier":"top-review","mode":"ask"}}}}}
+EOF
+run_cmd env NNG_KIT_TIERS="$work/tiers-extra.json" bash "$SCRIPT" run --print cursor-extra "$run_repo" cursor-1 "$cursor_model"
+assert_rc "override runner without argv arm exits 2" 2
+run_cmd env NNG_KIT_TIERS="$work/tiers-extra.json" bash "$SCRIPT" run --print cursor-ask "$run_repo" cursor-1 "$cursor_model"
+assert_rc "override keeps existing runners" 0
+
 # --- PATH stubs: argv echo, revert, timeout ceiling ---
 
 stub_body="$work/stub-cli"
@@ -545,7 +610,7 @@ chmod +x "$stub_body"
 link_bins() {
   local dest=$1 cmd bin
   mkdir -p "$dest"
-  for cmd in git jq mktemp cp rm grep cat mkdir tr sed; do
+  for cmd in git jq mktemp cp rm grep cat mkdir tr sed bash date dirname env; do
     bin=$(command -v "$cmd")
     ln -sf "$bin" "$dest/$cmd"
   done
@@ -557,11 +622,13 @@ runpath="$work/runpath"
 link_bins "$runpath"
 cp "$stub_body" "$runpath/timeout"
 chmod +x "$runpath/timeout"
+cp "$stub_body" "$runpath/claude"
+chmod +x "$runpath/claude"
 timeout_log="$work/timeout.args"
 bash_bin=$(command -v bash)
 
 run_cmd bash "$SCRIPT" run --print cursor-ask "$run_repo" cursor-1 "$cursor_model"
-cursor_print=$LAST_OUT
+cursor_print=$(strip_env_prefix <<<"$LAST_OUT")
 rm -f "$timeout_log"
 run_cmd env PATH="$runpath" STUB_TIMEOUT_LOG="$timeout_log" \
   DELEGATE_TIMEOUT=1s STUB_RC=0 STUB_STDOUT="$pass_trailer" STUB_STDERR=$'tool-err\n' \
@@ -575,9 +642,9 @@ if [[ "$(tr -d '[:space:]' <"$run_repo/.claude/tmp/exec-review-cursor-1.exit")" 
 else
   fail "cursor .exit is 0"
 fi
-got_log=$(cat "$timeout_log")
-want_log=$'--kill-after=2m\n30m\n'"$cursor_print"
-if [[ "$got_log" == "$want_log" ]]; then
+got_log=$(tail -n +3 "$timeout_log" | strip_env_prefix)
+want_log="$cursor_print"
+if [[ "$(head -2 "$timeout_log")" == $'--kill-after=2m\n30m' && "$got_log" == "$want_log" ]]; then
   pass "cursor run argv matches --print and default ceiling"
 else
   LAST_OUT=$got_log
@@ -590,14 +657,14 @@ assert_jq "cursor happy verdict" \
 
 write_brief "$run_repo" agy-2
 run_cmd bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$agy_model"
-agy_print=$LAST_OUT
+agy_print=$(strip_env_prefix <<<"$LAST_OUT")
 rm -f "$timeout_log"
 run_cmd env PATH="$runpath" STUB_TIMEOUT_LOG="$timeout_log" \
   STUB_RC=0 STUB_STDOUT="$pass_trailer" \
   "$bash_bin" "$SCRIPT" run agy-plan "$run_repo" agy-2 "$agy_model"
 assert_rc "agy run exits 0" 0
-got_log=$(cat "$timeout_log")
-want_log=$'--kill-after=2m\n30m\n'"$agy_print"
+got_log=$(tail -n +3 "$timeout_log" | strip_env_prefix)
+want_log="$agy_print"
 if [[ "$got_log" == "$want_log" ]]; then
   pass "agy run argv matches --print"
 else
@@ -607,20 +674,49 @@ fi
 
 write_brief "$run_repo" devin-3
 run_cmd bash "$SCRIPT" run --print devin-fusion "$run_repo" devin-3 "$devin_model"
-devin_print=$LAST_OUT
+devin_print=$(strip_env_prefix <<<"$LAST_OUT")
 rm -f "$timeout_log"
 run_cmd env PATH="$runpath" STUB_TIMEOUT_LOG="$timeout_log" \
   STUB_RC=0 STUB_STDOUT="$pass_trailer" \
   "$bash_bin" "$SCRIPT" run devin-fusion "$run_repo" devin-3 "$devin_model"
 assert_rc "devin run exits 0" 0
-got_log=$(cat "$timeout_log")
-want_log=$'--kill-after=2m\n30m\n'"$devin_print"
+got_log=$(tail -n +3 "$timeout_log" | strip_env_prefix)
+want_log="$devin_print"
 if [[ "$got_log" == "$want_log" ]]; then
   pass "devin run argv matches --print"
 else
   LAST_OUT=$got_log
   fail "devin run argv matches --print"
 fi
+
+write_brief "$run_repo" final-20
+rm -f "$timeout_log"
+run_cmd env PATH="$runpath" STUB_TIMEOUT_LOG="$timeout_log" \
+  STUB_RC=0 STUB_STDOUT="$pass_trailer" \
+  "$bash_bin" "$SCRIPT" run claude-headless "$run_repo" final-20 "$claude_model"
+assert_rc "claude run exits 0" 0
+got_log=$(tail -n +3 "$timeout_log" | strip_env_prefix)
+want_log="$claude_print"
+if [[ "$got_log" == "$want_log" ]]; then
+  pass "claude run argv matches --print"
+else
+  LAST_OUT=$got_log
+  fail "claude run argv matches --print"
+fi
+
+write_brief "$run_repo" final-21
+rm -f "$timeout_log"
+run_cmd env PATH="$runpath" STUB_TIMEOUT_LOG="$timeout_log" \
+  STUB_RC=0 STUB_STDOUT="$pass_trailer" \
+  STUB_WRITE="$run_repo/tracked.txt" STUB_BODY=$'dirty\n' \
+  "$bash_bin" "$SCRIPT" run claude-headless "$run_repo" final-21 "$claude_model"
+assert_rc "claude stub write run exits 0" 0
+assert_jq "claude stub write reverted" '.clean == false and .reverted == ["tracked.txt"] and .removed == []'
+assert_file "claude stub write restored byte-exact" "$run_repo/tracked.txt" $'base\n'
+run_cmd bash "$SCRIPT" verdict "$run_repo" final-21
+assert_rc "claude stub write verdict exits 0" 0
+assert_jq "claude stub write guard tripped" \
+  '.ok == false and .verdict == "PASS" and .guard_clean == false and .timed_out == false and .reasons == ["guard tripped"]'
 
 write_brief "$run_repo" cursor-4
 rm -f "$timeout_log"
@@ -664,6 +760,120 @@ else
   fail "DELEGATE_REVIEW_TIMEOUT overrides the ceiling"
 fi
 
+# --- clean environment: allowlist, DELEGATE_ENV_ALLOW, names-only --print ---
+
+clean_print() {
+  run_cmd env -i HOME=/h PATH="$PATH" SECRET_TOKEN=sekrit-value CURSOR_API_KEY=key-value "$@"
+}
+
+clean_print bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$agy_model"
+assert_rc "clean env --print exits 0" 0
+if [[ "$(sed -n '1,4p' <<<"$LAST_OUT")" == $'env\n-i\nHOME=<set>\nPATH=<set>' ]]; then
+  pass "agy review --print starts with env -i and allowed names"
+else
+  fail "agy review --print starts with env -i and allowed names"
+fi
+if [[ "$LAST_OUT" != *sekrit-value* && "$LAST_OUT" != *SECRET_TOKEN* && "$LAST_OUT" != *key-value* && "$LAST_OUT" != */h* ]]; then
+  pass "review --print shows no values and no outside names"
+else
+  fail "review --print shows no values and no outside names"
+fi
+
+clean_print bash "$SCRIPT" run --print cursor-ask "$run_repo" cursor-1 "$cursor_model"
+if grep -qx 'CURSOR_API_KEY=<set>' <<<"$LAST_OUT"; then
+  pass "cursor review passes registry authEnv CURSOR_API_KEY"
+else
+  fail "cursor review passes registry authEnv CURSOR_API_KEY"
+fi
+clean_print bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$agy_model"
+if ! grep -q 'CURSOR_API_KEY' <<<"$LAST_OUT"; then
+  pass "agy review does not get CURSOR_API_KEY"
+else
+  fail "agy review does not get CURSOR_API_KEY"
+fi
+
+clean_print env AGY_CLI_DISABLE_AUTO_UPDATE=true bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$agy_model"
+if grep -qx 'AGY_CLI_DISABLE_AUTO_UPDATE=<set>' <<<"$LAST_OUT" && ! grep -q 'AGY_CLI_DISABLE_AUTO_UPDATE=true' <<<"$LAST_OUT"; then
+  pass "agy review passes AGY_CLI_DISABLE_AUTO_UPDATE by name"
+else
+  fail "agy review passes AGY_CLI_DISABLE_AUTO_UPDATE by name"
+fi
+
+clean_print env DELEGATE_ENV_ALLOW=SECRET_TOKEN bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$agy_model"
+if grep -qx 'SECRET_TOKEN=<set>' <<<"$LAST_OUT" && ! grep -q 'sekrit-value' <<<"$LAST_OUT"; then
+  pass "DELEGATE_ENV_ALLOW adds a name, still no value in --print"
+else
+  fail "DELEGATE_ENV_ALLOW adds a name, still no value in --print"
+fi
+clean_print env https_proxy=http://u:proxy-secret@p:1 HTTPS_PROXY=http://u:proxy-secret@p:2 bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$agy_model"
+if grep -qx 'https_proxy=<set>' <<<"$LAST_OUT" && grep -qx 'HTTPS_PROXY=<set>' <<<"$LAST_OUT" && ! grep -q 'proxy-secret' <<<"$LAST_OUT"; then
+  pass "proxy variables pass by name, never by value"
+else
+  fail "proxy variables pass by name, never by value"
+fi
+clean_print env DELEGATE_ENV_ALLOW=my_lower_var my_lower_var=lowval bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$agy_model"
+if [[ "$LAST_RC" -eq 0 ]] && grep -qx 'my_lower_var=<set>' <<<"$LAST_OUT" && ! grep -q 'lowval' <<<"$LAST_OUT"; then
+  pass "DELEGATE_ENV_ALLOW accepts a lowercase name"
+else
+  fail "DELEGATE_ENV_ALLOW accepts a lowercase name"
+fi
+for bad_allow in 'bad.name' 'A B' 'GOOD,' '1ABC' 'A-B' 'A;B'; do
+  clean_print env DELEGATE_ENV_ALLOW="$bad_allow" bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$agy_model"
+  assert_rc "bad DELEGATE_ENV_ALLOW '$bad_allow' exits 2" 2
+done
+
+printf '{"tools":{"agy":{"authEnv":["AGY_TOKEN"]}}}\n' >"$work/tiers-auth.json"
+clean_print env NNG_KIT_TIERS="$work/tiers-auth.json" AGY_TOKEN=t bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$agy_model"
+if grep -qx 'AGY_TOKEN=<set>' <<<"$LAST_OUT"; then
+  pass "override authEnv is honoured"
+else
+  fail "override authEnv is honoured"
+fi
+printf '{"tools":{"agy":{"authEnv":["bad name"]}}}\n' >"$work/tiers-auth-bad.json"
+clean_print env NNG_KIT_TIERS="$work/tiers-auth-bad.json" bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$agy_model"
+assert_rc "bad authEnv name exits 2" 2
+
+# A malformed entry is validated whole: no word-splitting, no globbing.
+globdir="$work/globdir"
+mkdir -p "$globdir"
+: >"$globdir/ZZTOP"
+for bad_auth in 'FOO BAR' 'Z*'; do
+  printf '{"tools":{"agy":{"authEnv":["%s"]}}}\n' "$bad_auth" >"$work/tiers-auth-split.json"
+  pushd "$globdir" >/dev/null
+  clean_print env NNG_KIT_TIERS="$work/tiers-auth-split.json" bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$agy_model"
+  popd >/dev/null
+  assert_rc "authEnv '$bad_auth' exits 2" 2
+done
+
+# Real run: the child sees the allowlist only.
+envstub="$work/envstub"
+link_bins "$envstub"
+cat >"$envstub/agy" <<'STUB'
+#!/bin/bash
+env >"${STUB_ENV_LOG:?}"
+printf 'review\nFINDINGS: blocking=0 important=0 nit=0\nVERDICT: PASS\n'
+STUB
+chmod +x "$envstub/agy"
+write_brief "$run_repo" agy-30
+rm -f "$work/child.env"
+run_cmd env PATH="$envstub" SECRET_TOKEN=sekrit-value STUB_ENV_LOG="$work/child.env" \
+  DELEGATE_ENV_ALLOW=STUB_ENV_LOG "$(command -v bash)" "$SCRIPT" run agy-plan "$run_repo" agy-30 "$agy_model"
+assert_rc "env stub run exits 0" 0
+if grep -q '^PATH=' "$work/child.env" && ! grep -q 'SECRET_TOKEN' "$work/child.env"; then
+  pass "child env has allowed PATH and lacks SECRET_TOKEN"
+else
+  fail "child env has allowed PATH and lacks SECRET_TOKEN"
+fi
+write_brief "$run_repo" agy-31
+rm -f "$work/child.env"
+run_cmd env PATH="$envstub" SECRET_TOKEN=sekrit-value STUB_ENV_LOG="$work/child.env" \
+  DELEGATE_ENV_ALLOW=STUB_ENV_LOG,SECRET_TOKEN "$(command -v bash)" "$SCRIPT" run agy-plan "$run_repo" agy-31 "$agy_model"
+if grep -qx 'SECRET_TOKEN=sekrit-value' "$work/child.env"; then
+  pass "DELEGATE_ENV_ALLOW passes the named variable to the child"
+else
+  fail "DELEGATE_ENV_ALLOW passes the named variable to the child"
+fi
+
 # missing timeout → WARN and still runs
 notime="$work/notime"
 link_bins "$notime"
@@ -672,6 +882,7 @@ chmod +x "$notime/agent"
 write_brief "$run_repo" cursor-8
 rm -f "$timeout_log"
 run_cmd env PATH="$notime" STUB_TIMEOUT_LOG="$timeout_log" STUB_RC=4 STUB_STDOUT="$pass_trailer" \
+  DELEGATE_ENV_ALLOW=STUB_TIMEOUT_LOG,STUB_RC,STUB_STDOUT \
   "$(command -v bash)" "$SCRIPT" run cursor-ask "$run_repo" cursor-8 "$cursor_model"
 assert_rc "missing timeout still exits 0" 0
 if [[ "$LAST_ERR" == "WARN: no timeout binary; running without ceiling" ]]; then

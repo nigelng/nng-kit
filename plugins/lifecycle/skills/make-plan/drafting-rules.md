@@ -31,7 +31,7 @@ On **update**, if the change alters system shape or Scope, re-run the scan and a
 
 ## Map v2 rules (when writing the map)
 
-Columns and generation rules for the Execution map. Do not restate per-tool pins; resolution stays in [model-tiers.md](model-tiers.md).
+Columns and generation rules for the Execution map. Do not restate per-tool pins; resolution stays in [model-tiers.md](model-tiers.md). `tiers.sh` is `bash <skill-dir>/../execute-plan/scripts/tiers.sh`.
 
 **Tier:** `top` | `execute` | `mid` | `low`. Never write `sonnet`. Legacy labels map over: `opus` → `top`, `auto` / `sonnet` → `mid`, `haiku` → `low`.
 
@@ -42,7 +42,7 @@ Columns and generation rules for the Execution map. Do not restate per-tool pins
 - `mid` — judgment within a stated design.
 - `top` — planning, decisions or review only.
 
-**Runner:** `session` | `delegate:cursor` | `delegate:devin` | `delegate:agy` | `subagent`.
+**Runner:** `session` | `subagent` | `delegate:<id>` for any id from `tiers.sh delegates`.
 
 - `top` rows use only `session` or `subagent`, never `delegate:*`.
 - Missing Runner: `top` → `session`, anything else → `subagent`.
@@ -54,7 +54,7 @@ Columns and generation rules for the Execution map. Do not restate per-tool pins
 
 **Model:** empty, or `auto` only with `low` + `delegate:cursor` (recorded as `auto(router)`).
 
-**Review:** `top@session` | `top@claude-task` | `top@devin-fusion` | `top@cursor-ask` | `top@agy-plan` | `mid` | `none`.
+**Review:** `top@session` | any name from `tiers.sh runners` | `mid` | `none`.
 
 - Missing Review → `mid`.
 - `none` only on `low` rows with an Acceptance command.
@@ -67,7 +67,7 @@ Columns and generation rules for the Execution map. Do not restate per-tool pins
 - Then one review line per wave at the strongest Review per batch (`none` < `mid` < `top@*`).
 - Batch reviews for delegate rows run inside the delegate run, at the batch's strongest Review; the per-wave review line is informational.
 - **Small plans** (see Small plans below) omit the per-wave review lines entirely.
-- Then one final whole-branch review line naming the final `top` | `session` review row `<ID>` (Review `top@claude-task` unless the planner names another `top@*`): `Final whole-branch review — top@<x> — /execute-plan <plan> <ID>` for `top@session` / `top@claude-task`, else `Final whole-branch review — top@<x> — /delegate:review <plan> <ID>`.
+- Then one final whole-branch review line naming the final `top` | `session` review row `<ID>` (Review: `top@` + the host's `defaultReviewRunner` unless the planner names another `top@*`): `Final whole-branch review — top@<x> — /execute-plan <plan> <ID>` for `top@session` / `top@claude-task`, else `Final whole-branch review — top@<x> — /delegate:review <plan> <ID>`.
 
 **Size budget:** keep the body (per SoT in `../execute-plan/execution-status.md`) under about 15 KB. Risk registers, decision records and long evidence go to a sibling `<plan-file>.notes.md` (same basename with `.notes.md` in place of `.md`), which only `top` rows and reviews read.
 
@@ -97,9 +97,9 @@ SoT for which Runner each map row gets. Record this line under **Assumptions**, 
 
 Missing → `auto`.
 
-List members: `cursor`, `devin`, `agy`, `subagent`. Write `delegate:<member>` for `cursor`, `devin`, and `agy`; write `subagent` for `subagent`. The default list for `round-robin`, when the list is omitted, is the active delegates in [planning fallback order](model-tiers.md) (`cursor`, `devin`, `agy`).
+List members: `subagent` or any id from `tiers.sh delegates`; write `delegate:<id>` for a delegate id. Default `round-robin` list = the delegates in `tiers.sh order`.
 
-**Eligible** = the tool is active per [model-tiers.md](model-tiers.md) (not past `until:`, not parked) and has a pin for the row's tier. A `subagent` list member is eligible for every non-`top` row. `top` rows are never eligible for delegates (they stay `session` or `subagent`). The modes below assign non-`top` rows only.
+**Eligible** = a delegate is eligible when `tiers.sh resolve <id> <tier>` exits 0; `subagent` is eligible for every non-`top` row; `top` rows never go to delegates. The modes below assign non-`top` rows only.
 
 - `auto` — the planner's choice (today).
 - `pin <tool>` — every non-`top` row → `delegate:<tool>` if that delegate is eligible, else `subagent`. `pin subagent` writes `subagent` on every non-`top` row.

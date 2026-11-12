@@ -1,0 +1,139 @@
+{
+  "host": "claude-code",
+  "planningOrder": ["claude-code", "cursor", "devin", "agy"],
+  "tools": {
+    "claude-code": {
+      "label": "Claude Code",
+      "enabled": true,
+      "cli": "claude",
+      "delegate": false,
+      "authEnv": [],
+      "defaultReviewRunner": "claude-task",
+      "reviewRunners": {
+        "claude-task": { "tier": "top-review", "mode": "task" },
+        "claude-headless": { "tier": "top-review", "mode": "headless" }
+      },
+      "tiers": {
+        "top-plan": [
+          { "model": "claude-opus-5-5", "note": "effort high (xhigh for large/risky plans); Task(model: \"opus\")" }
+        ],
+        "top-review": [
+          { "model": "claude-opus-5-5", "note": "effort medium; Task(model: \"opus\")" }
+        ],
+        "top-critique": [],
+        "execute": [],
+        "mid": [
+          { "model": "claude-sonnet-5-5", "note": "effort high; Task(model: \"sonnet\")" }
+        ],
+        "low": [
+          { "model": "claude-haiku-5-5", "note": "effort high; Task(model: \"haiku\")" }
+        ]
+      }
+    },
+    "cursor": {
+      "label": "Cursor",
+      "enabled": true,
+      "cli": "agent",
+      "delegate": true,
+      "authEnv": ["CURSOR_API_KEY"],
+      "defaultReviewRunner": "claude-headless",
+      "reviewRunners": {
+        "cursor-ask": { "tier": "top-review", "mode": "ask" }
+      },
+      "tiers": {
+        "top-plan": [
+          { "model": "claude-opus-5-5-high" }
+        ],
+        "top-review": [
+          { "model": "claude-opus-5-5-medium", "note": "--mode=ask" }
+        ],
+        "top-critique": [],
+        "execute": [
+          { "model": "grok-4.7-high" },
+          { "model": "auto", "note": "logged fallback" }
+        ],
+        "mid": [
+          { "model": "grok-4.7-high", "role": "implement" },
+          { "model": "claude-sonnet-5-5-high", "role": "review", "note": "Cursor third-party pool" },
+          { "model": "auto", "role": "implement", "note": "logged fallback" }
+        ],
+        "low": [
+          { "model": "composer-2.5" },
+          { "model": "auto", "note": "logged fallback" }
+        ]
+      }
+    },
+    "devin": {
+      "label": "Devin",
+      "enabled": true,
+      "cli": "devin",
+      "delegate": true,
+      "authEnv": [],
+      "defaultReviewRunner": "claude-headless",
+      "reviewRunners": {
+        "devin-fusion": { "tier": "top-review", "mode": "auto" }
+      },
+      "tiers": {
+        "top-plan": [
+          { "model": "fusion-claude-opus-5-5-high-sidekick-swe-2-flash-max" }
+        ],
+        "top-review": [
+          { "model": "fusion-claude-opus-5-5-medium-sidekick-swe-2-flash-max" }
+        ],
+        "top-critique": [
+          { "model": "gpt-6-1-sol-high" }
+        ],
+        "execute": [
+          { "model": "swe-2-high", "until": "2026-11-30" },
+          { "model": "swe-2-medium" },
+          { "model": "gpt-6-1-terra-high" }
+        ],
+        "mid": [
+          { "model": "swe-2-high", "until": "2026-11-30", "role": "implement" },
+          { "model": "swe-2-flash-medium", "role": "implement" },
+          { "model": "gpt-6-1-sol-high", "role": "implement" },
+          { "model": "gpt-6-1-sol-high", "role": "review" },
+          { "model": "gemini-4-argon-medium", "until": "2026-12-01", "role": "review" }
+        ],
+        "low": [
+          { "model": "swe-2-flash-high" },
+          { "model": "claude-haiku-5-5-high" }
+        ]
+      }
+    },
+    "agy": {
+      "label": "Antigravity",
+      "enabled": true,
+      "until": "2026-11-26",
+      "cli": "agy",
+      "delegate": true,
+      "authEnv": [],
+      "defaultReviewRunner": "claude-headless",
+      "reviewRunners": {
+        "agy-plan": { "tier": "top-review", "mode": "plan" }
+      },
+      "tiers": {
+        "top-plan": [
+          { "model": "claude-opus-5-5-high", "note": "subagent Model: \"inherit\" when parent session is top, else \"pro\"" }
+        ],
+        "top-review": [
+          { "model": "claude-opus-5-5-medium", "note": "--mode plan; subagent Model: \"inherit\" when parent session is top, else \"pro\"" }
+        ],
+        "top-critique": [
+          { "model": "gemini-4-argon-high" }
+        ],
+        "execute": [
+          { "model": "gemini-4-argon-medium" },
+          { "model": "gemini-3.8-flash-high" }
+        ],
+        "mid": [
+          { "model": "gemini-4-argon-medium" },
+          { "model": "gemini-3.8-flash-high", "note": "subagent Model: \"inherit\" when parent session is mid, else \"flash\"" }
+        ],
+        "low": [
+          { "model": "gemini-3.8-flash-high", "note": "subagent Model: \"flash_lite\"" }
+        ]
+      }
+    }
+  }
+}

@@ -17,7 +17,7 @@ Build a structured implementation plan for a task. Prompt for purpose, clarify s
 
 **References (read when needed):** [plan-template.md](plan-template.md) · [drafting-rules.md](drafting-rules.md) · [brainstorm-handoff.md](brainstorm-handoff.md) · [execution-status.md](../execute-plan/execution-status.md) (execution scaffold SoT)
 
-Session/Task tiers: [model-tiers.md](model-tiers.md) (`top`/`mid`/`low`). `/make-plan` needs **top-plan**; warn once and recommend switching if below **top-plan** — do not silently draft a thin plan. Execution-map rows use v2 tiers (`top`/`execute`/`mid`/`low`); that does not lower the planner session.
+Warn once and recommend switching if below the host's **top-plan** pin (`tiers.sh resolve <host> top-plan`); if the session model is unlisted, say so in one line, continue (see [model-tiers.md](model-tiers.md)). Map rows use v2 tiers (`top`/`execute`/`mid`/`low`) without lowering the planner session.
 
 ## Built-in Plan vs this skill
 

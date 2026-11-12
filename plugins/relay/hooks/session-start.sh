@@ -19,9 +19,18 @@ set -uo pipefail
 input="$(cat 2>/dev/null || true)"
 
 cwd_from_stdin=""
+source_from_stdin=""
 if [[ -n "$input" ]] && command -v jq >/dev/null 2>&1; then
   cwd_from_stdin="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null || true)"
+  source_from_stdin="$(printf '%s' "$input" | jq -r '.source // empty' 2>/dev/null || true)"
 fi
+
+# Resumed and compacted sessions already carry the routing context. The
+# hooks.json matcher covers Claude Code; this covers callers without one
+# (Cursor). A caller that sends no source keeps the full behaviour.
+case "$source_from_stdin" in
+  resume | compact) exit 0 ;;
+esac
 
 # cwd resolution: stdin .cwd, then per-tool project-dir env vars, then PWD.
 # Devin and Cursor send no .cwd on stdin (see CROSS-TOOL-PLUGINS.md).
@@ -46,6 +55,17 @@ emit_context() {
     fi
   else
     printf '%s\n' "$text"
+  fi
+}
+
+# Body lines injected at session start; the rest is read by /relay:pickup.
+# Falls back to 20 unless RELAY_INJECT_LINES is a positive integer.
+inject_line_limit() {
+  local n="${RELAY_INJECT_LINES:-20}"
+  if [[ "$n" =~ ^[0-9]+$ ]] && [[ "$((10#$n))" -gt 0 ]]; then
+    printf '%s' "$((10#$n))"
+  else
+    printf '20'
   fi
 }
 
@@ -161,6 +181,15 @@ fi
 # ----- assemble additionalContext -----------------------------------------
 
 body="$(relay_get_body "$HANDOFF_FILE")"
+inject_limit="$(inject_line_limit)"
+more_note=""
+if [[ "$(printf '%s\n' "$body" | sed '/./,$!d' | wc -l)" -gt "$inject_limit" ]]; then
+  # Command substitution already trimmed the trailing blanks; drop the
+  # leading ones too so the limit counts real content lines.
+  body="$(printf '%s\n' "$body" | sed '/./,$!d' | head -n "$inject_limit")"
+  more_note="
+The rest of the handoff body is read by /relay:pickup."
+fi
 
 # Escape tag sequences in untrusted values so they cannot close the wrapper.
 fm_id="$(relay_neutralize_untrusted_tags "$fm_id")"
@@ -200,7 +229,7 @@ rev: ${fm_rev:-}
 deferred-at: ${fm_deferred_at:-}
 
 ${body}
-</untrusted-source>
+</untrusted-source>${more_note}
 EOF
 
 emit_context "$context_payload"

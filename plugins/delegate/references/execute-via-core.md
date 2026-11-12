@@ -66,7 +66,7 @@ differs. Always pass as `--model` via `delegate-launch.sh`.
 2. `router: true` (no `model=`) → `--model auto`.
 3. Else → `launch_tier` (`low`/`execute`/`mid`) backend pin from
    [model-tiers.md](model-tiers.md): first unexpired CLI-listed slug in chain; skip `until:`-expired
-   (`fallback: expired <slug>`) and parked rows (no enable flag). Pass `--model <slug>`.
+   (`fallback: expired <slug>`) and rows of a disabled tool (registry `enabled: false`). Pass `--model <slug>`.
 4. No slug → if chain names `auto` fallback, `--model auto` (`fallback: pin missing`); else **stop
    and ask** for `model=<slug>` — never pick Auto without it. A listed pin failing usage/quota is
    Step 6.
@@ -422,7 +422,8 @@ bash <skill-dir>/../../scripts/delegate-verdict.sh <backend> /absolute/repo/root
      ```bash
      bash <skill-dir>/../../scripts/delegate-review-launch.sh check /absolute/repo/root <rid>
      ```
-   - External `top@*` (`top@devin-fusion`, `top@cursor-ask`, `top@agy-plan`) → read
+   - Any other `top@*` (an external runner listed by `tiers.sh runners`, e.g.
+     `top@claude-headless`, `top@devin-fusion`) → read
      [review-runner.md](review-runner.md) (from `skills/<name>/SKILL.md`:
      `../../references/review-runner.md`).
    - Every non-`none` review ends with `verdict`:

@@ -21,7 +21,7 @@ Take an idea to a reviewed change through the sibling lifecycle skills, with two
 
 **Requires Agent mode.** In Plan or Ask mode, stop and tell the user to switch.
 
-**Session needs top-plan.** Resolve via [model-tiers.md](../make-plan/model-tiers.md). Warn once and recommend switching if below **top-plan**; do not silently run a thin brainstorm or plan. A top-plan session also meets **top-review** for the execute orchestrator. Preserve each sibling's independent-review and explicit Task-model requirements; report intended tier and resolved model, never an invented resolution.
+**Session needs top-plan.** Warn once and recommend switching if below the host's **top-plan** pin (`tiers.sh resolve <host> top-plan`); unknown session model → say so in one line, continue. A top-plan session meets **top-review** for the execute orchestrator. Preserve each sibling's independent-review and explicit Task-model requirements; report intended tier and resolved model, never an invented resolution.
 
 Work in the project root (`git rev-parse --show-toplevel`). The up-front `finish=push` or `finish=pr` choice is the user's explicit request to commit/push under this skill, subject to Gate B, safety checks, and the downgrade rule, and never permission to bypass a failed gate.
 
@@ -104,7 +104,7 @@ Wait for explicit approval. An approval stamp alone is not this gate. Already pa
 `bash <skill-dir>/../execute-plan/scripts/plan-status.sh approve <plan>`. Exit 0 writes `gate_b_sha` and `gate_b_at`; do not hand-edit them or `plan_sha`. Exit 3 writes nothing: quote stderr if any (`plan body changed since approval; re-approve with /make-plan update <path>`). No `plan_sha` is also exit 3: **Refine** so `stamp` runs, then return here. Exit 2: stop and show stderr. After exit 0:
 
 - **Continue here** - the routed stage (Stage 4 after `approve`) in this session.
-- **Continue in a fresh session** - recommended unless `Plan size: small`. Print `/conduct <path> finish=<finish> plan=<keep|drop> confirm=<confirm>` and stop. That session starts at Stage 4 only when `lock --gate` passes.
+- **Continue in a fresh session** - recommended unless `Plan size: small`; on a v2 map that passes `plan-status.sh rows --lint`, a `mid` session suffices for Stage 4. Print `/conduct <path> finish=<finish> plan=<keep|drop> confirm=<confirm>` and stop. That session starts at Stage 4 only when `lock --gate` passes.
 
 ## Stage 4 - Execute-plan
 
@@ -120,7 +120,7 @@ On a clean final review (`clean`, including the in-host loop when the strongest 
 
 `state` fetches `origin` when a remote URL exists. Stderr `WARN: git fetch failed`, or a failed `git merge-base origin/<default> HEAD`, stops this stage and triggers the downgrade rule. Never use a stale or narrower diff. `<default>` is the Step 0.6 branch; `default=` from `state` may be empty and does not replace it. The review base is that merge-base SHA. With no `origin`, the base is the HEAD SHA recorded at Step 0.6. Pass the base ref to each review Task. The Task runs `git diff <base>` and lists untracked files from `git ls-files --others --exclude-standard`. Do not paste the diff. Exclude `docs/brainstorms/**` and `docs/plans/**` from the tracked diff and from the untracked input. `fingerprint=` and `head=` are the Stage 5 comparison against the fingerprint Stage 4 recorded.
 
-Skip **Phase A** only when all three hold: this session recorded Stage 4's `fingerprint=` and `head=`; a new `fingerprint` run prints the same values; and `head=` equals that review base. Otherwise run **Phase A** (at most two mid-tier reviews) and **Phase B** (at most one top-tier escalation, only when triggered). A skipped Phase A counts as ship-ready, so Phase B is not triggered. The closing top pass and the security pass always run.
+Skip **Phase A** only when all three hold: this session recorded Stage 4's `fingerprint=` and `head=`; a new `fingerprint` run prints the same values; and `head=` equals that review base. Otherwise run **Phase A** (at most two mid-tier reviews) and **Phase B** (at most one top-tier escalation, only when triggered). A skipped Phase A counts as ship-ready, so Phase B is not triggered. When Phase A is skipped and Stage 4's final review was a clean `top@*`, skip the closing top pass and run only the security pass. Keep the closing top pass when Stage 4's strongest review was `mid` or `none`. The security pass always runs.
 
 ## Stage 6 - Finish
 

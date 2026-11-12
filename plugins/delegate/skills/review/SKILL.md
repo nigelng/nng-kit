@@ -2,10 +2,9 @@
 name: review
 description: >-
   Final whole-branch top-tier review of a fleet plan's branch via the plan's
-  Review runner (top@claude-task, top@session, or an external read-only
-  reviewer: top@devin-fusion, top@cursor-ask, top@agy-plan). Read-only; never
-  fixes or commits. Args: <plan> [ID] [base=<ref>] [runner=top@…]. Use for
-  `/delegate:review`.
+  Review runner (`top@session`, `top@claude-task`, or an external read-only
+  reviewer from `tiers.sh runners`). Read-only; never fixes or commits. Args:
+  <plan> [ID] [base=<ref>] [runner=top@…]. Use for `/delegate:review`.
 argument-hint: "<plan> [ID] [base=<ref>] [runner=top@…]"
 allowed-tools: Read, Write, Glob, Grep, Task, AskUserQuestion, Bash(bash:*), Bash(git:*), Bash(which:*), Bash(agent:*), Bash(agy:*), Bash(devin:*), Bash(mkdir:*), Bash(rm:*), Bash(date:*)
 disable-model-invocation: true

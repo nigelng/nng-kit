@@ -51,8 +51,10 @@ same plan audit metadata as `/execute-plan`.
                                        diff themselves. Phase A (lean mid rounds)
                                        skips only when this session's Stage 4
                                        fingerprint is unchanged and head equals the
-                                       review base. The closing top pass and the
-                                       security pass always run, then re-run
+                                       review base. Skip the closing top pass when
+                                       Phase A was skipped and Stage 4's final review
+                                       was a clean `top@*`; otherwise keep it. The
+                                       security pass always runs, then re-run
                                        Verification
   Stage 6: finish                    push = branch + commit + push (default);
                                        pr = push + PR + CI watch;
@@ -76,7 +78,8 @@ same plan audit metadata as `/execute-plan`.
 /critique plan <path>              optional top-tier second opinion on the plan before
   (optional)                          execute (not a lean mid-tier pass)
 
-/execute-plan <path>               top-tier orchestrator; requires Agent mode; refuses
+/execute-plan <path>               orchestrator (`mid` on a linted v2 map, else the
+                                       host's `top-review` pin); requires Agent mode; refuses
   → uncommitted working-tree diff     if Blocked / missing Success or Verification;
                                        requires Execution map (draft→confirm→persist if
                                        missing); runs waves per ## Dispatch
@@ -151,8 +154,11 @@ or "tag to trigger CI publish."
 ## Execute alternatives
 
 - **`/execute-plan`** — in-process Task orchestrator (Execution-map waves +
-  independent review: mid-tier passes, top-tier final pass). Multi-consumer L0
-  skill.
+  independent review: mid-tier passes, top-tier final pass). The orchestrator
+  runs at **`mid`** when the map is v2 and `plan-status.sh rows --lint` exits 0,
+  otherwise at the host's **`top-review`** pin; a **`mid`** orchestrator never
+  does top-tier work itself (`top@session` → the host's `defaultReviewRunner`; a
+  `top` `session` row → a top-tier Task). Multi-consumer L0 skill.
 - **`/delegate:execute-via-cursor`** — Claude Code–only, in the `delegate` plugin:
   hands the plan to Cursor's `agent` CLI for implementation (when `model=` is
   omitted, resolves the Cursor `execute` pin from [model-tiers.md](model-tiers.md);
@@ -169,9 +175,10 @@ or "tag to trigger CI publish."
   when `model=` omitted; pinned only — never `adaptive` or `fusion-*`). Never commits.
 - **`/delegate:review`** — Claude Code–only, in the `delegate` plugin: the final
   whole-branch top-tier review through the plan's Review runner
-  (`top@session`, `top@claude-task`, `top@devin-fusion`, `top@cursor-ask`, or
-  `top@agy-plan`). Read-only — the reviewer never runs Verification and never
-  edits (a git guard reverts any reviewer change). `/execute-plan` prints the
+  (`top@session`, `top@claude-task`, or an external runner from `tiers.sh
+  runners`, such as `top@claude-headless` or `top@devin-fusion`). Read-only —
+  the reviewer never runs Verification and never edits (a git guard reverts
+  any reviewer change). `/execute-plan` prints the
   `/delegate:review` command when a plan's Review runner is an external tool
   other than the host; pass `[ID]` to mark that row done via
   `plan-status.sh review`. Never commits.
@@ -217,14 +224,26 @@ Portable map tiers: **`top`** | **`execute`** | **`mid`** | **`low`** (legacy
 `top-review` = map tier `top`, `/execute-plan` orchestrator, reviews, and
 `/critique` escalate/closing; `top-critique` (optional) = second-family
 `/critique plan` — map tier **`top`** resolves to **`top-review`**. Per-skill
-session/Task requirements: that skill's `SKILL.md`. Canonical chains, fallback,
-and per-tool resolution: [model-tiers.md](model-tiers.md) — **edit tier policy
-there**, then run `bash scripts/sync-model-tiers.sh`. The five lifecycle skill
-copies are compact: a generated header, then Fallback, Per-tool resolution,
-Review runners, and the summary block. The canonical file and the delegate
-copy stay full. Full v2 map columns,
+session/Task requirements: that skill's `SKILL.md`. Fallback and per-tool
+resolution: [model-tiers.md](model-tiers.md) — **edit tier policy there**,
+then run `bash scripts/sync-model-tiers.sh`. The five lifecycle skill copies
+are compact: a generated header, then Fallback, Per-tool resolution, tool
+notes, and Review runners. The canonical file and the delegate copy stay
+full. Full v2 map columns,
 **`## Dispatch`**, naming, plan lock, and recency:
 [skills/execute-plan/execution-status.md](skills/execute-plan/execution-status.md).
+
+Tier pins resolve from the registry `tiers.json` — canonical in the delegate
+plugin at `plugins/delegate/scripts/tiers.json`, copied into
+`skills/execute-plan/scripts/` — through `tiers.sh resolve <tool> <tier>`. An
+optional user file
+(`${NNG_KIT_TIERS:-${XDG_CONFIG_HOME:-$HOME/.config}/nng-kit/tiers.json}`)
+is deep-merged over it. `model-tiers.md` is generated from the registry:
+pins live in `tiers.json`, policy prose in `model-tiers.md`; edit either,
+then run `bash scripts/sync-model-tiers.sh`. The registry schema, the
+override file, the default host and the adding-a-tool checklist live in the
+delegate plugin's
+[Tool registry](../delegate/README.md#tool-registry) section.
 
 ## Critique (policy A)
 
@@ -314,6 +333,7 @@ delegate, so they run the copies under `skills/execute-plan/scripts/`.
 | --- | --- |
 | `plan-status.sh` | Lock, Execution-map selection, and every status write. Source of truth in delegate; lifecycle copy next to `execute-plan`. |
 | `delegate-verify.sh` | Run a Verification commands file from the repo root. Exit 0 pass, 1 command failure, 3 tree changed, 2 usage. |
+| `tiers.sh` | Resolve tier pins from `tiers.json` beside it (`tools`, `host`, `order`, `delegates`, `runners`, `resolve`, `validate`); exit 3 when no pin is usable. Source of truth in delegate; lifecycle copy next to `execute-plan`. |
 | `pr-artifacts.sh` | Read-only JSON for `/gh-create-pr`: added and modified plans (with `execution.status`), sibling notes at HEAD, relay files (`current_branch`, `mirror`), dropped plans (resolved SHA), and paths skipped for an unusual name. Never runs `git rm`. |
 | `git-preflight.sh` | Read-only `key=value` facts for `/commit` and the release skills. |
 | `skill-budget.sh` | Own and closure bytes for each kit `SKILL.md`, checked against `scripts/nng-kit-skill-budgets.tsv`. |

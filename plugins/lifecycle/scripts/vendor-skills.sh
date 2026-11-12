@@ -1,19 +1,29 @@
 #!/usr/bin/env bash
 # vendor-skills.sh — vendor lifecycle skills into a consumer repo, or check drift.
 #
-#   bash vendor-skills.sh [--tag lifecycle-vX.Y.Z] <target-repo>
+#   bash vendor-skills.sh [--tag lifecycle-vX.Y.Z] [--neutral] <target-repo>
 #   bash vendor-skills.sh --check <target-repo>
 #
 # Vendor mode copies plugins/lifecycle/skills/* from the stamped nng-kit TAG —
 # never from a working tree — so the vendored files are identical to what
 # --check verifies against. It writes <target>/.agents/skills/.nng-kit-version
-# (plugin, version, tag, skill list, date). Non-lifecycle dirs already in
-# .agents/skills/ are left alone; skills dropped from a newer tag and recorded
-# in the old stamp are removed.
+# (plugin, version, tag, skill list, optional tiers=neutral, date).
+# Non-lifecycle dirs already in .agents/skills/ are left alone; skills dropped
+# from a newer tag and recorded in the old stamp are removed.
+#
+# --neutral (vendor mode only) overwrites every vendored model-tiers.md with
+# the tag's plugins/lifecycle/model-tiers.neutral.md and
+# execute-plan/scripts/tiers.json with plugins/lifecycle/tiers.example.json,
+# then records tiers=neutral in the stamp. Without --neutral the stamp has no
+# tiers= line (a full copy of the owner's pins). --neutral with --check is an
+# error: the stamp records the mode.
 #
 # --check re-fetches the stamped tag from GitHub and fails (exit 1) on any
-# drift: missing/changed file, missing stamp, missing skill dir, or a stamp
-# version that disagrees with the tag's plugin.json.
+# drift: missing/changed file, missing stamp, missing skill dir, a stamp
+# version that disagrees with the tag's plugin.json, or an invalid tiers=
+# value. Absent tiers= means a full copy. tiers=neutral rebuilds each expected
+# skill in a temp copy of the tag and applies the same substitution before
+# diffing.
 #
 # NNG_KIT_TAG_DIR (tests/offline): a directory used as the tag's repo tree in
 # place of the GitHub tarball fetch.
@@ -26,7 +36,7 @@ STAMP=.nng-kit-version
 
 usage() {
   cat <<EOF
-Usage: bash $PROG [--tag lifecycle-vX.Y.Z] <target-repo>
+Usage: bash $PROG [--tag lifecycle-vX.Y.Z] [--neutral] <target-repo>
        bash $PROG --check <target-repo>
 EOF
 }
@@ -41,7 +51,8 @@ die() {
 valid_tag() { [[ "$1" =~ ^lifecycle-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
 valid_skill() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }
 
-# fetch_tag mktemp dirs, removed on exit (not used with NNG_KIT_TAG_DIR).
+# mktemp dirs (fetched tag trees and neutral --check copies), removed on exit.
+# The NNG_KIT_TAG_DIR tree is never added.
 TAG_TMPDIRS=()
 cleanup_tmpdirs() {
   [[ ${#TAG_TMPDIRS[@]} -eq 0 ]] || rm -rf "${TAG_TMPDIRS[@]}"
@@ -50,10 +61,12 @@ trap cleanup_tmpdirs EXIT
 
 TAG=""
 CHECK=0
+NEUTRAL=0
 TARGET=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --check) CHECK=1 ;;
+    --neutral) NEUTRAL=1 ;;
     --tag)
       [[ $# -ge 2 ]] || die "--tag needs a value"
       TAG=$2
@@ -78,6 +91,7 @@ done
   exit 2
 }
 [[ "$CHECK" -eq 0 || -z "$TAG" ]] || die "--tag has no effect with --check"
+[[ "$CHECK" -eq 0 || "$NEUTRAL" -eq 0 ]] || die "--neutral has no effect with --check (the stamp records the mode)"
 
 # fetch_tag <tag> -> prints path to the tag's repo tree (a dir containing
 # plugins/lifecycle). NNG_KIT_TAG_DIR short-circuits the network.
@@ -137,15 +151,55 @@ reject_symlinks() {
   fi
 }
 
+# require_neutral_files <tree> <tag> -> die if the tag lacks either neutral file.
+require_neutral_files() {
+  local tree=$1
+  local tag=$2
+  if [[ ! -f "$tree/$PLUGIN_PATH/model-tiers.neutral.md" || ! -f "$tree/$PLUGIN_PATH/tiers.example.json" ]]; then
+    die "tag $tag has no neutral tier files (model-tiers.neutral.md, tiers.example.json); vendor without --neutral or use a newer tag"
+  fi
+}
+
+# substitute_neutral_skill <skill-dir> <neutral-md> <example-json>
+# Overwrite model-tiers.md, and execute-plan/scripts/tiers.json, when those
+# files are already in the skill dir. Shared by vendor mode and --check.
+substitute_neutral_skill() {
+  local dest=$1
+  local neutral_md=$2
+  local example_json=$3
+  if [[ -f "$dest/model-tiers.md" ]]; then
+    cp "$neutral_md" "$dest/model-tiers.md"
+  fi
+  if [[ "$(basename "$dest")" == "execute-plan" && -f "$dest/scripts/tiers.json" ]]; then
+    cp "$example_json" "$dest/scripts/tiers.json"
+  fi
+}
+
 if [[ "$CHECK" -eq 1 ]]; then
   [[ -f "$STAMP_FILE" ]] || die "no stamp $STAMP_FILE — was this repo vendored?"
   tag=$(stamp_field "$STAMP_FILE" tag)
   stamped_version=$(stamp_field "$STAMP_FILE" version)
   stamped_skills=$(stamp_field "$STAMP_FILE" skills)
+  tiers=$(stamp_field "$STAMP_FILE" tiers)
   [[ -n "$tag" ]] || die "stamp $STAMP_FILE has no tag="
+  case "$tiers" in
+    "" | neutral) ;;
+    *) die "invalid tiers= value in stamp: '$tiers'" ;;
+  esac
   tree=$(fetch_tag "$tag")
   [[ -n "${NNG_KIT_TAG_DIR:-}" ]] || TAG_TMPDIRS+=("$tree")
   reject_symlinks "$tree"
+
+  neutral_md=""
+  example_json=""
+  expected_root=""
+  if [[ "$tiers" == "neutral" ]]; then
+    require_neutral_files "$tree" "$tag"
+    neutral_md="$tree/$PLUGIN_PATH/model-tiers.neutral.md"
+    example_json="$tree/$PLUGIN_PATH/tiers.example.json"
+    expected_root=$(mktemp -d "${TMPDIR:-/tmp}/nng-kit-neutral.XXXXXX")
+    TAG_TMPDIRS+=("$expected_root")
+  fi
 
   tag_version=$(sed -n 's/.*"version"[^"]*"\([^"]*\)".*/\1/p' "$tree/$PLUGIN_JSON_REL" | head -n 1)
   fails=0
@@ -164,6 +218,14 @@ if [[ "$CHECK" -eq 1 ]]; then
     if [[ ! -d "$SKILLS_DEST/$skill" ]]; then
       echo "$PROG: missing vendored skill: .agents/skills/$skill" >&2
       fails=1
+    elif [[ "$tiers" == "neutral" ]]; then
+      compare_dir="$expected_root/$skill"
+      cp -R "$tree/$PLUGIN_PATH/skills/$skill" "$compare_dir"
+      substitute_neutral_skill "$compare_dir" "$neutral_md" "$example_json"
+      if ! diff -rq "$compare_dir" "$SKILLS_DEST/$skill" >/dev/null 2>&1; then
+        echo "$PROG: drift in .agents/skills/$skill vs $tag" >&2
+        fails=1
+      fi
     elif ! diff -rq "$tree/$PLUGIN_PATH/skills/$skill" "$SKILLS_DEST/$skill" >/dev/null 2>&1; then
       echo "$PROG: drift in .agents/skills/$skill vs $tag" >&2
       fails=1
@@ -195,6 +257,15 @@ tag_skills=$(list_skills "$tree/$PLUGIN_PATH/skills")
 [[ -n "$tag_skills" ]] || die "tag $TAG has no skills under $PLUGIN_PATH/skills"
 require_valid_skills "$tag_skills"
 
+# Refuse before any write so a missing neutral pair leaves the target untouched.
+neutral_md=""
+example_json=""
+if [[ "$NEUTRAL" -eq 1 ]]; then
+  require_neutral_files "$tree" "$TAG"
+  neutral_md="$tree/$PLUGIN_PATH/model-tiers.neutral.md"
+  example_json="$tree/$PLUGIN_PATH/tiers.example.json"
+fi
+
 mkdir -p "$SKILLS_DEST"
 
 # Remove skills the previous stamp recorded that are gone from this tag.
@@ -219,14 +290,25 @@ for skill in $tag_skills; do
   cp -R "$tree/$PLUGIN_PATH/skills/$skill" "$SKILLS_DEST/$skill"
 done
 
-cat >"$STAMP_FILE" <<EOF
+if [[ "$NEUTRAL" -eq 1 ]]; then
+  for skill in $tag_skills; do
+    substitute_neutral_skill "$SKILLS_DEST/$skill" "$neutral_md" "$example_json"
+  done
+fi
+
+{
+  cat <<EOF
 # vendored from github.com/$REPO — do not edit .agents/skills copies; edit the
 # plugin in nng-kit and re-vendor. Drift gate: ci/vendor-check composite action.
 plugin=lifecycle
 version=$version
 tag=$TAG
 skills=$tag_skills
-vendored_at=$(date +%Y-%m-%d)
 EOF
+  if [[ "$NEUTRAL" -eq 1 ]]; then
+    printf 'tiers=neutral\n'
+  fi
+  printf 'vendored_at=%s\n' "$(date +%Y-%m-%d)"
+} >"$STAMP_FILE"
 
 echo "$PROG: vendored $version ($TAG): $tag_skills -> $SKILLS_DEST"

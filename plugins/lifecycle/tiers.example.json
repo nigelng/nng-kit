@@ -1,0 +1,26 @@
+{
+  "host": "claude-code",
+  "planningOrder": ["claude-code"],
+  "note": "fill in your pins",
+  "tools": {
+    "claude-code": {
+      "label": "Claude Code",
+      "enabled": true,
+      "cli": "claude",
+      "delegate": false,
+      "authEnv": [],
+      "defaultReviewRunner": "claude-task",
+      "reviewRunners": {
+        "claude-task": { "tier": "top-review", "mode": "task" }
+      },
+      "tiers": {
+        "top-plan": [],
+        "top-review": [],
+        "top-critique": [],
+        "execute": [],
+        "mid": [],
+        "low": []
+      }
+    }
+  }
+}

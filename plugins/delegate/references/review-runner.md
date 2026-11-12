@@ -1,9 +1,9 @@
 # External review runner
 
-Read only when a batch's **Review** is `top@devin-fusion`, `top@cursor-ask`, or `top@agy-plan`,
-and by `/delegate:review`. Covers the external-runner dispatch that core Step 7 item 5 delegates
-here; runner selection, brief fill, `snapshot`/`check`/`verdict`, and reviewer-failure handling
-stay in [execute-via-core.md](execute-via-core.md).
+Read only when a batch's **Review** is an external runner (table below), and by `/delegate:review`.
+Covers the external-runner dispatch that core Step 7 item 5 delegates here; runner selection, brief
+fill, `snapshot`/`check`/`verdict`, and reviewer-failure handling stay in
+[execute-via-core.md](execute-via-core.md).
 
 `<skill-dir>` is the calling `SKILL.md`'s directory; invoke scripts as
 `bash <skill-dir>/../../scripts/<name>.sh` with the literal absolute path (same convention as core).
@@ -12,18 +12,19 @@ stay in [execute-via-core.md](execute-via-core.md).
 
 | Review value | `<runner>` | CLI | Model list |
 | --- | --- | --- | --- |
+| `top@claude-headless` | `claude-headless` | `claude` | none |
 | `top@devin-fusion` | `devin-fusion` | `devin` | `devin models` |
 | `top@cursor-ask` | `cursor-ask` | `agent` | `agent models` |
 | `top@agy-plan` | `agy-plan` | `agy` | `agy models` |
 
 Reviewer preflight — before `run`:
 
-1. `which devin` / `which agent` / `which agy` for the runner's CLI; missing or unauthenticated →
-   **reviewer failure** (core Step 8 `ok: false` handling — stop and ask).
+1. `which <CLI>`; missing, unauthenticated or at its usage limit → **reviewer failure** (core
+   Step 8 `ok: false` handling — stop and ask).
 2. The model is that tool's `top-review` pin from [model-tiers.md](model-tiers.md) (Devin
-   `fusion-claude-opus-5-5-medium-sidekick-swe-2-flash-max`, Cursor `claude-opus-5-5-medium`, agy
-   `claude-opus-5-5-medium`). It must be listed **exactly** by `devin models` / `agent models` /
-   `agy models`; not listed → **reviewer failure**.
+   `fusion-claude-opus-5-5-medium-sidekick-swe-2-flash-max`, Cursor and agy
+   `claude-opus-5-5-medium`, Claude `claude-opus-5-5`). The table's model list must show it
+   **exactly**, else **reviewer failure** (Claude: no list, skip).
 3. agy past its `until:` date → refuse → **reviewer failure**.
 
 ## Run

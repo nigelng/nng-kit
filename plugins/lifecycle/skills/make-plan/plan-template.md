@@ -74,7 +74,7 @@ execution:
 3. Wave 1 · delegate:cursor — `/delegate:execute-via-cursor <plan> S3`
 4. Review wave 1 — mid (S1, S2) · top@cursor-ask (S3)
 …
-N. Final whole-branch review — top@claude-task — `/execute-plan <plan> S<N>`
+N. Final whole-branch review — top@<host defaultReviewRunner> — `/execute-plan <plan> S<N>`
 
 ## Files to modify/create
 - `<path>` — <brief description of the change>

@@ -19,7 +19,7 @@ planning/execute loop. Prefer “Ship as-is” over inventing nits. Auto-apply o
 
 ## Critique policy A (session / Task tiers)
 
-**Not all critique is Opus.** Split by mode — do not collapse these into one
+**Not all critique is top-tier.** Split by mode; don't collapse into one
 mid-tier loop. Resolve models per [model-tiers.md](model-tiers.md)
 (`top` / `mid` / `low`). Report each subagent with intended tier and resolved
 model.
@@ -29,12 +29,12 @@ model.
 
 | Pass | Tier | Notes |
 | --- | --- | --- |
-| **`/critique plan`** | **top-plan** (in-session) | Plan edits OK; warn once if session below **top-plan**; 2-pass budget |
+| `/critique plan` | top-plan | Plan edits OK; warn once, don't block; 2-pass budget |
 | Lean review (change Phase A) | **mid** | Resolve **mid** per [model-tiers.md](model-tiers.md); max **2** |
 | Fix Task (change) | **mid** (**low** if mechanical) | Separate write agent; never the reviewer |
 | Escalate (≤1) | **top-review** Task | After round-1 **Rework**, or after **2 mid** with `blocking`/unresolved `important`; then **stop**; `critique escalate` |
 | **Final `/critique change`** | **top-review** Task | Separate read-only Task (`critique closing pass`); ≠ escalate |
-| Security pass | Cursor **`security-review`** | Not a generic Opus essay; Claude / inline trust-boundary fallback if unavailable |
+| Security pass | Cursor `security-review` | Not a generic top-tier essay; Claude/inline trust-boundary fallback if absent |
 
 Never silent “Ship as-is” while `blocking` / unresolved `important` remain; never lean past 2 rounds.
 
@@ -151,8 +151,9 @@ fix Task (**no re-review**), list those fixes as **unverified**, and **stop**.
 
 Review a plan in `docs/plans/**` (or promoted `.cursor/plans/`) for residual
 failure modes; apply plan-file edits. **Session needs top-plan** — in-session
-review + edits (not a separate Task). **Warn once** (do not block) if the
-session is below **top-plan**.
+review + edits. Warn once below the host's **top-plan** pin
+(`tiers.sh resolve <host> top-plan`); not in the tier file → say so in one
+line and continue.
 
 ### Load the plan
 

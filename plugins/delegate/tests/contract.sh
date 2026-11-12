@@ -78,8 +78,9 @@ done
 
 # Flags delegate-launch.sh actually emits (--print argv, one token per line,
 # and the --interactive command line) must sit in the arrays above and so get
-# checked against the help fixtures. Tokens before the backend binary (env -u)
-# are ignored. --flag=value counts as --flag. Quoted interactive prompts are
+# checked against the help fixtures. Tokens before the backend binary (the
+# `env -i NAME=<set>` clean-env prefix) are ignored, so `-i` is never read as
+# a CLI flag. --flag=value counts as --flag. Quoted interactive prompts are
 # dropped so prose is not read as flags.
 work=$(mktemp -d "${TMPDIR:-/tmp}/delegate-contract.XXXXXX")
 repo="$work/repo"
@@ -116,6 +117,29 @@ collect_print_flags() {
     fi
   done
   return 0
+}
+
+# --print must open with `env`, `-i`, then names-only NAME=<set> lines, and
+# only then the CLI binary; no clean-env token may reach the flag collector.
+check_env_prefix() {
+  local label=$1 out=$2 cmd=$3 line idx=0 ok=1
+  while IFS= read -r line; do
+    if [[ "$idx" -eq 0 ]]; then
+      [[ "$line" == env ]] || ok=0
+    elif [[ "$idx" -eq 1 ]]; then
+      [[ "$line" == -i ]] || ok=0
+    elif [[ "$line" == "$cmd" ]]; then
+      break
+    elif [[ ! "$line" =~ ^[A-Z_][A-Z0-9_]*=\<set\>$ ]]; then
+      ok=0
+    fi
+    idx=$((idx + 1))
+  done <<<"$out"
+  if [[ "$ok" -eq 1 ]]; then
+    report "$label opens with env -i and names-only prefix" 0
+  else
+    report "$label opens with env -i and names-only prefix" 1 "bad prefix before $cmd"
+  fi
 }
 
 collect_interactive_flags() {
@@ -157,6 +181,7 @@ launch_collect() {
     return 0
   }
   if [[ "$mode" == --print ]]; then
+    check_env_prefix "$label" "$out" "$cmd"
     printf '%s\n' "$out" | collect_print_flags "$cmd" >>"$work/flags-$backend"
   else
     printf '%s\n' "$out" | collect_interactive_flags "$cmd" >>"$work/flags-$backend"
@@ -213,7 +238,7 @@ check_launch_flags devin "$FIXTURES/devin-help.txt" DEVIN_FLAGS
 
 # Flags delegate-review-launch.sh run --print emits (one token per line) must
 # sit in the same arrays and help fixtures. Tokens before the backend binary
-# (env -u) are ignored, same as launch. Guard strings are the read-only review
+# (the `env -i NAME=<set>` prefix) are ignored, same as launch. Guard strings are the read-only review
 # forms; write-capable flags stay out of the review argv.
 : >"$work/review-argv"
 : >"$work/review-flags-cursor"
@@ -233,6 +258,7 @@ review_collect() {
     report "$label" 1 "$(cat "$work/review.err")"
     return 0
   }
+  check_env_prefix "$label" "$out" "$cmd"
   printf '%s\n' "$out" >"$work/review-argv-$runner"
   printf '%s\n' "$out" >>"$work/review-argv"
   printf '%s\n' "$out" | collect_print_flags "$cmd" >>"$work/review-flags-$backend"

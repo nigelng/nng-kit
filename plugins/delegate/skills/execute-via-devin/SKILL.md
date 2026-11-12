@@ -64,7 +64,7 @@ List models here. Choose the slug at core **Model default**, after Step 4 writes
   - `low`: `swe-2-flash-high` → `claude-haiku-5-5-high`.
 - **None resolves** — stop and ask for `model=<slug>`. Never Auto, `adaptive`, or Fusion as a default. Those chains have no `auto` fallback, including after a usage or quota error. Do not pass a family name. `router` is never true for Devin.
 
-Pass the slug as `--model` through `delegate-launch.sh` (always). The script unsets `DEVIN_REFUSAL_FALLBACK`. `safe` / `no-force` prints `delegate-launch.sh --interactive`; Claude never invokes `devin`. The prompt follows `--` (a bare positional is a PATH and opens Devin Desktop).
+Pass the slug as `--model` through `delegate-launch.sh` (always). The env allowlist drops `DEVIN_REFUSAL_FALLBACK`. `safe` / `no-force` prints `delegate-launch.sh --interactive`; Claude never invokes `devin`. The prompt follows `--` (a bare positional is a PATH and opens Devin Desktop).
 
 Then core Steps 1.2–8.
 

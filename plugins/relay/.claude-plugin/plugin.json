@@ -1,6 +1,6 @@
 {
   "name": "relay",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "author": { "name": "nigelng" },
   "description": "Cross-surface handoff: save session intent in a git repo or a remote root, pick it up on any Claude surface"
 }

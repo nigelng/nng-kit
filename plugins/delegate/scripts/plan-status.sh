@@ -119,6 +119,16 @@ lower_ascii() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
 }
 
+# Exact membership in a newline-separated list. Empty needle never matches.
+in_list() {
+  local needle=$1 list=$2 item
+  [[ -n "$needle" ]] || return 1
+  while IFS= read -r item || [[ -n "$item" ]]; do
+    [[ "$item" == "$needle" ]] && return 0
+  done <<<"$list"
+  return 1
+}
+
 norm_tier() {
   local t
   t=$(lower_ascii "$1")
@@ -134,7 +144,7 @@ norm_tier() {
 }
 
 norm_runner() {
-  local raw=$1 tier=$2 r
+  local raw=$1 tier=$2 r id
   if is_blank_dash "$raw"; then
     if [[ "$tier" == top ]]; then
       printf 'session'
@@ -145,7 +155,17 @@ norm_runner() {
   fi
   r=$(lower_ascii "$raw")
   case "$r" in
-    session | delegate:cursor | delegate:devin | delegate:agy | subagent) printf '%s' "$r" ;;
+    session | subagent)
+      printf '%s' "$r"
+      ;;
+    delegate:*)
+      id=${r#delegate:}
+      if in_list "$id" "$REG_DELEGATES_LC"; then
+        printf '%s' "$r"
+      else
+        printf 'INVALID'
+      fi
+      ;;
     *) printf 'INVALID' ;;
   esac
 }
@@ -158,10 +178,16 @@ norm_review() {
   fi
   r=$(lower_ascii "$1")
   case "$r" in
-    top@session | top@claude-task | top@devin-fusion | top@cursor-ask | top@agy-plan | mid | none)
+    top@session | mid | none)
       printf '%s' "$r"
       ;;
-    *) printf 'INVALID' ;;
+    *)
+      if in_list "$r" "$REG_RUNNERS_LC"; then
+        printf '%s' "$r"
+      else
+        printf 'INVALID'
+      fi
+      ;;
   esac
 }
 
@@ -1144,13 +1170,10 @@ cmd_rows() {
   plan=$1
   backend=$2
   shift 2
-  case "$backend" in
-    cursor | agy | devin | claude-code) ;;
-    *)
-      usage
-      exit 2
-      ;;
-  esac
+  if ! valid_backend "$backend"; then
+    usage
+    exit 2
+  fi
   if [[ ! -f "$plan" ]]; then
     usage
     exit 2
@@ -1224,8 +1247,13 @@ require_plan_file() {
 }
 
 require_skill() {
+  local id
   case "$1" in
-    execute-plan | execute-via-cursor | execute-via-agy | execute-via-devin | review) ;;
+    execute-plan | review) ;;
+    execute-via-*)
+      id=${1#execute-via-}
+      in_list "$id" "$REG_DELEGATES" || die_usage
+      ;;
     *) die_usage ;;
   esac
 }
@@ -2313,10 +2341,9 @@ cmd_terminal() {
     pass | fail | abort) ;;
     *) die_usage ;;
   esac
-  case "$backend" in
-    cursor | agy | devin | claude-code) ;;
-    *) die_usage ;;
-  esac
+  if ! valid_backend "$backend"; then
+    die_usage
+  fi
   require_iso_ts "$started_run"
   require_count "$findings"
   require_count "$loops"
@@ -2731,6 +2758,35 @@ cmd_approve() {
   upsert_top_keys "$plan" gate_b_sha "$want" gate_b_at "$now"
 }
 
+# claude-code is the in-process host name. Any other backend must be a
+# registry delegate id (enabled or not).
+valid_backend() {
+  case "$1" in
+    claude-code) return 0 ;;
+  esac
+  in_list "$1" "$REG_DELEGATES"
+}
+
+# Read delegate ids and review runners once, in this shell, from tiers.sh
+# beside this script. Later $(...) subshells inherit the lists. A missing
+# or failing resolver is an environment error (exit 2, not the exit 3
+# plan-body refusal); there is no built-in list.
+registry_unavailable() {
+  echo "plan-status.sh: tier registry unavailable: $1" >&2
+  exit 2
+}
+
+load_registry() {
+  local dir tiers
+  dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  tiers="$dir/tiers.sh"
+  [[ -f "$tiers" ]] || registry_unavailable "$tiers"
+  REG_DELEGATES=$(bash "$tiers" delegates) || registry_unavailable "$tiers"
+  REG_RUNNERS=$(bash "$tiers" runners) || registry_unavailable "$tiers"
+  REG_DELEGATES_LC=$(printf '%s\n' "$REG_DELEGATES" | tr '[:upper:]' '[:lower:]')
+  REG_RUNNERS_LC=$(printf '%s\n' "$REG_RUNNERS" | tr '[:upper:]' '[:lower:]')
+}
+
 main() {
   local cmd=${1:-}
   if [[ -z "$cmd" ]]; then
@@ -2738,6 +2794,16 @@ main() {
     exit 2
   fi
   shift
+  case "$cmd" in
+    rows | start | batch | terminal | review)
+      load_registry
+      ;;
+    lock | stamp | recent | approve) ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
   case "$cmd" in
     lock) cmd_lock "$@" ;;
     rows) cmd_rows "$@" ;;
@@ -2748,10 +2814,6 @@ main() {
     stamp) cmd_stamp "$@" ;;
     recent) cmd_recent "$@" ;;
     approve) cmd_approve "$@" ;;
-    *)
-      usage
-      exit 2
-      ;;
   esac
 }
 

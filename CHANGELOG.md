@@ -6,6 +6,40 @@ for plugin users. This file is public: keep private names and paths out.
 
 ## 2026-11-11
 
+- lifecycle 0.15.0, delegate 0.11.0, relay 0.5.0: model tiers re-pinned ahead of the
+  2026-11-26 and 2026-11-30 expiries. Devin `execute` falls back to
+  `swe-2-medium` after `swe-2-high`. Devin and Cursor `mid` split implement
+  and review passes; review uses a second model family (Devin
+  `gpt-6-1-sol-high`; Cursor `claude-sonnet-5-5-high`). Devin `mid`
+  implement falls back to `swe-2-flash-medium` after `swe-2-high`, so its
+  reviewer stays a second family. Devin gets a `top-critique` row
+  (`gpt-6-1-sol-high`). When Devin is active and not the host,
+  `top-review` falls back to `top@devin-fusion` and logs the fallback. The
+  delegate `model-tiers.md` copy carries the same change. Publishing now
+  creates a `<plugin>-v<version>` tag for each plugin version (for example
+  `lifecycle-v0.15.0`) and never moves an existing tag. Tools, the default host
+  and tier pins are now data. A registry (`tiers.json`) with a resolver
+  (`tiers.sh`: `tools`, `host`, `order`, `delegates`, `runners`, `resolve`,
+  `validate`) replaces the tool lists in prose and scripts; an optional
+  `~/.config/nng-kit/tiers.json` (or `NNG_KIT_TIERS`) is deep-merged over it.
+  `model-tiers.md` per-tool rows, review runners and per-tool summary blocks
+  are generated from the registry; the cross-tool master chains are gone and
+  the compact skill copies no longer carry a summary block. `plan-status.sh`
+  reads runner, review, backend and skill names from the registry and
+  refuses when it is missing. New review runner `top@claude-headless`
+  (Claude Code in print mode, plan permission mode, read-only tools) gives a
+  Cursor or Devin host a Claude review. Skill preconditions and the default
+  final-review runner are host-neutral. `vendor-skills.sh --neutral` vendors
+  neutral example tiers instead of the owner's pins. Delegate and review
+  launches run under an `env -i` allowlist (base names, the registry's
+  per-tool `authEnv`, and `DELEGATE_ENV_ALLOW`); `--print` shows names only.
+  The headless Claude reviewer starts with no MCP servers; `DELEGATE_MCP=1`
+  opts back in. The delegate README adds a threat model. `/execute-plan` may run
+  on a `mid` orchestrator when the map is v2 and `plan-status.sh rows --lint`
+  passes, and `/conduct` skips the closing pass when Phase A was skipped and
+  Stage 4's final review was a clean `top@*`. The relay SessionStart hook fires
+  on startup and clear only and injects at most `RELAY_INJECT_LINES` (default
+  20) body lines.
 - lifecycle 0.13.0: lock, map selection, and status writes go through
   `plan-status.sh` (`rows claude-code`, `rows --lint`, `stamp`, `recent`,
   `approve`, `lock --gate`, `batch --skipped`, `terminal --deferred-review`).

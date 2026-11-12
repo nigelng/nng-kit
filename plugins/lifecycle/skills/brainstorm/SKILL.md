@@ -18,7 +18,7 @@ This skill is read-only except for persisting its own output. It does not edit c
 
 ## Session model (top-tier)
 
-Session/Task tiers: [model-tiers.md](model-tiers.md) (`top`/`mid`/`low`). `/brainstorm` needs **top-plan** for the whole session; warn once and recommend switching if below **top-plan** — do not silently run a thin brainstorm.
+Warn once and recommend switching if the session is below the host's **top-plan** pin (`tiers.sh resolve <host> top-plan`); if the session model is unlisted, say so in one line, continue (see [model-tiers.md](model-tiers.md)).
 
 ## Step 1 — Gather the idea
 

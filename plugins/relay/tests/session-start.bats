@@ -453,3 +453,76 @@ SHIM
   printf '%s' "$output" | jq -r '.additional_context' | grep -q 'BIGBODY-START'
   printf '%s' "$output" | jq -r '.additional_context' | grep -q 'BIGBODY-END'
 }
+
+# ----- source filter and body excerpt --------------------------------------
+
+# Number of "bodyline" lines in the decoded additionalContext.
+body_count() {
+  jq -r '.hookSpecificOutput.additionalContext' <<<"$output" | grep -c '^bodyline '
+}
+
+numbered_body() { # <count>
+  local i
+  for ((i = 1; i <= $1; i++)); do printf 'bodyline %d\n' "$i"; done
+}
+
+@test "source resume and compact → silent" {
+  branch="$(git -C "$FIXTURE" branch --show-current)"
+  write_handoff "$branch"
+  for src in resume compact; do
+    run run_hook_stdin "{\"cwd\":\"${FIXTURE}\",\"source\":\"${src}\"}"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+  done
+}
+
+@test "source startup and clear still emit" {
+  branch="$(git -C "$FIXTURE" branch --show-current)"
+  write_handoff "$branch"
+  for src in startup clear; do
+    run run_hook_stdin "{\"cwd\":\"${FIXTURE}\",\"source\":\"${src}\"}"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"/relay:pickup"* ]]
+  done
+}
+
+@test "long body → first 20 lines plus pickup pointer" {
+  branch="$(git -C "$FIXTURE" branch --show-current)"
+  write_handoff "$branch" "$(iso_days_ago 1)" "" "$(numbered_body 100)"
+  run run_hook
+  [ "$status" -eq 0 ]
+  [ "$(body_count)" -eq 20 ]
+  [[ "$output" == *"bodyline 20"* ]]
+  [[ "$output" != *"bodyline 21"* ]]
+  [[ "$output" == *"The rest of the handoff body is read by /relay:pickup."* ]]
+  [[ "$output" == *"</untrusted-source>"* ]]
+}
+
+@test "short body → unchanged, no pointer" {
+  branch="$(git -C "$FIXTURE" branch --show-current)"
+  write_handoff "$branch" "$(iso_days_ago 1)" "" "$(numbered_body 5)"
+  run run_hook
+  [ "$status" -eq 0 ]
+  [ "$(body_count)" -eq 5 ]
+  [[ "$output" != *"The rest of the handoff body"* ]]
+}
+
+@test "RELAY_INJECT_LINES overrides the limit" {
+  branch="$(git -C "$FIXTURE" branch --show-current)"
+  write_handoff "$branch" "$(iso_days_ago 1)" "" "$(numbered_body 100)"
+  run run_hook_stdin "{\"cwd\":\"${FIXTURE}\"}" RELAY_INJECT_LINES=7
+  [ "$status" -eq 0 ]
+  [ "$(body_count)" -eq 7 ]
+  [[ "$output" != *"bodyline 8"* ]]
+  [[ "$output" == *"The rest of the handoff body"* ]]
+}
+
+@test "invalid RELAY_INJECT_LINES falls back to 20" {
+  branch="$(git -C "$FIXTURE" branch --show-current)"
+  write_handoff "$branch" "$(iso_days_ago 1)" "" "$(numbered_body 100)"
+  for bad in abc 0 -3 ""; do
+    run run_hook_stdin "{\"cwd\":\"${FIXTURE}\"}" "RELAY_INJECT_LINES=${bad}"
+    [ "$status" -eq 0 ]
+    [ "$(body_count)" -eq 20 ]
+  done
+}

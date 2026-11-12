@@ -7,6 +7,8 @@ SCRIPT="$ROOT/nng-kit/plugins/delegate/scripts/plan-status.sh"
 SOT="$ROOT/nng-kit/plugins/delegate/references/execution-status.md"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/test-plan-status.XXXXXX")
+export XDG_CONFIG_HOME="$work/xdg"
+unset NNG_KIT_TIERS
 cleanup() { rm -rf "$work"; }
 trap cleanup EXIT
 
@@ -1631,6 +1633,8 @@ fi
 layout="$work/skills/execute-plan"
 mkdir -p "$layout/scripts"
 cp "$SCRIPT" "$layout/scripts/plan-status.sh"
+cp "$ROOT/nng-kit/plugins/delegate/scripts/tiers.sh" "$layout/scripts/tiers.sh"
+cp "$ROOT/nng-kit/plugins/delegate/scripts/tiers.json" "$layout/scripts/tiers.json"
 cp "$SOT" "$layout/execution-status.md"
 run_cmd "$BASH" "$layout/scripts/plan-status.sh" lock "$work/lock-ok.md"
 assert_rc "lock from skills/execute-plan/scripts layout exits 0" 0
@@ -2152,6 +2156,129 @@ printf 'x\n' >>"$work/approve.md"
 run_cmd "$BASH" "$SCRIPT" lock --gate "$work/approve.md"
 assert_rc "lock --gate mismatch exits 3" 3
 assert_stdout_empty "lock --gate mismatch prints nothing"
+
+# --- registry allowlists ---
+
+REG_SRC="$ROOT/nng-kit/plugins/delegate/scripts"
+
+cat >"$work/unknown-runner.md" <<'EOF'
+---
+execution:
+  status: not-started
+---
+
+## Execution map
+
+| ID | Tier | Runner | Wave | Depends on | Files | Acceptance | Review |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| S1 | execute | delegate:codex | 1 | - | `a.sh` | `true` | mid |
+EOF
+run_cmd "$BASH" "$SCRIPT" rows --lint "$work/unknown-runner.md"
+assert_rc "unknown delegate:codex lint exits 3" 3
+assert_stderr_has "unknown delegate:codex reason" "REFUSE: S1: invalid Runner"
+
+cat >"$work/unknown-review.md" <<'EOF'
+---
+execution:
+  status: not-started
+---
+
+## Execution map
+
+| ID | Tier | Runner | Wave | Depends on | Files | Acceptance | Review |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| S1 | execute | delegate:cursor | 1 | - | `a.sh` | `true` | top@codex-review |
+EOF
+run_cmd "$BASH" "$SCRIPT" rows --lint "$work/unknown-review.md"
+assert_rc "unknown top@codex-review lint exits 3" 3
+assert_stderr_has "unknown top@codex-review reason" "REFUSE: S1: invalid Review"
+
+cat >"$work/top-session.md" <<'EOF'
+---
+execution:
+  status: not-started
+---
+
+## Execution map
+
+| ID | Tier | Runner | Wave | Depends on | Files | Acceptance | Review |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| S1 | top | session | 1 | - | — | — | top@session |
+EOF
+run_cmd "$BASH" "$SCRIPT" rows --lint "$work/top-session.md"
+assert_rc "top@session lint exits 0 with no registry runner" 0
+assert_stdout "top@session lint prints ok" "ok"
+
+fix="$work/registry-fixture"
+mkdir -p "$fix"
+cp "$SCRIPT" "$fix/plan-status.sh"
+cp "$REG_SRC/tiers.sh" "$fix/tiers.sh"
+jq '.tools.codex = {
+  "label": "Codex",
+  "enabled": true,
+  "delegate": true,
+  "authEnv": [],
+  "reviewRunners": {"codex-review": {"tier": "top-review", "mode": "ask"}},
+  "tiers": {
+    "top-plan": [],
+    "top-review": [],
+    "top-critique": [],
+    "execute": [],
+    "mid": [],
+    "low": []
+  }
+}' "$REG_SRC/tiers.json" >"$fix/tiers.json"
+write_stamped "$work/codex.md" <<'EOF'
+---
+created_at: "2026-01-01T00:00:00Z"
+plan_sha: "placeholder"
+approved_at: "2026-01-02T00:00:00Z"
+execution:
+  status: not-started
+---
+
+# Codex fixture
+
+## Execution map
+
+| ID | Tier | Runner | Wave | Depends on | Files | Acceptance | Review |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| S1 | execute | delegate:codex | 1 | - | `a.sh` | `true` | top@codex-review |
+EOF
+run_cmd "$BASH" "$fix/plan-status.sh" rows --lint "$work/codex.md"
+assert_rc "fixture registry lint accepts delegate:codex" 0
+assert_stdout "fixture registry lint prints ok" "ok"
+run_cmd "$BASH" "$fix/plan-status.sh" rows "$work/codex.md" codex S1
+assert_rc "rows codex S1 exits 0" 0
+assert_jq "rows codex S1 selects that row" '[.selected[].id] == ["S1"]'
+printf '%s\n' "$LAST_OUT" >"$work/codex-rows.json"
+run_cmd "$BASH" "$fix/plan-status.sh" start "$work/codex.md" execute-via-codex "$work/codex-rows.json" --now 2026-04-01T00:00:00Z
+assert_rc "start execute-via-codex exits 0" 0
+assert_file_has "start records execute-via-codex" "$work/codex.md" "last_skill: execute-via-codex"
+
+noreg="$work/noreg/skills/execute-plan"
+mkdir -p "$noreg/scripts"
+cp "$SCRIPT" "$noreg/scripts/plan-status.sh"
+cp "$SOT" "$noreg/execution-status.md"
+noreg_tiers="$(cd "$noreg/scripts" && pwd)/tiers.sh"
+printf '# no registry\n' >"$work/noreg.md"
+run_cmd "$BASH" "$noreg/scripts/plan-status.sh" rows --lint "$work/noreg.md"
+assert_rc "missing registry lint exits 2" 2
+assert_stderr_has "missing registry message and path" "tier registry unavailable: $noreg_tiers"
+cp "$work/stamp.md" "$work/noreg-stamp.md"
+run_cmd "$BASH" "$noreg/scripts/plan-status.sh" stamp "$work/noreg-stamp.md" --now 2026-05-02T00:00:00Z
+assert_rc "stamp without a registry exits 0" 0
+
+# A malformed override breaks the registry: rows is an environment error
+# (exit 2, no REFUSE:), while lock never reads the registry.
+printf '{not json' >"$work/tiers-bad.json"
+run_cmd env NNG_KIT_TIERS="$work/tiers-bad.json" "$BASH" "$SCRIPT" rows --lint "$work/noreg.md"
+assert_rc "malformed override rows exits 2" 2
+assert_stderr_has "malformed override rows message" "tier registry unavailable"
+if [[ "$LAST_ERR" != *REFUSE:* ]]; then pass "malformed override rows has no REFUSE line"; else fail "malformed override rows has no REFUSE line"; fi
+run_cmd env NNG_KIT_TIERS="$work/tiers-bad.json" "$BASH" "$SCRIPT" lock "$work/noreg.md"
+assert_rc "malformed override lock exits 0" 0
+assert_stdout "malformed override lock returns legacy" "legacy"
 
 printf 'PASS/FAIL summary: %s failed\n' "$fails"
 if [[ "$fails" -ne 0 ]]; then
