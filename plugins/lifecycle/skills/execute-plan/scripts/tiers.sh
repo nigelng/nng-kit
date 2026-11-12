@@ -8,14 +8,20 @@
 # objects merge, arrays replace). KIT_TODAY overrides the date for tests;
 # a row or tool is expired when today > until (string compare).
 #
+# authenv <tool> prints the merged authEnv names, one per line (the
+# launchers validate them). runner-tool <runner> prints the tool whose
+# reviewRunners lists <runner>; a runner listed by several tools resolves
+# to the first in canonical order, the same order `runners` dedupes in.
+#
 # Exit codes: 0 ok; 2 usage error, unknown tool, unknown tier, missing jq,
-# malformed JSON (shipped or override); 3 no usable pin / disabled tool.
+# malformed JSON (shipped or override); 3 no usable pin / disabled tool /
+# no tool lists the runner.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SHIPPED="$DIR/tiers.json"
-OVERRIDE="${NNG_KIT_TIERS:-${XDG_CONFIG_HOME:-$HOME/.config}/nng-kit/tiers.json}"
-TODAY="${KIT_TODAY:-$(date +%F)}"
+OVERRIDE="${NNG_KIT_TIERS:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/nng-kit/tiers.json}"
+TODAY="${KIT_TODAY:-}" # resolve fills it; the other commands need no `date`
 TIER_NAMES="top-plan top-review top-critique execute mid low"
 
 die() {
@@ -28,6 +34,7 @@ die() {
 usage() {
   echo "usage: tiers.sh tools|host|order|delegates|runners|validate" >&2
   echo "       tiers.sh resolve <tool> <tier> [--role implement|review]" >&2
+  echo "       tiers.sh authenv <tool> | runner-tool <runner>" >&2
 }
 
 command -v jq >/dev/null 2>&1 || die 2 "jq not found on PATH"
@@ -71,6 +78,24 @@ cmd_runners() {
     | [ ${TOOL_ORDER}[] as \$t | ((\$r.tools[\$t].reviewRunners // {}) | keys_unsorted[]) ]
     | reduce .[] as \$x ([]; if index(\$x) == null then . + [\$x] else . end)
     | .[] | select(. != \"session\") | \"top@\(.)\"" <<<"$REGISTRY"
+}
+
+require_tool() {
+  jq -e --arg t "$1" '.tools | has($t)' <<<"$REGISTRY" >/dev/null \
+    || die 2 "unknown tool: $1"
+}
+
+cmd_authenv() {
+  require_tool "$1"
+  jq -r --arg t "$1" '(.tools[$t].authEnv // [])[]' <<<"$REGISTRY"
+}
+
+cmd_runner_tool() {
+  local tool
+  tool=$(jq -r --arg x "$1" ". as \$r | [ ${TOOL_ORDER}[] as \$t
+    | select((\$r.tools[\$t].reviewRunners // {}) | has(\$x)) | \$t ] | .[0] // empty" <<<"$REGISTRY")
+  [[ -n "$tool" ]] || die 3 "no tool lists review runner: $1"
+  printf '%s\n' "$tool"
 }
 
 # resolve_tier <tool> <tier> <role> — tool must exist. Prints the first
@@ -157,8 +182,8 @@ cmd_resolve() {
     *" $tier "*) ;;
     *) die 2 "unknown tier: $tier" ;;
   esac
-  jq -e --arg t "$tool" '.tools | has($t)' <<<"$REGISTRY" >/dev/null \
-    || die 2 "unknown tool: $tool"
+  require_tool "$tool"
+  [[ -n "$TODAY" ]] || TODAY=$(date +%F)
 
   resolve_tier "$tool" "$tier" "$role"
 }
@@ -233,6 +258,14 @@ main() {
     resolve)
       [[ $# -ge 2 ]] || { usage; exit 2; }
       cmd_resolve "$@"
+      ;;
+    authenv)
+      [[ $# -eq 1 ]] || { usage; exit 2; }
+      cmd_authenv "$1"
+      ;;
+    runner-tool)
+      [[ $# -eq 1 ]] || { usage; exit 2; }
+      cmd_runner_tool "$1"
       ;;
     *)
       echo "tiers.sh: unknown subcommand: $cmd" >&2

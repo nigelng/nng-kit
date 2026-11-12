@@ -833,6 +833,20 @@ printf '{"tools":{"agy":{"authEnv":["bad name"]}}}\n' >"$work/tiers-auth-bad.jso
 clean_print env NNG_KIT_TIERS="$work/tiers-auth-bad.json" bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$agy_model"
 assert_rc "bad authEnv name exits 2" 2
 
+# The runner→tool mapping comes from the registry: a tool earlier in
+# planningOrder that also lists agy-plan owns it, so its authEnv applies.
+cat >"$work/tiers-runner-owner.json" <<'EOF'
+{"planningOrder":["zz","claude-code","cursor","devin","agy"],
+ "tools":{"zz":{"authEnv":["ZZ_TOKEN"],"reviewRunners":{"agy-plan":{"tier":"top-review","mode":"plan"}}}}}
+EOF
+clean_print env NNG_KIT_TIERS="$work/tiers-runner-owner.json" ZZ_TOKEN=z bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$agy_model"
+assert_rc "registry-owned runner --print exits 0" 0
+if grep -qx 'ZZ_TOKEN=<set>' <<<"$LAST_OUT"; then
+  pass "runner tool is looked up in tiers.json reviewRunners"
+else
+  fail "runner tool is looked up in tiers.json reviewRunners"
+fi
+
 # A malformed entry is validated whole: no word-splitting, no globbing.
 globdir="$work/globdir"
 mkdir -p "$globdir"

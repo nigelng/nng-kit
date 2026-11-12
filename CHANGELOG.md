@@ -4,6 +4,22 @@ Notable changes to the nng-kit plugins, newest first. Each sync commit on
 nigelng/nng-kit quotes the lines added here since the previous sync, so write
 for plugin users. This file is public: keep private names and paths out.
 
+## 2026-11-12
+
+- README gains a Models & configuration section (tier roles, user
+  `tiers.json` override, advisor note).
+
+- delegate 0.11.1, lifecycle 0.15.1: `tiers.sh` gains `authenv <tool>`
+  (the merged `authEnv` names) and `runner-tool <runner>` (the tool whose
+  `reviewRunners` lists the runner; exit 3 when none does). The review
+  launcher now looks a runner's tool up in the registry instead of a fixed
+  table, so an override that adds a runner gets that tool's `authEnv`, and
+  an unlisted runner is refused rather than launched with no `authEnv`. Both
+  launchers source one `env -i` allowlist (`scripts/lib-clean-env.sh`) and
+  read `authEnv` through `tiers.sh`, so the shipped-plus-override merge lives
+  in one place. `tiers.sh` no longer needs `HOME` or `date` outside
+  `resolve`. lifecycle carries the updated `tiers.sh` copy.
+
 ## 2026-11-11
 
 - lifecycle 0.15.0, delegate 0.11.0, relay 0.5.0: model tiers re-pinned ahead of the

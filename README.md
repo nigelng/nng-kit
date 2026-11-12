@@ -155,8 +155,8 @@ Invoke as `/<name>`.
 
 | Plugin | Version | What it is |
 | --- | --- | --- |
-| `lifecycle` | 0.15.0 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
-| `delegate` | 0.11.0 | Hands plan implementation to the Cursor (`agent`), Antigravity (`agy`), or Devin (`devin`) CLI while Claude Code gates and reviews. See [README](plugins/delegate/README.md). |
+| `lifecycle` | 0.15.1 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
+| `delegate` | 0.11.1 | Hands plan implementation to the Cursor (`agent`), Antigravity (`agy`), or Devin (`devin`) CLI while Claude Code gates and reviews. See [README](plugins/delegate/README.md). |
 | `exec-observe` | 0.5.0 | Pane + status line for `/exec` runs of `delegate` (Cursor, Antigravity and Devin badges). Replaces the retired observe plugin. See [README](plugins/exec-observe/README.md). |
 | `relay` | 0.5.0 | Cross-surface handoff (save / pickup / check / discard + SessionStart). See [README](plugins/relay/README.md). |
 
@@ -177,14 +177,48 @@ Invoke as `/<name>`.
 Plan lock, map checks, status writes, verification, the PR artifact
 inventory, and git preflight are bash scripts the skills call
 (`plan-status.sh`, `delegate-verify.sh`, `pr-artifacts.sh`,
-`git-preflight.sh`). `scripts/sync-kit-scripts.sh` copies the first two
-from `delegate` into the lifecycle `execute-plan` skill, so a host that
-installs lifecycle without delegate still runs them.
-`scripts/sync-model-tiers.sh` writes compact tier copies into the five
-lifecycle skills that link `model-tiers.md`; the canonical file and the
-delegate copy stay full. `scripts/skill-budget.sh` checks each skill's
+`git-preflight.sh`). The first two ship inside the lifecycle `execute-plan`
+skill too, so a host that installs lifecycle without delegate still runs
+them. Detail is in [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md).
+
+Maintainers only (source repo; `scripts/` is not published here):
+`scripts/sync-kit-scripts.sh` copies those scripts from `delegate` into
+`execute-plan`. `scripts/sync-model-tiers.sh` writes compact tier copies into
+the five lifecycle skills that link `model-tiers.md`; the canonical file and
+the delegate copy stay full. `scripts/skill-budget.sh` checks each skill's
 own bytes and closure bytes against `scripts/nng-kit-skill-budgets.tsv`.
-Detail is in [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md).
+
+## Models & configuration
+
+Skills pick models by role, not by name:
+
+- `top-plan`: `/brainstorm`, `/make-plan`, `/critique plan` sessions.
+- `top-review`: map tier `top`, final and escalate reviews, `/critique`
+  closing pass.
+- `execute` / `mid` / `low`: implementation rows and intermediate reviews.
+
+Each tool's pins for each role are in
+[model-tiers.md](plugins/lifecycle/model-tiers.md), generated from the
+registry `plugins/delegate/scripts/tiers.json`.
+
+To change the registry without forking, create
+`~/.config/nng-kit/tiers.json` (or point `$NNG_KIT_TIERS` at a file). It is
+deep-merged over the shipped registry: objects merge, arrays replace, so set
+only what you change. For example, turn Devin off:
+
+```json
+{ "tools": { "devin": { "enabled": false } } }
+```
+
+A disabled tool drops out of `tiers.sh tools` and resolves to no pin
+(`tiers.sh resolve` exits 3). The override also applies
+to lifecycle-only installs, since `execute-plan` ships its own `tiers.sh`.
+The generated `model-tiers.md` does not reflect it; check with
+`tiers.sh resolve <tool> <tier>`.
+
+Advisor: the kit does not configure one. In Claude Code, set `advisorModel`
+in `settings.json`; in Cursor, install the Advisor plugin and run
+`/advisor <slug>` per project.
 
 ## Portability rules
 

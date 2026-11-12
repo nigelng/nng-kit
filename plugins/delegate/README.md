@@ -121,6 +121,9 @@ resolved by `scripts/tiers.sh`:
   pin. Exit 0 ok, 2 usage or malformed, 3 no usable pin or a disabled tool.
   `execute` and `low` with no usable pin fall through to `mid` (logged
   `fallback: <tier>→mid`). `KIT_TODAY` overrides the date.
+- `tiers.sh authenv <tool>` — the tool's merged `authEnv` names, one per
+  line; `runner-tool <runner>` — the tool whose `reviewRunners` lists the
+  runner (first in planning order when several do; exit 3 when none does).
 - `tiers.sh validate` — schema check.
 
 Each tool entry carries `label`, `enabled`, an optional tool-level `until`,
@@ -302,8 +305,8 @@ above, so a backend (and any review runner) can use:
 - the network.
 
 **What the environment allowlist removes.** `delegate-launch.sh` and
-`delegate-review-launch.sh` start the CLI under `env -i` plus an allowlist,
-so secrets carried in environment variables (cloud keys, `GH_TOKEN` and the
+`delegate-review-launch.sh` start the CLI under `env -i` plus an allowlist
+that both source from `scripts/lib-clean-env.sh`, so secrets carried in environment variables (cloud keys, `GH_TOKEN` and the
 like) are not inherited by the CLI and its tools. The `--interactive` line
 printed for `safe` / `no-force`, and agy's preflight probe, run in your own
 shell with your full environment; the allowlist applies to headless runs
@@ -320,7 +323,8 @@ only. The allowlist is:
   TLS-inspecting CA; their values can embed proxy credentials, so `--print`
   never shows them;
 - the tool's registry `authEnv` (`CURSOR_API_KEY` for Cursor; empty for
-  agy, Devin and Claude Code), merged with your `tiers.json` override
+  agy, Devin and Claude Code; a review runner's tool is the one whose
+  `reviewRunners` lists it), read through `tiers.sh authenv` and merged with your `tiers.json` override
   (`$NNG_KIT_TIERS`, else `${XDG_CONFIG_HOME:-~/.config}/nng-kit/tiers.json`);
 - any names in `DELEGATE_ENV_ALLOW`.
 

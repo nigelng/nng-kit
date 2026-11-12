@@ -840,6 +840,23 @@ expect_class "devin stub last step source user → FAIL" "$work/class.txt" "FAIL
 export PATH="$ORIG_PATH"
 unset CONTRACT_STUB_MODE CONTRACT_NDJSON_DIR
 
+# --- (d) one clean-env allowlist: both launchers source lib-clean-env.sh ---
+CLEAN_ENV_LIB="$TESTS_DIR/../scripts/lib-clean-env.sh"
+for script in "$LAUNCH" "$REVIEW"; do
+  name=$(basename "$script")
+  if grep -qxF 'source "$DIR/lib-clean-env.sh"' "$script" \
+    && ! grep -qE '^(ENV_BASE_NAMES=|build_clean_env\(\)|registry_auth_env\(\)|tool_for_runner\(\))' "$script"; then
+    report "$name sources lib-clean-env.sh and defines no allowlist copy" 0
+  else
+    report "$name sources lib-clean-env.sh and defines no allowlist copy" 1 "FAIL: $name must source lib-clean-env.sh, not copy it"
+  fi
+done
+if grep -q 'tiers.sh" authenv' "$CLEAN_ENV_LIB" && ! grep -qE '^[[:space:]]*jq[[:space:]]' "$CLEAN_ENV_LIB"; then
+  report "lib-clean-env.sh reads authEnv through tiers.sh authenv" 0
+else
+  report "lib-clean-env.sh reads authEnv through tiers.sh authenv" 1 "FAIL: the registry merge belongs to tiers.sh"
+fi
+
 run_suite() {
   local name=$1 rc=0
   bash "$TESTS_DIR/$name" || rc=$?

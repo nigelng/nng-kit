@@ -225,8 +225,9 @@ Portable map tiers: **`top`** | **`execute`** | **`mid`** | **`low`** (legacy
 `/critique` escalate/closing; `top-critique` (optional) = second-family
 `/critique plan` — map tier **`top`** resolves to **`top-review`**. Per-skill
 session/Task requirements: that skill's `SKILL.md`. Fallback and per-tool
-resolution: [model-tiers.md](model-tiers.md) — **edit tier policy there**,
-then run `bash scripts/sync-model-tiers.sh`. The five lifecycle skill copies
+resolution: [model-tiers.md](model-tiers.md). Maintainers (source repo only)
+edit tier policy there, then run `bash scripts/sync-model-tiers.sh`; users
+override pins with the user `tiers.json` file below. The five lifecycle skill copies
 are compact: a generated header, then Fallback, Per-tool resolution, tool
 notes, and Review runners. The canonical file and the delegate copy stay
 full. Full v2 map columns,
