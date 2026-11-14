@@ -58,10 +58,7 @@ Before `<slug>` is used in a command it must match `^[A-Za-z0-9._-]+$`. A failur
 List models here. Choose the slug at core **Model default**, after Step 4 writes the rows file.
 
 - **`model=<slug>`** — only after the refusals and regex.
-- **Omitted** — first unexpired Devin pin for `launch_tier` (`low`, `execute`, or `mid`) in [model-tiers.md](../../references/model-tiers.md) that is listed **exactly** in `devin models`. Skip a row when today is after its `until:`. Skip a pin absent from `devin models`.
-  - `execute`: `swe-2-high` (`until: 2026-11-30`) → `gpt-6-1-terra-high` (that pin once today is past 2026-11-30).
-  - `mid`: `gpt-6-1-sol-high` → `gemini-4-argon-medium` (`until: 2026-12-01`).
-  - `low`: `swe-2-flash-high` → `claude-haiku-5-5-high`.
+- **Omitted** — first unexpired Devin pin for `launch_tier` (`low`, `execute`, or `mid`) in [model-tiers.md](../../references/model-tiers.md) that is listed **exactly** in `devin models`. Skip a row when today is after its `until:`. Skip a pin absent from `devin models`. `bash <skill-dir>/../../scripts/tiers.sh resolve devin <launch_tier>` prints the first unexpired pin; the chains live only in model-tiers.md (the **devin** block; for `mid`, the implement rows, never the review passes).
 - **None resolves** — stop and ask for `model=<slug>`. Never Auto, `adaptive`, or Fusion as a default. Those chains have no `auto` fallback, including after a usage or quota error. Do not pass a family name. `router` is never true for Devin.
 
 Pass the slug as `--model` through `delegate-launch.sh` (always). The env allowlist drops `DEVIN_REFUSAL_FALLBACK`. `safe` / `no-force` prints `delegate-launch.sh --interactive`; Claude never invokes `devin`. The prompt follows `--` (a bare positional is a PATH and opens Devin Desktop).

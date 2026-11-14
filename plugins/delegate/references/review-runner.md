@@ -21,10 +21,10 @@ Reviewer preflight — before `run`:
 
 1. `which <CLI>`; missing, unauthenticated or at its usage limit → **reviewer failure** (core
    Step 8 `ok: false` handling — stop and ask).
-2. The model is that tool's `top-review` pin from [model-tiers.md](model-tiers.md) (Devin
-   `fusion-claude-opus-5-5-medium-sidekick-swe-2-flash-max`, Cursor and agy
-   `claude-opus-5-5-medium`, Claude `claude-opus-5-5`). The table's model list must show it
-   **exactly**, else **reviewer failure** (Claude: no list, skip).
+2. The model is that tool's `top-review` pin from [model-tiers.md](model-tiers.md):
+   `bash <skill-dir>/../../scripts/tiers.sh resolve <tool> top-review`, `<tool>` from
+   `tiers.sh runner-tool <runner>`. The table's model list must show it **exactly**, else
+   **reviewer failure** (Claude: no list, skip).
 3. agy past its `until:` date → refuse → **reviewer failure**.
 
 ## Run

@@ -46,7 +46,7 @@ If `clean=yes` **and** that log is empty, inform the user and stop.
 
 ### 2. Commit uncommitted work (if any)
 
-If `clean=no`, ask the user to run `/commit` to handle uncommitted changes first. This skill does not commit changes itself. Stop until the tree is clean (or the user confirms they will commit separately and continue with already-committed work only).
+If `clean=no`, ask the user to run `/commit` to handle uncommitted changes first. Stop until the tree is clean (or the user confirms they will commit separately and continue with already-committed work only).
 
 ### 3. Planning-artifacts gate
 
@@ -66,7 +66,7 @@ If `plans`, `notes`, and `relay` are all empty, skip the questions and continue 
 
 **Relay.** One question per file. `current_branch` true: **Keep** or **Discard via `/relay:discard`** (do not `git rm`; `/relay:discard` takes the `discarded` lock when a twin exists). `current_branch` false and `mirror` false: **Keep** or **Drop**. `current_branch` false and `mirror` true: **Keep** or **Discard later from its own branch** (no Drop — removing it here would orphan the twin). **Discard later** counts as Keep: nothing is printed, the gate does not stop, tell the user to run `/relay:discard` on that branch later, and list the path as `(kept)` in step 5.
 
-Up to four questions per `AskQuestion` call; wait before the next four (otherwise ask conversationally).
+Up to four questions per call of the question tool (`AskQuestion`/`AskUserQuestion`/`ask_user_question`); wait before the next four (otherwise ask conversationally).
 
 **Any Drop, or Discard via `/relay:discard`.** Stop. Do not continue to step 4, push, or open a PR.
 
@@ -112,7 +112,7 @@ Never push commits directly to `<default>`.
 
 ### 6. Present for review
 
-Present the branch name (if newly created or just confirmed), PR title, and combined body to the user for review via `AskQuestion` when available (approve / revise / cancel); otherwise ask conversationally. **Do not push or create the PR until the user approves.**
+Present the branch name (if newly created or just confirmed), PR title, and combined body for review via the question tool when available (approve / revise / cancel); otherwise ask conversationally. **Do not push or create the PR until the user approves.**
 
 If the user requests changes to the title or body, revise and re-present.
 
@@ -176,7 +176,7 @@ CI checks are triggered by the push and/or PR creation. After the PR exists:
    - Specific error message(s) and failing step(s)
    - Whether the failure is caused by the PR or appears pre-existing/flaky
    - A recommended next step (fix code, update workflow, re-run, etc.)
-5. If the failure is clearly caused by the PR and the fix is obvious, offer to fix it. Do **not** fix without user approval; if approved, commit via `/commit` (a new commit, not an amend) and push normally without `--force`. This skill still does not commit.
+5. If the failure is clearly caused by the PR and the fix is obvious, offer to fix it. Do **not** fix without user approval; if approved, commit via `/commit` (a new commit, not an amend) and push normally without `--force`.
 6. If flaky or infrastructure-related (network timeout, runner issue), offer `gh run rerun <run-id> --failed`.
 
 **If checks are skipped or none run** — tell the user no CI checks were triggered and ask whether they expected any.

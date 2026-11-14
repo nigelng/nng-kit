@@ -40,8 +40,6 @@ Pick the backend from the environment before any remote call (process env; `~/.c
 - Neither root set — repo-only.
 - Backend `onedrive`, or any value other than `dropbox` — repo-only. Name the backend in the message.
 
-`$RELAY_LEGACY_ROOT`, when set and different from the active root, accepts `list` and `read`. Claim-first verbs run against the active root. Migration may take a single `superseded` lock in the legacy root so an old surface cannot also act on that id. It never takes `consumed`, `discarded`, or `expired` there, and it never acts on a directive read from that root.
-
 ## Repo-only
 
 The committed repo file (path in [format.md](format.md)) is git, not one of the operations above. Repo-only means read, write, and delete that file, and skip every remote operation. Say why: no root, an unimplemented backend, or an unknown backend.
@@ -63,13 +61,11 @@ Paths sit under `<root>`: `$RELAY_ROOT`, or `$RELAY_DROPBOX_ROOT` when only the 
 
 relay does not call `check_job_status`. After `move` or `delete`, confirm with `list`.
 
-A whole-folder `move` (one root onto another) is **unverified** for MCP `move`. Verify by listing: `pending/`, `locks/`, and `README.md` present at the destination, and the source gone or empty. The move result is not success.
-
 ### `dbxcli` fallback
 
 `dbxcli` `list` and `read` (`ls`, `get` to a temp file) may substitute for an unavailable MCP read tool on any surface. Every `dbxcli` write — `move`, `delete`, `create_folder`, or a pending-file upload — applies only when the Dropbox MCP `create_file` tool is available (a partial MCP surface, i.e. Claude Code). When `create_file` is absent, follow § Without the Dropbox MCP: remote access is read-only and writes are refused with `remote claim needs Claude Code (Dropbox MCP)`.
 
-When a `dbxcli` write is allowed, discover the subcommand with `dbxcli … --help --output=json`, then pass `--output=json` on the call. A folder `move` that MCP rejects may use `dbxcli mv`, only when the Dropbox MCP `create_file` tool is available. That call is still eventual: verify by listing.
+When a `dbxcli` write is allowed, discover the subcommand with `dbxcli … --help --output=json`, then pass `--output=json` on the call.
 
 `dbxcli` upload does not provide `atomic_create`. Its behaviour when the path already exists is unverified, so a `dbxcli` write is not a conflict signal; `dbxcli` writes apply only when the Dropbox MCP `create_file` tool is available. Lock files (`locks/*.lock`, including rev locks) are created with MCP `create_file` only. When a step needs a lock and MCP `create_file` is unavailable, stop.
 
@@ -127,5 +123,5 @@ Auth, token storage, and the HTTP client are out of scope here. The next plan ne
 | `create_if_absent` on a backend with `atomic_create` | Terminal locks, rev locks, and any create that must not clobber |
 | `create_if_absent` on an implemented backend without `atomic_create` | Pending mirror only. A conflict result from that write is meaningless. |
 | `list`, `read` | Lookups. Identity comes from filenames; see [format.md](format.md). |
-| `move`, `delete` | Cleanup after a lock is already held, and folder migration. Re-check with `list`. |
+| `move`, `delete` | Cleanup after a lock is already held. Re-check with `list`. |
 | `create_folder` | Make sure `pending/`, `archive/`, and `locks/` exist. |

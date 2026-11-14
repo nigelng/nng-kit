@@ -11,7 +11,7 @@ disable-model-invocation: true
 
 # gh-draft-release
 
-**User prompts:** `AskQuestion` when available; otherwise ask conversationally.
+**User prompts:** the question tool (`AskQuestion`/`AskUserQuestion`/`ask_user_question`) when available; otherwise ask conversationally.
 
 **When to use this vs `/gh-tag-release`:**
 - `/gh-draft-release` (this skill) — create a **draft** GitHub Release with generated notes from unreleased commits. Does **not** push a tag or trigger publish. User publishes the draft manually.
@@ -36,13 +36,15 @@ Use `default=` as `<default>`. If it is empty, stop and ask. Do **not** hardcode
 
 ### 1. Handle uncommitted changes
 
-`<orig>` is `branch=` from step 0 (the branch to restore after the draft). `clean=no` → offer stash only. `clean=yes` → proceed (still keep `<orig>`). Prefer **stash** on every branch (including feature branches):
+`<orig>` is `branch=` from step 0 (restored after the draft). `clean=no` → offer stash only. `clean=yes` → proceed (still keep `<orig>`). Prefer **stash** on every branch (including feature branches):
 
 ```bash
 git stash push -m "gh-draft-release-wip"
 ```
 
 Do **not** create a WIP commit. If no changes, proceed.
+
+From here, every stop after this step runs **Restore** first.
 
 ### 2. Switch to default branch
 
@@ -82,7 +84,7 @@ Otherwise, from commits since the last tag, group by conventional commit type (`
 
 ### 6. Suggest a release tag
 
-Use `manifest=` from step 4's `version` output (re-run `version` if that step was skipped). Non-empty → suggest `v<manifest>`. Empty → ask for the tag (or infer from `last_tag` / CHANGELOG when obvious). Do not invent a version silently. Present the tag and notes for approval.
+Use `manifest=` from step 4's `version` output (re-run `version` if skipped). Non-empty → suggest `v<manifest>`. Empty → ask for the tag (or infer from `last_tag` / CHANGELOG when obvious). Do not invent a version silently. Present the tag and notes for approval.
 
 ### 7. Check existing tag / release
 
@@ -93,7 +95,7 @@ bash <skill-dir>/../commit/scripts/git-preflight.sh version v<version>
 gh release view "v<version>" 2>/dev/null && echo "release-exists" || echo "release-free"
 ```
 
-`local_tag=yes`, `remote_tag=yes`, or release-exists → stop or ask whether to bump. `remote_tag=unknown` (cannot verify the remote tag) → stop and report. Do not overwrite or recreate.
+`local_tag=yes`, `remote_tag=yes`, or release-exists → stop or ask whether to bump. `remote_tag=unknown` (cannot verify) → stop and report. Do not overwrite or recreate.
 
 ### 8. Create draft GitHub Release
 
@@ -111,11 +113,11 @@ Share the release URL with the user.
 
 ### 9. Revisions
 
-If the user requests changes to the tag or release note, revise and repeat from step 6 (re-run steps 3 and 7 before create).
+On requested changes, revise and repeat from step 6 (re-run steps 3 and 7 before create).
 
-## Post-release
+## Restore
 
-After the release is created (or if the workflow stops early), restore the working state:
+Run on success and on every stop after step 1:
 
 ```bash
 git checkout <orig> && git stash pop

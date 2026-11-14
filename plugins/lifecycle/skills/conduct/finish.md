@@ -36,6 +36,7 @@ Build the staging set from every changed path, tracked or untracked, in `git sta
 
 - Never stage foreign paths from Step 0.6, even if the user allowed implementation to continue with them present.
 - Never stage `docs/brainstorms/**` or likely secrets (`.env`, credentials, tokens), per the commit skill's **Preconditions**.
+- Never stage `.claude/tmp/**` (`/execute-plan` run files), tracked or untracked.
 - Include `docs/plans/**` only for `plan=keep`, only when the file belongs to this change, and only when `git check-ignore -q <path>` returns 1 (not ignored). Apply the same choice and ignore check to the plan's sibling `.notes.md` file (replace `.md` with `.notes.md`).
 - For `plan=drop`, leave the plan and its notes uncommitted; do not delete them or create a removal commit.
 

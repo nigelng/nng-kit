@@ -46,10 +46,9 @@ Options:
       --permission-mode <PERMISSION_MODE>
           Permission mode
           
-          Modes: "auto" auto-approves read-only tools, "accept-edits" also auto-approves workspace edits, "smart" additionally auto-runs actions a fast model judges safe, "dangerous" auto-approves all tools.
+          Modes: "auto" auto-approves read-only tools, "accept-edits" also auto-approves workspace edits, "smart" additionally auto-runs actions a fast model judges safe, "dangerous" auto-approves all tools. Defaults to `permission_mode` from the config file, then "auto".
           
           [env: DEVIN_PERMISSION_MODE=]
-          [default: auto]
 
       --sandbox
           [Research Preview] Sandbox exec-tool processes (macOS seatbelt / Linux bwrap+seccomp)

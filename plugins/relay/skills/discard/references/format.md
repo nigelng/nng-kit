@@ -88,7 +88,7 @@ All paths are relative to a configurable `<root>`. There is no default root in t
 | Terminal lock | `<root>/locks/<id>.lock` |
 | Edit (rev) lock | `<root>/locks/<id>.r<rev>.lock` |
 
-`<state>` is one of: `consumed`, `discarded`, `expired`, `superseded`.
+`<state>` is one of: `consumed`, `discarded`, `expired`, `superseded`. `superseded` names a replaced rev only; no lock uses it.
 
 `<slug>` for chat-origin handoffs is a short title slug (same sanitisation rules as the branch slug). For mirrored repo handoffs it matches the branch slug.
 
@@ -100,17 +100,17 @@ Every terminal transition therefore **takes a lock first** via `create_if_absent
 
 ### Terminal lock — `locks/<id>.lock`
 
-Body: one line, `<state> <surface> <iso-time>`, where `<state>` is `consumed`, `discarded`, `expired`, or `superseded`, and `<surface>` names the claiming surface (for example `chat` or `code`).
+Body: one line, `<state> <surface> <iso-time>`, where `<state>` is `consumed`, `discarded`, or `expired`, and `<surface>` names the claiming surface (for example `chat` or `code`).
 
-`superseded` is used only by straggler adoption in a legacy root ([Legacy locations](#legacy-locations)). It retires the id there and does not authorize acting on the directive. A conflict on that lock means the id is already retired in the legacy root; it does not by itself mean the copy reached the active root. For `consumed`, `discarded`, and `expired`, any conflict signal means already handled, whichever `<state>` the existing lock records.
+Any conflict signal means already handled, whichever `<state>` the existing lock records.
 
 - Create succeeds → this surface owns the transition.
-- Conflict signal on `consumed`, `discarded`, or `expired` → another surface got there first. Stop, report "already picked up elsewhere" (or "already handled"), and **never** act on the directive. A legacy `superseded` conflict does not authorize acting either; the copy-only retry is in [Legacy locations](#legacy-locations).
-- Once the terminal lock exists, the id is finished **for every rev**. Any remaining pending file for that id is leftover; readers move it to `archive/` lazily. A legacy `superseded` lock is the exception: leave the legacy pending file in place until the active-root copy exists ([Legacy locations](#legacy-locations)).
+- Conflict signal → another surface got there first. Stop, report "already picked up elsewhere" (or "already handled"), and **never** act on the directive.
+- Once the terminal lock exists, the id is finished **for every rev**. Any remaining pending file for that id is leftover; readers move it to `archive/` lazily.
 
 ### Cleanup is eventual
 
-After taking the lock, move pending file(s) to `archive/<state>-…`. Do not await or trust the move/delete result. Pickup and check repeat cleanup for any pending file whose id is locked. Do not archive a legacy pending file on a `superseded` lock until the active-root copy exists.
+After taking the lock, move pending file(s) to `archive/<state>-…`. Do not await or trust the move/delete result. Pickup and check repeat cleanup for any pending file whose id is locked.
 
 ### Claim-first verbs
 
@@ -161,7 +161,7 @@ Example shape (placeholder names only):
 - **Remote:** the terminal lock decides the state; the `move` to `archive/` is cleanup.
 - **Repo:** consumed or discarded means delete the file; git history is the archive.
 
-`superseded` names a replaced rev in `archive/`, and a terminal-lock state only for straggler adoption. It is not a claim-first transition.
+`superseded` names a replaced rev in `archive/`. It is not a claim-first transition.
 
 ## Retention
 
@@ -237,7 +237,7 @@ remote_names="$(printf '%s\n' "${remote_out:-}" | awk 'NF{print $2}' | sed 's#^r
 - `stale=1` (no origin, offline, auth failure, timeout, no `timeout` binary) means orphan status is **stale**: list the files in both directories, offer nothing.
 - An empty but reachable remote is not stale: `stale=0` with no remote names.
 - **check** reports orphans and stays read-only. **pickup** cleans them, only on the default branch.
-- Deleting a mirrored orphan: take the terminal lock `discarded` in the **active** root, start the cleanup move of the pending twin to `archive/discarded-…` (see [Locks](#locks-source-of-truth-for-terminal-state)), then delete the repo file. The conflict signal means already handled: just delete the repo file. Never take that lock in a legacy root.
+- Deleting a mirrored orphan: take the terminal lock `discarded` in the **active** root, start the cleanup move of the pending twin to `archive/discarded-…` (see [Locks](#locks-source-of-truth-for-terminal-state)), then delete the repo file. The conflict signal means already handled: just delete the repo file.
 
 ## Legacy locations
 
@@ -246,31 +246,16 @@ Renamed storage stays readable. Adopting `.claude/handoff/active.md` is [Legacy 
 | Place | Current | Legacy |
 | --- | --- | --- |
 | Repo file | `docs/relay/<slug>.md` | `docs/handoffs/<slug>.md` |
-| Remote root | active root from [storage.md](storage.md) | `$RELAY_LEGACY_ROOT`, when set and different from the active root |
 
 When both repo files exist, use `docs/relay/<slug>.md` and note the duplicate.
 
-### Read and list only
-
-A legacy remote root accepts `list` and `read`, using the same filename rules as [Lookups](#lookups). Claim-first verbs run against the active root. Never take a `consumed`, `discarded`, or `expired` lock in the legacy root, and never act on a directive read from that root.
+### Read and write
 
 A legacy repo file may be read. Pickup may Execute, Edit, or Discard it; a mirrored claim uses the active root. Edit and save-for-later rewrite the file to `docs/relay/<slug>.md` with `git mv`. Save writes only `docs/relay/<slug>.md`.
 
 ### Migration
 
-**Repo.** When `docs/handoffs/<slug>.md` exists at save time, `git mv` it to `docs/relay/<slug>.md` before writing (no clobber). On the default branch, pickup may offer to move every `docs/handoffs/*.md` the same way (`git mv -k`). Those moves stay uncommitted.
-
-**Remote folder.** When the legacy root is set and has content, pickup may offer to move that folder onto the active root. The confirm states two preconditions: every machine has rebuilt (no relay 0.2 still claiming in the legacy root), and no chat pickup or save is mid-flight. If a finished `list` shows the active root absent and the legacy root has content, pickup offers that move **before** any `create_folder` or `create_if_absent` on the active root. Save and discard must not `create_folder` or `create_if_absent` there either; they tell the user to run pickup's folder move. Creating the active root blocks the move. If the active root does not exist, `move` the legacy folder to the active root after confirm. Verify by `list`: `pending/`, `locks/`, and `README.md` present at the destination, and the legacy root gone or empty. The move's return value is not a correctness signal. Remind the user to upload the updated chat skill now. If the active root already exists with content, refuse the whole-folder move and use straggler adoption.
-
-**Straggler adoption.** For each pending id in the legacy root that has no terminal lock in either root, offer **Adopt / Leave**. Adopt:
-
-1. `create_if_absent` the terminal lock with state `superseded` in the **legacy** root. A conflict means the lock is already there. Do not take a second lock. If that lock is `superseded` and the active root has no pending file for the id, continue with the copy. Any other state means already handled: skip the id, and do not act on the directive.
-2. `create_if_absent` that pending file in the active root, at the same relative path. When several pending files share the id, use the highest `rev` ([Highest rev wins](#highest-rev-wins)).
-3. Start the eventual move of the legacy pending file to the legacy `archive/superseded-…` only after the copy succeeds or that destination is already present. A failed copy leaves the legacy pending file in place.
-
-If a legacy `superseded` lock already exists and the active root has no pending file for that id, offer a copy-only retry (no second lock), then the same move rule.
-
-That `superseded` lock is the only lock relay takes in a legacy root. It retires the id there so an old surface cannot also act on it. Do not act on the directive.
+When `docs/handoffs/<slug>.md` exists at save time, `git mv` it to `docs/relay/<slug>.md` before writing (no clobber). On the default branch, pickup may offer to move every `docs/handoffs/*.md` the same way (`git mv -k`). Those moves stay uncommitted.
 
 ## Untrusted data
 

@@ -36,38 +36,43 @@ default_branch() {
   printf ''
 }
 
+toml_version() {
+  awk -v sect="$2" '
+    index($0, "[" sect "]") == 1 { insec = 1; next }
+    /^\[/ { insec = 0 }
+    insec && /^version[[:space:]]*=/ {
+      sub(/^[^=]*=[[:space:]]*/, "")
+      gsub(/["'\'']/, "")
+      gsub(/[[:space:]]/, "")
+      print
+      exit
+    }
+  ' "$1"
+}
+
+version_in() {
+  case "$1" in
+    package.json) jq -r '.version // empty' "$1" ;;
+    pyproject.toml) toml_version "$1" project ;;
+    Cargo.toml) toml_version "$1" package ;;
+  esac
+}
+
+# First manifest that yields a version; empty when none does.
+manifest_file() {
+  local f
+  for f in package.json pyproject.toml Cargo.toml; do
+    if [[ -f "$f" && -n "$(version_in "$f")" ]]; then
+      printf '%s' "$f"
+      return
+    fi
+  done
+}
+
 manifest_version() {
-  local ver=""
-  if [[ -f package.json ]]; then
-    ver=$(jq -r '.version // empty' package.json)
-  fi
-  if [[ -z "$ver" && -f pyproject.toml ]]; then
-    ver=$(awk '
-      /^\[project\]/ { inproj = 1; next }
-      /^\[/ { inproj = 0 }
-      inproj && /^version[[:space:]]*=/ {
-        sub(/^[^=]*=[[:space:]]*/, "")
-        gsub(/["'\'']/, "")
-        gsub(/[[:space:]]/, "")
-        print
-        exit
-      }
-    ' pyproject.toml)
-  fi
-  if [[ -z "$ver" && -f Cargo.toml ]]; then
-    ver=$(awk '
-      /^\[package\]/ { inpkg = 1; next }
-      /^\[/ { inpkg = 0 }
-      inpkg && /^version[[:space:]]*=/ {
-        sub(/^[^=]*=[[:space:]]*/, "")
-        gsub(/["'\'']/, "")
-        gsub(/[[:space:]]/, "")
-        print
-        exit
-      }
-    ' Cargo.toml)
-  fi
-  printf '%s' "$ver"
+  local f
+  f=$(manifest_file)
+  [[ -z "$f" ]] || version_in "$f"
 }
 
 changelog_heading() {
@@ -145,8 +150,10 @@ cmd_state() {
 }
 
 cmd_version() {
-  local tag=${1:-} heading ver last local_tag remote_tag remote_refs
-  kv manifest "$(manifest_version)"
+  local tag=${1:-} heading ver last local_tag remote_tag remote_refs mf
+  mf=$(manifest_file)
+  kv manifest "$([[ -z "$mf" ]] || version_in "$mf")"
+  kv manifest_file "$mf"
   heading=$(changelog_heading || true)
   kv changelog_heading "$heading"
   ver=$(changelog_version_of "$heading")

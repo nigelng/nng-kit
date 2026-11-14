@@ -49,11 +49,9 @@ Then core Steps 1.2–1.5 (repo root, plan, clean tree, `plan-status.sh lock`) a
 
 ## Model default
 
-Follow core **Model default**. After Step 4 writes `<rows-json>`, and before Step 5, resolve agy's pin for `launch_tier` (`low`, `execute`, or `mid`) from the agy per-tool bullets in [model-tiers.md](../../references/model-tiers.md): first unexpired slug that `agy models` lists. Skip a row past its `until:` date. Do not copy the summary block (it rewrites `.` as `-`). Pass the slug via `delegate-launch.sh`.
+Follow core **Model default**. After Step 4 writes `<rows-json>`, and before Step 5, resolve agy's pin for `launch_tier` (`low`, `execute`, or `mid`): `bash <skill-dir>/../../scripts/tiers.sh resolve agy <launch_tier>` prints the first unexpired pin. The chains live only in the **agy** block of [model-tiers.md](../../references/model-tiers.md); if that slug is not in `agy models`, take the next unexpired slug in the block. Do not copy the summary block (it rewrites `.` as `-`). Pass the slug via `delegate-launch.sh`.
 
-Current chains (model-tiers wins if they differ), all `until: 2026-11-26`: `low` = `gemini-3.8-flash-high`; `execute` and `mid` = `gemini-4-argon-medium` → `gemini-3.8-flash-high`.
-
-Those chains do not name `auto`. If no slug resolves, **stop and ask** for `model=<slug>`. Do not pass Auto unless core does: explicit `model=auto` (`fallback: model=auto`) or `router: true`. A usage or quota failure does not relaunch on Auto.
+The agy chains do not name `auto`. If no slug resolves, **stop and ask** for `model=<slug>`. Do not pass Auto unless core does: explicit `model=auto` (`fallback: model=auto`) or `router: true`. A usage or quota failure does not relaunch on Auto.
 
 ## Scripts
 

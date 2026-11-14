@@ -22,15 +22,18 @@ planning/execute loop. Prefer “Ship as-is” over inventing nits. Auto-apply o
 **Not all critique is top-tier.** Split by mode; don't collapse into one
 mid-tier loop. Resolve models per [model-tiers.md](model-tiers.md)
 (`top` / `mid` / `low`). Report each subagent with intended tier and resolved
-model.
+model. Spawn every Task per [../execute-plan/hosts.md](../execute-plan/hosts.md).
+On Devin, `mkdir -p .claude/tmp` before writing the
+`.claude/tmp/exec-claude-review-*` files hosts.md asks for, write them fresh
+for each Task, and delete them once the run ends.
 
 `/critique change` uses at most **2 top-tier passes** per run (≤1 escalate +
 1 final closing pass); report each with its reason.
 
 | Pass | Tier | Notes |
 | --- | --- | --- |
-| `/critique plan` | top-plan | Plan edits OK; warn once, don't block; 2-pass budget |
-| Lean review (change Phase A) | **mid** | Resolve **mid** per [model-tiers.md](model-tiers.md); max **2** |
+| `/critique plan` | **top-critique** Task (`top-review` if absent or unpinnable); **top-plan** session | Separate read-only Task; session applies edits (warn once below `top-plan`, never block); 2-pass budget; Devin without profiles: in-session fallback (Plan mode) |
+| Lean review (change Phase A) | **mid** | Per [model-tiers.md](model-tiers.md); max **2** |
 | Fix Task (change) | **mid** (**low** if mechanical) | Separate write agent; never the reviewer |
 | Escalate (≤1) | **top-review** Task | After round-1 **Rework**, or after **2 mid** with `blocking`/unresolved `important`; then **stop**; `critique escalate` |
 | **Final `/critique change`** | **top-review** Task | Separate read-only Task (`critique closing pass`); ≠ escalate |
@@ -43,12 +46,11 @@ Fleet multi-mode critique (not Cursor `/review` / `/review-bugbot` / `/review-se
 ## When to use / skip
 
 - **`/critique plan`** after `/make-plan` (large blast radius, migrations,
-  security-sensitive scope especially): in-session top-tier review + plan edits.
+  security-sensitive scope especially): top-tier review Task; session applies edits.
   Tiny/mechanical plans still use top-tier — keep the review short.
 - **`/critique change`** before commit when `/execute-plan` was **not** used, or
   for hand-written diffs (lean mid → final top closing Task when lean is clean).
-- **After a converged `/execute-plan` top-tier review, or a converged delegate PASS:** Change mode → After
-  execute-plan or a converged delegate PASS.
+- **After a converged `/execute-plan` top-tier review, or a converged delegate PASS:** Change mode: see below.
 
 ## Preconditions
 
@@ -80,7 +82,7 @@ Parse the user's slash-command or message args.
 
 Evaluate in this order (ambiguous before uncommitted→change):
 
-1. **Both a fresh plan and uncommitted changes exist** → ambiguous. Use `AskQuestion` when available (otherwise ask conversationally):
+1. **Both a fresh plan and uncommitted changes exist** → ambiguous. Use the question tool (`AskQuestion`/`AskUserQuestion`/`ask_user_question`) when available (otherwise ask conversationally):
    - Option A: "Review the plan at `<path>`" — rationale: stress-test before execute.
    - Option B: "Review uncommitted changes (`git diff HEAD`)" — rationale: catch bugs before commit.
    - Option C: "Other".
@@ -111,7 +113,7 @@ If none: “No high-confidence issues found.”
 
 ## Shared — round budget (change mode Phase A / B + final)
 
-Plan mode has no lean mid-tier loop (in-session top-tier; pass budget in Plan mode).
+Plan mode has no lean loop (one top-tier Task per pass; budget in Plan mode).
 
 ### Phase A — lean mid-tier (change mode only), max 2
 
@@ -150,15 +152,32 @@ fix Task (**no re-review**), list those fixes as **unverified**, and **stop**.
 ## Plan mode
 
 Review a plan in `docs/plans/**` (or promoted `.cursor/plans/`) for residual
-failure modes; apply plan-file edits. **Session needs top-plan** — in-session
-review + edits. Warn once below the host's **top-plan** pin
-(`tiers.sh resolve <host> top-plan`); not in the tier file → say so in one
-line and continue.
+failure modes. The session applies plan-file edits and stamps: warn once and
+recommend switching if below the host's **top-plan** pin
+(`tiers.sh resolve <host> top-plan`), never block; if the session model is
+unlisted, say so in one line and continue.
+
+### Spawn the review Task
+
+Never review in the drafting session, except the Devin fallback below. Per
+pass, run one read-only Task at `tiers.sh resolve <host> top-critique`; exit 3
+(host has no such tier) or unpinnable on `<host>` → `top-review`. The Task
+returns findings only. Fresh context gives independence.
+
+**Devin without the profiles.** If `run_subagent` offers neither `kit-critique`
+nor `kit-review-top` (or is absent), do not stop. Warn once: `kit-* profiles
+missing: reviewing in-session, not independent. Install per the kit README.`
+Then review in this session: `Read` the plan fresh from disk, run `rows --lint`
+yourself, apply the criteria below, keep the 2-pass budget, and start the
+verdict with `in-session review (no independent Task)`. One of the two offered
+→ use it. Any other host or spawn failure still stops per hosts.md.
 
 ### Load the plan
 
-`Read` the plan; review **in-session**. Second pass: **re-check only edited
-sections + open findings**. After **2** passes, **stop** and present remaining
+Pass the Task the plan path and criteria; it reads the plan. On Devin, first
+run `rows --lint <plan>` into a `.claude/tmp/exec-claude-review-*` file (exit 2
+→ stop and show stderr) and pass its path too. Second pass:
+**re-check only edited sections + open findings**. After **2** passes, **stop** and present remaining
 items — no third automatic plan critique.
 
 ### Review criteria (only report hits; top-tier plan pass)
@@ -167,7 +186,7 @@ items — no third automatic plan critique.
 2. **Failure modes & unsafe half-done states**
 3. **Sequencing / blast radius / irreversibility** gaps
 4. **Verification gaps** — missing commands, coverage claim without tooling, Success criteria vs Verification mismatch
-5. **Map v2 rule violations** — only on a v2 map (columns in [Map v2 rules](../make-plan/drafting-rules.md); a legacy map with no Files column is not a hit). Run `rows --lint` and cite each `REFUSE:` line. Exit 0 is not a hit. Exit 2 → stop and show stderr.
+5. **Map v2 rule violations** — only on a v2 map (columns in [Map v2 rules](../make-plan/drafting-rules.md); a legacy map with no Files column is not a hit). Run `rows --lint` (Devin Task: read the lint output file you were given) and cite each `REFUSE:` line. Exit 0 is not a hit. Exit 2 → stop and show stderr.
 
 ```bash
 bash <skill-dir>/../execute-plan/scripts/plan-status.sh rows --lint <plan>
@@ -205,7 +224,7 @@ Using the ref from Step 1 (or auto-detected):
 - **PR number** → `gh pr diff` / `gh pr view` when `gh` is available.
 - **No ref:** dirty tree → `git diff HEAD`; clean → `git show HEAD`.
 
-Resolve the base ref and changed-file list. Pass each review Task that base ref and the criteria only. The Task runs `git diff <base>` itself (and lists untracked files when the review includes them). Do not paste the diff. If the diff is huge, the Task may start from `git diff --stat` and `Read` the hottest files — still require evidence before findings.
+Resolve the base ref and changed-file list. Pass each review Task that base ref and the criteria only. The Task runs `git diff <base>` itself (and lists untracked files when the review includes them). Do not paste the diff. If the diff is huge, the Task may start from `git diff --stat` and `Read` the hottest files — still require evidence before findings. On Devin the session runs these commands and the Task reads the files hosts.md has the session write.
 
 **Working tree vs commit:** Fixes always land in the working tree (never rewrite history). Tell the user when the reviewed ref was a commit but fixes are uncommitted.
 
@@ -293,7 +312,7 @@ concrete, in-diff, and safe; otherwise defer. No multi-round security loop.
 
 ## Final output (both modes)
 
-- **Mode** and what was reviewed; **round table** (plan: top session; change:
+- **Mode** and what was reviewed; **round table** (plan: top Task; change:
   lean mid rows, escalate/final top if used).
 - **Security** (change): tool (`security-review` / Claude / inline / skipped +
   reason) + findings count or “no issues”.

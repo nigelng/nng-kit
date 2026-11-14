@@ -1,6 +1,6 @@
 # Drafting rules (coverage, architecture docs, tiers, waves)
 
-Read when drafting Step 4 content or validating an update. Companion to [plan-template.md](plan-template.md). SoT for coverage, architecture-doc, map v2, Runner policy, and wave rules — skills point here rather than restating.
+Read when drafting Step 4 content or validating an update. Companion to [plan-template.md](plan-template.md). SoT for coverage, architecture-doc, map v2, Runner policy, and wave rules.
 
 ## Execution scaffold (Step 4–5, required)
 
@@ -8,7 +8,7 @@ Every new plan **must** ship the execution scaffold from [plan-template.md](plan
 
 ## Test coverage probe (Step 3)
 
-Default numeric target when tooling exists but the repo has no threshold: **90%** (unless the user chooses otherwise after the probe).
+Default numeric target when tooling exists but the repo has no threshold: **90%** on files the plan changes (unless the user chooses otherwise after the probe).
 
 1. Inspect manifests/CI for coverage tooling (JS/TS `coverage`/`vitest`/`jest`/`c8`/`nyc`; Python `pytest-cov`/`.coveragerc`; Go `-cover`; Rust `llvm-cov`/`tarpaulin`; CI gates).
 2. Record **Available + threshold** (command + percent), **Available, no threshold** (command; use the default above), or **Not available** (do not invent a gate; note in Verification; optional follow-up).
@@ -26,6 +26,8 @@ Every new plan **must** include Implementation step(s) **and** matching Executio
 - **Justified skip** — allowed only for pure chore / docs-only / formatting with **no** change to: runtime topology, config contracts, control plane, trust boundaries, or subsystem ownership. One line is enough (e.g. in Scope or the Implementation docs step).
 - **Verification** must be execute-checkable (`git diff` / Files show those architecture-doc paths changed as listed, **or** the one-line skip is present). Recording scan paths in Assumptions/Dependencies alone does **not** satisfy Verification.
 - **Success criteria** must say architecture docs reflect the shape change, or that the skip is recorded.
+
+**Changelog:** if the repo has `CHANGELOG.md`, add a step and map row for it, or a one-line justified skip.
 
 On **update**, if the change alters system shape or Scope, re-run the scan and add/adjust the docs step + map row, or the justified skip. Pure wording-only plan edits may keep the prior note if Scope/shape is unchanged.
 
@@ -99,7 +101,7 @@ Missing → `auto`.
 
 List members: `subagent` or any id from `tiers.sh delegates`; write `delegate:<id>` for a delegate id. Default `round-robin` list = the delegates in `tiers.sh order`.
 
-**Eligible** = a delegate is eligible when `tiers.sh resolve <id> <tier>` exits 0; `subagent` is eligible for every non-`top` row; `top` rows never go to delegates. The modes below assign non-`top` rows only.
+**Eligible** = a delegate is eligible when the host is `claude-code` and `tiers.sh resolve <id> <tier>` exits 0; `subagent` is eligible for every non-`top` row; `top` rows never go to delegates. The modes below assign non-`top` rows only.
 
 - `auto` — the planner's choice (today).
 - `pin <tool>` — every non-`top` row → `delegate:<tool>` if that delegate is eligible, else `subagent`. `pin subagent` writes `subagent` on every non-`top` row.

@@ -113,17 +113,16 @@ relay_branch_slug() {
 }
 
 # Resolve remote storage from the environment. No network.
-# Prints backend<TAB>root<TAB>legacy_root<TAB>status.
+# Prints backend<TAB>root<TAB>status.
 # RELAY_ROOT wins; empty RELAY_BACKEND defaults to dropbox (status on).
 # Else RELAY_DROPBOX_ROOT → dropbox + deprecated-alias. Else off (repo-only).
 # onedrive → not-implemented; any other name → unknown-backend. Both are
 # repo-only: root is still printed, and the backend field names it.
-# RELAY_LEGACY_ROOT passes through unless it equals root.
-# A tab or newline in root or legacy root → invalid-root (repo-only): both
-# root fields print empty so the line still splits into four fields.
+# A tab or newline in root → invalid-root (repo-only): root prints empty so
+# the line still splits into three fields.
 # Usage: relay_resolve_remote
 relay_resolve_remote() {
-  local backend="" root="" legacy="" status=""
+  local backend="" root="" status=""
 
   if [[ -n "${RELAY_ROOT:-}" ]]; then
     root="$RELAY_ROOT"
@@ -146,30 +145,24 @@ relay_resolve_remote() {
     status="off"
   fi
 
-  legacy="${RELAY_LEGACY_ROOT:-}"
-  if [[ -n "$legacy" && "$legacy" == "$root" ]]; then
-    legacy=""
-  fi
-
-  # A tab or newline in either root would break the TSV fields.
-  if [[ "$root$legacy" == *[$'\t\n']* ]]; then
+  # A tab or newline in the root would break the TSV fields.
+  if [[ "$root" == *[$'\t\n']* ]]; then
     root=""
-    legacy=""
     status="invalid-root"
   fi
 
-  printf '%s\t%s\t%s\t%s\n' "$backend" "$root" "$legacy" "$status"
+  printf '%s\t%s\t%s\n' "$backend" "$root" "$status"
   return 0
 }
 
 # Load relay settings from an env-style file. Default path is
 # ${XDG_CONFIG_HOME:-$HOME/.config}/relay/env. Missing or unreadable file is a
-# silent no-op. Only RELAY_BACKEND, RELAY_ROOT, RELAY_LEGACY_ROOT and
-# RELAY_DROPBOX_ROOT lines are honoured; the value is everything after the
-# first `=` taken literally (no quote stripping, no expansion, never eval).
-# Values containing a tab or CR are rejected. Each key is exported only when
-# currently unset, so the process environment always wins. Every other line
-# (comments, blanks, unknown keys, export-prefixed or quoted lines) is ignored.
+# silent no-op. Only RELAY_BACKEND, RELAY_ROOT and RELAY_DROPBOX_ROOT lines
+# are honoured; the value is everything after the first `=` taken literally
+# (no quote stripping, no expansion, never eval). Values containing a tab or CR
+# are rejected. Each key is exported only when currently unset, so the process
+# environment always wins. Every other line (comments, blanks, unknown keys,
+# export-prefixed or quoted lines) is ignored.
 # The per-key case arms mirror the inline snippet embedded in the skills'
 # SKILL.md files — keep the two in sync (one rule, two spellings).
 # Usage: relay_load_env_file [path]
@@ -183,7 +176,6 @@ relay_load_env_file() {
       *"$(printf '\t')"*|*"$(printf '\r')"*) continue ;;
       RELAY_BACKEND=*) [ -n "${RELAY_BACKEND+x}" ] || export RELAY_BACKEND="${line#*=}" ;;
       RELAY_ROOT=*) [ -n "${RELAY_ROOT+x}" ] || export RELAY_ROOT="${line#*=}" ;;
-      RELAY_LEGACY_ROOT=*) [ -n "${RELAY_LEGACY_ROOT+x}" ] || export RELAY_LEGACY_ROOT="${line#*=}" ;;
       RELAY_DROPBOX_ROOT=*) [ -n "${RELAY_DROPBOX_ROOT+x}" ] || export RELAY_DROPBOX_ROOT="${line#*=}" ;;
     esac
   done < "$file"

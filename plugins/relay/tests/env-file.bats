@@ -8,18 +8,18 @@ setup() {
   ENVFILE="${BATS_TEST_TMPDIR}/relay-env"
 }
 
-# Run relay_load_env_file in a clean subshell and print the four relay vars
+# Run relay_load_env_file in a clean subshell and print the relay vars
 # (empty when unset) plus the function's exit status via a marker line.
 load_and_dump() { # <env-file> [extra env assignments...]
   local envfile="$1"
   shift
-  env -u RELAY_BACKEND -u RELAY_ROOT -u RELAY_LEGACY_ROOT -u RELAY_DROPBOX_ROOT \
+  env -u RELAY_BACKEND -u RELAY_ROOT -u RELAY_UNKNOWN -u RELAY_DROPBOX_ROOT \
     -u XDG_CONFIG_HOME "$@" bash -c '
       . "$1"
       relay_load_env_file "$2"
       rc=$?
       printf "rc=%s\n" "$rc"
-      for k in RELAY_BACKEND RELAY_ROOT RELAY_LEGACY_ROOT RELAY_DROPBOX_ROOT; do
+      for k in RELAY_BACKEND RELAY_ROOT RELAY_UNKNOWN RELAY_DROPBOX_ROOT; do
         if [[ -z "${!k+x}" ]]; then printf "%s=<unset>\n" "$k"; else printf "%s=%s\n" "$k" "${!k}"; fi
       done
     ' _ "$LIB" "$envfile"
@@ -33,20 +33,18 @@ load_and_dump() { # <env-file> [extra env assignments...]
   [[ "$output" == *"RELAY_BACKEND=<unset>"* ]]
 }
 
-@test "loads all four keys, comments and blanks skipped" {
+@test "loads the three keys, comments and blanks skipped" {
   cat >"$ENVFILE" <<'EOF'
 # relay settings
 
 RELAY_BACKEND=dropbox
 RELAY_ROOT=/srv/relay root
-RELAY_LEGACY_ROOT=/srv/old
 RELAY_DROPBOX_ROOT=/srv/dbx
 EOF
   run load_and_dump "$ENVFILE"
   [ "$status" -eq 0 ]
   [[ "$output" == *"RELAY_BACKEND=dropbox"* ]]
   [[ "$output" == *"RELAY_ROOT=/srv/relay root"* ]]
-  [[ "$output" == *"RELAY_LEGACY_ROOT=/srv/old"* ]]
   [[ "$output" == *"RELAY_DROPBOX_ROOT=/srv/dbx"* ]]
 }
 
@@ -66,7 +64,7 @@ EOF
   [[ "$output" != *"RELAY_OTHER"* ]]
   [[ "$output" != *"RELAY_STATUS"* ]]
   [[ "$output" == *"RELAY_BACKEND=<unset>"* ]]
-  [[ "$output" == *"RELAY_LEGACY_ROOT=<unset>"* ]]
+  [[ "$output" == *"RELAY_UNKNOWN=<unset>"* ]]
   [[ "$output" == *"RELAY_DROPBOX_ROOT=<unset>"* ]]
 }
 
@@ -85,21 +83,21 @@ EOF
 @test "value with spaces kept verbatim; \$HOME not expanded" {
   cat >"$ENVFILE" <<'EOF'
 RELAY_ROOT=/data/my relay/files
-RELAY_LEGACY_ROOT=$HOME/legacy dir
+RELAY_DROPBOX_ROOT=$HOME/dbx dir
 EOF
   run load_and_dump "$ENVFILE"
   [ "$status" -eq 0 ]
   [[ "$output" == *"RELAY_ROOT=/data/my relay/files"* ]]
-  [[ "$output" == *'RELAY_LEGACY_ROOT=$HOME/legacy dir'* ]]
+  [[ "$output" == *'RELAY_DROPBOX_ROOT=$HOME/dbx dir'* ]]
   # $HOME must not have been expanded into the value.
-  [[ "$output" != *"RELAY_LEGACY_ROOT=${HOME}"* ]]
+  [[ "$output" != *"RELAY_DROPBOX_ROOT=${HOME}"* ]]
 }
 
 @test "quotes are not stripped; export-prefixed lines ignored" {
   cat >"$ENVFILE" <<'EOF'
 export RELAY_ROOT=/exported
 RELAY_BACKEND="dropbox"
-'RELAY_LEGACY_ROOT'=/single
+'RELAY_ROOT'=/single
 RELAY_DROPBOX_ROOT=/plain
 EOF
   run load_and_dump "$ENVFILE"
@@ -107,23 +105,30 @@ EOF
   [[ "$output" == *'RELAY_BACKEND="dropbox"'* ]]
   [[ "$output" == *"RELAY_DROPBOX_ROOT=/plain"* ]]
   [[ "$output" == *"RELAY_ROOT=<unset>"* ]]
-  [[ "$output" == *"RELAY_LEGACY_ROOT=<unset>"* ]]
 }
 
 @test "value containing tab or CR rejected" {
-  printf 'RELAY_ROOT=/a\tb\nRELAY_BACKEND=dropbox\nRELAY_LEGACY_ROOT=/c\rd\n' >"$ENVFILE"
+  printf 'RELAY_ROOT=/a\tb\nRELAY_BACKEND=dropbox\nRELAY_DROPBOX_ROOT=/c\rd\n' >"$ENVFILE"
   run load_and_dump "$ENVFILE"
   [ "$status" -eq 0 ]
   [[ "$output" == *"RELAY_ROOT=<unset>"* ]]
   [[ "$output" == *"RELAY_BACKEND=dropbox"* ]]
-  [[ "$output" == *"RELAY_LEGACY_ROOT=<unset>"* ]]
+  [[ "$output" == *"RELAY_DROPBOX_ROOT=<unset>"* ]]
+}
+
+@test "unlisted RELAY_* key line is ignored" {
+  printf 'RELAY_UNKNOWN=/srv/old\nRELAY_ROOT=/good\n' >"$ENVFILE"
+  run load_and_dump "$ENVFILE"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"RELAY_ROOT=/good"* ]]
+  [[ "$output" == *"RELAY_UNKNOWN=<unset>"* ]]
 }
 
 @test "default path honours XDG_CONFIG_HOME" {
   xdg="${BATS_TEST_TMPDIR}/xdg"
   mkdir -p "$xdg/relay"
   printf 'RELAY_ROOT=/xdg/root\n' >"$xdg/relay/env"
-  run env -u RELAY_BACKEND -u RELAY_ROOT -u RELAY_LEGACY_ROOT -u RELAY_DROPBOX_ROOT \
+  run env -u RELAY_BACKEND -u RELAY_ROOT -u RELAY_UNKNOWN -u RELAY_DROPBOX_ROOT \
     XDG_CONFIG_HOME="$xdg" bash -c '
       . "$1"
       relay_load_env_file
@@ -134,7 +139,7 @@ EOF
 }
 
 @test "missing default file under XDG_CONFIG_HOME → no-op" {
-  run env -u RELAY_BACKEND -u RELAY_ROOT -u RELAY_LEGACY_ROOT -u RELAY_DROPBOX_ROOT \
+  run env -u RELAY_BACKEND -u RELAY_ROOT -u RELAY_UNKNOWN -u RELAY_DROPBOX_ROOT \
     XDG_CONFIG_HOME="${BATS_TEST_TMPDIR}/no-xdg" bash -c '
       . "$1"
       relay_load_env_file

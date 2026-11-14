@@ -23,7 +23,7 @@ Read [execute-via-core.md](../../references/execute-via-core.md) first — its S
 - `<plan>` — required; a plan under `docs/plans/**` (not `*.notes.md`).
 - `[ID]` — optional Execution-map row id, validated in Step 1 before review runs. Runner comes from that row's `Review` cell; if `runner=` differs → stop and ask.
 - `runner=top@…` — required when `ID` is omitted. Any runner not `top@*` → refuse.
-- `base=<ref>` — optional; default `git merge-base HEAD main`, else `master`; neither resolves → stop and ask for `base=`. Resolve to a SHA with `git rev-parse`.
+- `base=<ref>` — optional; default `git merge-base HEAD <target>`, where `<target>` is the first ref that resolves among `git symbolic-ref --short refs/remotes/origin/HEAD` (keeping `origin/...`), `origin/main`, `main`, `origin/master`, `master`; none resolves → stop and ask for `base=`. Resolve to a SHA with `git rev-parse`.
 
 ## Steps
 

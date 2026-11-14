@@ -55,6 +55,10 @@ still list them from the Claude Code plugin set, so each skill runs a host gate
 (`$CLAUDECODE` must be `1`) as its first preflight step and refuses outside
 Claude Code.
 
+The review base resolves `git symbolic-ref --short refs/remotes/origin/HEAD`,
+else `origin/main`, `main`, `origin/master`, `master`; the branch-divert check
+resolves `origin/HEAD` stripped of `origin/`, else `main`, `master`.
+
 ## Scripts
 
 Committed under `plugins/delegate/scripts/` (mode `100644`, run with `bash`):
@@ -125,6 +129,9 @@ resolved by `scripts/tiers.sh`:
   line; `runner-tool <runner>` — the tool whose `reviewRunners` lists the
   runner (first in planning order when several do; exit 3 when none does).
 - `tiers.sh validate` — schema check.
+
+Model pins come only from `tiers.sh resolve` and the generated
+`model-tiers.md`. The skills and review runners do not hardcode model slugs.
 
 Each tool entry carries `label`, `enabled`, an optional tool-level `until`,
 `cli`, `delegate`, `authEnv`, `defaultReviewRunner`, `reviewRunners`

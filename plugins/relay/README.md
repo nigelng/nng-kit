@@ -65,14 +65,13 @@ eventual cleanup.
 ## Environment
 
 Values come from the process environment first, then `~/.config/relay/env`
-(`KEY=VALUE` lines, the four `RELAY_*` keys, literal values — no expansion; the
-environment always wins). The file is private config, not in this marketplace.
+(`KEY=VALUE` lines, the `RELAY_BACKEND`, `RELAY_ROOT` and `RELAY_DROPBOX_ROOT`
+keys, literal values — no expansion; the environment always wins). The file is private config, not in this marketplace.
 
 | Variable | Role |
 | --- | --- |
 | `RELAY_BACKEND` | `dropbox` (default when `RELAY_ROOT` is set) or `onedrive` (repo-only until implemented) |
 | `RELAY_ROOT` | Active remote root folder |
-| `RELAY_LEGACY_ROOT` | Optional former root; list/read only for migration and straggler adoption |
 | `RELAY_DROPBOX_ROOT` | **Deprecated alias** for `RELAY_ROOT` when backend is Dropbox; skills nudge you toward `RELAY_ROOT` |
 
 Example shape:
@@ -81,8 +80,7 @@ Example shape:
 {
   "env": {
     "RELAY_BACKEND": "dropbox",
-    "RELAY_ROOT": "/path/to/your/relay-root",
-    "RELAY_LEGACY_ROOT": "/path/to/your/legacy-relay-root"
+    "RELAY_ROOT": "/path/to/your/relay-root"
   }
 }
 ```
@@ -166,13 +164,9 @@ bash tests/orphan-scan.sh                    # orphan-scan fixture; exits 0 and 
 bash tests/import-frontmatter.sh             # frontmatter import fixture
 ```
 
-## Migrating to `docs/relay` and a new root
+## Migrating to `docs/relay`
 
-After upgrading to relay 0.3.0+ (skills that read legacy paths and offer
-migration), run this on **every** machine that uses relay, then finish repo and
-remote moves in order.
-
-### Repo path (`docs/handoffs` → `docs/relay`)
+Legacy `docs/handoffs/<slug>.md` files stay readable.
 
 - `/relay:save` writes only `docs/relay/<slug>.md`. If a legacy
   `docs/handoffs/<slug>.md` exists, save offers **Migrate (`git mv`) then save /
@@ -182,31 +176,6 @@ remote moves in order.
   uncommitted until you commit).
 - SessionStart prefers `docs/relay/` and falls back to `docs/handoffs/` with a
   one-line legacy note.
-
-### Remote root (legacy folder → active root)
-
-Set `RELAY_ROOT` to the new folder and `RELAY_LEGACY_ROOT` to the old one.
-Pickup offers a guarded whole-folder move when the legacy root has content and
-the active root is absent. Verification is always by **listing** (`pending/`,
-`locks/`, `README.md` at the new root; legacy gone or empty), never by the move
-return value. Stragglers written to the legacy root after migration are adopted
-via `/relay:pickup` (terminal `superseded` lock in the legacy root, pending
-file recreated under the active root).
-
-### Rollout runbook (manual, after merge + host rebuild)
-
-1. Rebuild **every** kit host so no machine still runs an older relay against
-   the legacy remote root (`nix run '.#check'`, then your usual
-   `darwin-rebuild switch` or equivalent).
-2. Run `/relay:pickup` in any repo and accept the **remote migration** when
-   offered (repo `git mv` can happen here too).
-3. Upload the updated claude.ai chat skill **immediately after** step 2. Do
-   **not** upload it before step 2: a new chat save would create the active root
-   and block the whole-folder move (straggler adoption would be the only route).
-4. Run `/relay:check`, then `/relay:pickup` to adopt stragglers until the
-   legacy root has no pending files.
-5. Later, remove `RELAY_LEGACY_ROOT` from host env when you no longer need
-   legacy read/list.
 
 ## Migrating from handoff
 

@@ -25,7 +25,7 @@ Read [make-plan/SKILL.md](../make-plan/SKILL.md).
 Read [critique/SKILL.md](../critique/SKILL.md).
 
 - In **Step 1 ("Detect review context")**, select explicit **plan mode** on the conductor's plan path (`plan <path>`); do not auto-detect change mode from the dirty tree.
-- Follow **Plan mode**, including its top-plan requirement, two-pass budget and plan-lock re-stamping after edits.
+- Follow **Plan mode**, including its separate `top-critique` review Task (`top-review` fallback), two-pass budget and session re-stamping after edits.
 - Show the verdict and any remaining findings at conductor **Gate B**, rather than treating the critique's next-step suggestion as approval to execute. A **Rework** verdict recommends **Refine**; the user still chooses Approve / Refine / Abort at Gate B.
 
 ## Execute-plan

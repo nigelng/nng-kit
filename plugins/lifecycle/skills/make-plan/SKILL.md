@@ -15,7 +15,7 @@ Build a structured implementation plan for a task. Prompt for purpose, clarify s
 
 > **Under /conduct:** Step 7 is replaced by the conductor; see [../conduct/stage-overrides.md](../conduct/stage-overrides.md#make-plan). Standalone behaviour is unchanged.
 
-**References (read when needed):** [plan-template.md](plan-template.md) · [drafting-rules.md](drafting-rules.md) · [brainstorm-handoff.md](brainstorm-handoff.md) · [execution-status.md](../execute-plan/execution-status.md) (execution scaffold SoT)
+**References (read when needed):** [plan-template.md](plan-template.md) · [drafting-rules.md](drafting-rules.md) · [brainstorm-handoff.md](brainstorm-handoff.md) · [execution-status.md](../execute-plan/execution-status.md)
 
 Warn once and recommend switching if below the host's **top-plan** pin (`tiers.sh resolve <host> top-plan`), unless the host's rules allow a `mid` + advisor run for a plan the user declared small (Claude Code overlay); if the session model is unlisted, say so in one line, continue (see [model-tiers.md](model-tiers.md)). Map rows use v2 tiers (`top`/`execute`/`mid`/`low`) without lowering the planner session.
 
@@ -25,14 +25,14 @@ Prefer this skill's `docs/plans/**` artifact for `/execute-plan` / `/critique pl
 
 ## Step 1 — Determine intent: new plan vs. update
 
-Parse the user's slash-command or message args. If they include `runner=<policy>`, take that as the Runner policy and strip it before the cases below. It is not a task description or a plan path. `<policy>` is `auto`, `pin <tool>`, `order <list>`, or `round-robin [<list>]` (comma-separated list members).
+Parse the user's slash-command or message args. If they include `runner=<policy>`, take that as the Runner policy and strip it before the cases below. It is not a task description or a plan path. `<policy>` is `auto`, `pin <tool>`, `order <list>`, or `round-robin [<list>]` (comma-separated).
 
 1. **Update mode** — if args start with `update` or `revise` (case-insensitive), strip the keyword and treat the remainder as a path or slug to an existing plan file. Read that plan and skip to "Update mode" below.
-2. **Existing plan path** — if args are a single argument that is an existing file path under `docs/plans/` (or resolves to one via `Glob`), ask: "Update this plan, or use it as context for a new plan?" Default to **Update**.
+2. **Existing plan path** — if args are one existing file path under `docs/plans/` (or resolve to one via `Glob`), ask: "Update this plan, or use it as context for a new plan?" Default to **Update**.
 3. **Brainstorm handoff** — if args contain `Scope:`, `Target:`, `Target Phase 1:`, `Brainstorm:`, or a `docs/brainstorms/*.md` path, parse once per [brainstorm-handoff.md](brainstorm-handoff.md); Step 2 skips duplicates.
 4. **New plan** — otherwise use args as the task description and proceed to Step 2.
 
-If no arguments were given, use `AskQuestion` when available (otherwise ask conversationally):
+If no arguments were given, use the question tool (`AskQuestion`/`AskUserQuestion`/`ask_user_question`) when available (otherwise ask conversationally):
 - **What do you want to build or accomplish?** (free-text via "Other", plus 2–4 example options inferred from the current project)
 - Optional follow-up: **Is this a new plan or an update to an existing plan?**
 
@@ -43,9 +43,9 @@ After Step 1, detect whether a brainstorm artifact already answers Goal / requir
 - **Has brainstorm handoff** (from Step 1) — `Read` the brainstorm file when a path is present; ask only remaining gaps (handoff file owns the skip list).
 - **No brainstorm artifact** → before codebase exploration (Step 3), run this step as a mandatory gap-fill interview.
 
-`AskQuestion` when available (else conversational): batch up to 4 independent questions per call, each with 2–4 options plus "Other". Split only questions that depend on an earlier answer. Ask **only gaps** among Goal, must-haves, non-goals (→ Out of scope), constraints (→ Assumptions/Risks), in/out of scope, success criteria, assumptions. Skip answers already known from handoff, an existing plan being updated, or an obvious codebase fact.
+The question tool when available (else conversational): batch up to 4 independent questions per call, each with 2–4 options plus "Other". Split only questions that depend on an earlier answer. Ask **only gaps** among Goal, must-haves, non-goals (→ Out of scope), constraints (→ Assumptions/Risks), in/out of scope, success criteria, assumptions. Skip answers already known from handoff, an existing plan being updated, or an obvious codebase fact.
 
-**Runner policy.** If `runner=<policy>` was given, or the user already stated routing, record that policy and do not ask. Otherwise ask once (`AskQuestion` when available, else conversational; it may share a batch with the gaps above): **Runner policy**, options `auto` / `pin <tool>` / `order <list>` (suggested default) / `round-robin [<list>]`. Record the answer under Assumptions per [Runner policy](drafting-rules.md#runner-policy).
+**Runner policy.** If `runner=<policy>` was given, or the user already stated routing, record that policy and do not ask. Otherwise ask once (the question tool when available, else conversational; it may share a batch with the gaps above): **Runner policy**, options `auto` / `pin <tool>` (suggest `pin subagent`) / `order <list>` / `round-robin [<list>]`. Delegate runners need a Claude Code host. Record the answer under Assumptions per [Runner policy](drafting-rules.md#runner-policy).
 
 Do **not** ask for a **coverage target** here — ask only after Step 3's probe finds tooling (see [drafting-rules.md](drafting-rules.md)).
 
@@ -77,8 +77,8 @@ Before presenting: `bash <skill-dir>/../execute-plan/scripts/plan-status.sh rows
 
 ### Update mode
 
-1. `Read` the existing plan; present briefly; ask what to change (or apply the change description from args).
-2. Clarify with `AskQuestion` if needed (same batching as Step 2).
+1. `Read` the existing plan; present briefly; ask what to change (or apply the change from args).
+2. Clarify with the question tool if needed (same batching as Step 2).
 3. If `runner=<policy>` was given, or the user asks to re-route: re-apply [Runner policy](drafting-rules.md#runner-policy) to Execution-map rows that are not `done` (no log status counts as not `done`), regenerate **Dispatch**, and update the Assumptions **Runner policy** line. Leave `done` rows unchanged.
 4. If the update changes system shape or Scope, re-run the architecture-doc scan and adjust the docs Implementation/map step or justified skip ([drafting-rules.md](drafting-rules.md)). Wording-only edits may keep the prior Architecture docs note.
 5. Write back to the **same path**. Keep `created_at` and the filename. Lint, fix, and stamp the same way as a new plan. A re-route is part of that body, so stamp it.
@@ -86,7 +86,7 @@ Before presenting: `bash <skill-dir>/../execute-plan/scripts/plan-status.sh rows
 
 ## Step 6 — Present the plan
 
-Show the full plan in the chat and share the file path.
+Show a summary (Purpose, Scope, Execution map table, remaining items) and the plan path, not the full plan.
 
 ## Step 7 — Offer next steps
 
@@ -96,4 +96,4 @@ Offer: **Refine** · **Review** (`/critique plan`) · **Proceed** (`/execute-pla
 
 - Never implement — only write `docs/plans/**`; no commit/push. Ask rather than guess; keep plans minimal.
 - Plans are committable; `/gh-create-pr` asks Keep/Drop for each plan on the branch (via `/commit` when the repo tracks `docs/plans/**`).
-- On update, keep the filename and `created_at`. Stamp with `plan-status.sh stamp` after the body is final.
+- On update, keep the filename and `created_at`; stamp after the body is final.

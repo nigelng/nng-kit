@@ -11,17 +11,17 @@ disable-model-invocation: true
 
 # conduct
 
-Take an idea to a reviewed change through the sibling lifecycle skills, with two human gates and an up-front finish mode. Thin conductor: read each sibling skill and follow it in-session, with only the linked overrides. The siblings disable model invocation; do not invoke them as slash commands.
+Take an idea to a reviewed change through the sibling skills, with two human gates and an up-front finish mode. Thin conductor: read each sibling skill and follow it in-session, with only the linked overrides. The siblings disable model invocation; do not invoke them as slash commands.
 
 **References (read when needed):** [stage-overrides.md](stage-overrides.md) | [finish.md](finish.md) | [model-tiers.md](../make-plan/model-tiers.md)
 
-`<skill-dir>` is the absolute directory of this file. Sibling `model-tiers.md` and `execution-status.md` copies are identical; read each once.
+`<skill-dir>` is this file's absolute directory. Sibling `model-tiers.md` and `execution-status.md` copies are identical; read each once.
 
 ## Preconditions
 
 **Requires Agent mode.** In Plan or Ask mode, stop and tell the user to switch.
 
-**Session needs top-plan.** Warn once and recommend switching if below the host's **top-plan** pin (`tiers.sh resolve <host> top-plan`); unknown session model → say so in one line, continue. A top-plan session meets **top-review** for the execute orchestrator. Preserve each sibling's independent-review and explicit Task-model requirements; report intended tier and resolved model, never an invented resolution.
+**Session needs top-plan.** Warn once and recommend switching if below the host's **top-plan** pin (`tiers.sh resolve <host> top-plan`); unknown session model → say so in one line, continue. A top-plan session meets **top-review** for the execute orchestrator. Preserve each sibling's independent-review requirements (with `/critique plan`'s Devin in-session fallback) and explicit Task-model requirements; report intended tier and resolved model, never an invented resolution.
 
 Work in the project root (`git rev-parse --show-toplevel`). The up-front `finish=push` or `finish=pr` choice is the user's explicit request to commit/push under this skill, subject to Gate B, safety checks, and the downgrade rule, and never permission to bypass a failed gate.
 
@@ -45,7 +45,7 @@ Read `execution.status` from YAML frontmatter, not the execution-log table. When
 
 ## Step 0.5 - Up-front choices
 
-Before any stage runs, ask all unanswered choices in **one `AskQuestion` batch** (otherwise ask conversationally). Skip only choices already supplied by arguments:
+Before any stage runs, ask all unanswered choices in **one batch** with the question tool (`AskQuestion`/`AskUserQuestion`/`ask_user_question`) when available, otherwise conversationally. Skip only choices already supplied by arguments:
 
 - **Finish:** `push` (default: feature branch + commit + push), `pr` (push + PR + CI watch), or `none` (stop ready-to-PR, uncommitted).
 - **Plan file:** `keep` (default: include eligible plan files in the commit) or `drop` (leave them uncommitted; do not delete them).
@@ -59,7 +59,7 @@ Complete all checks before running any stage, including on resume:
 
 1. **Default branch and access.** Resolve the default with `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`; fall back to `git symbolic-ref --short refs/remotes/origin/HEAD` and strip `origin/`. Do not assume `main` or `master`. For `finish` other than `none`, `git remote get-url origin` must succeed; for `finish=pr`, `gh auth status` must also succeed. If the default cannot be established or required access is unavailable, tell the user **now** and set `finish=none`.
 2. **Baseline and ownership.** Record the HEAD SHA (`git rev-parse HEAD`), current branch, and `git status --porcelain`, including staged and untracked paths. **Conductor-owned paths** are `docs/brainstorms/**`, `docs/plans/**`, and, when resume `lock` printed `ok`, every path in that plan's Execution-map **Files** column. Every other dirty path is **foreign**. Show those paths and ask **stash / continue with `finish=none` / abort**. Stash only on explicit selection and preserve the stash; continue means preserve the files, never stage them; abort stops the run. Retain the baseline foreign-path list for execution and finishing. Later work must not retroactively authorize foreign changes.
-3. **Existing branch history.** With `origin` and a known default, run `git fetch origin <default>` before comparing. If on a non-default branch with commits ahead of `origin/<default>`, count them and ask once: **reuse `<branch>` (its N existing commits ship too) / continue with `finish=none` / abort**. Do not silently publish those commits. If the comparison cannot be established, report it and use `finish=none`.
+3. **Existing branch history.** With `origin` and a known default, run `git fetch origin <default>` before comparing. If on a non-default branch with commits ahead of `origin/<default>`, count them and ask once: **reuse `<branch>` (its N existing commits ship too) / continue with `finish=none` / abort**. Do not silently publish those commits. If the comparison fails, report it and use `finish=none`.
 
 Ownership is permission to continue, not a staging allowlist: brainstorms, secrets, foreign files, and ineligible/dropped plans remain excluded at finish. Keep baseline evidence in chat, not the locked plan body.
 
@@ -83,7 +83,7 @@ Wait for the choice. Skip this gate only when routing directly to a later stage 
 
 `Read` [../make-plan/SKILL.md](../make-plan/SKILL.md) and follow it with [stage-overrides.md](stage-overrides.md#make-plan) section **Make-plan**.
 
-Arguments are the brainstorm handoff prompt (including when resumed from its saved file), or the user's text on the direct planning path. Forward `runner=<policy>` when given. Capture the plan path, keep its lock metadata intact, and proceed to Stage 3 instead of offering standalone next steps.
+Arguments are the brainstorm handoff prompt (including when resumed from its saved file), or the user's text on the direct planning path. Forward `runner=<policy>` when given. Capture the plan path, keep its lock metadata intact, and go to Stage 3 instead of offering standalone next steps.
 
 ## Stage 3 - Critique plan
 
@@ -93,7 +93,7 @@ Skip the critique only when the plan records `Plan size: small`; record that rea
 
 ### Gate B
 
-**Hard approval gate, never skipped by arguments.** Present the final plan (with critique edits), its path, verdict/remaining items or small-plan skip, and current finish choices. Ask:
+**Hard approval gate, never skipped by arguments.** Present a short summary, not the full plan: Purpose, Scope, the Execution map table, the critique verdict and remaining items (or the small-plan skip), and the current finish choices, plus the plan path. Ask:
 
 - **Approve** - `not-started`: run `approve`, then offer the continue choice. Resumed `legacy`: skip `approve` (its record is for `not-started` only); go to the routed stage.
 - **Refine** - follow Stage 2 in make-plan **update** mode on the same path, then return to Stage 3 and this gate.
@@ -118,7 +118,7 @@ On a clean final review (`clean`, including the in-host loop when the strongest 
 
 `Read` [../critique/SKILL.md](../critique/SKILL.md) and follow it in **change mode** with [stage-overrides.md](stage-overrides.md#critique-change).
 
-`state` fetches `origin` when a remote URL exists. Stderr `WARN: git fetch failed`, or a failed `git merge-base origin/<default> HEAD`, stops this stage and triggers the downgrade rule. Never use a stale or narrower diff. `<default>` is the Step 0.6 branch; `default=` from `state` may be empty and does not replace it. The review base is that merge-base SHA. With no `origin`, the base is the HEAD SHA recorded at Step 0.6. Pass the base ref to each review Task. The Task runs `git diff <base>` and lists untracked files from `git ls-files --others --exclude-standard`. Do not paste the diff. Exclude `docs/brainstorms/**` and `docs/plans/**` from the tracked diff and from the untracked input. `fingerprint=` and `head=` are the Stage 5 comparison against the fingerprint Stage 4 recorded.
+`state` fetches `origin` when a remote URL exists. Stderr `WARN: git fetch failed`, or a failed `git merge-base origin/<default> HEAD`, stops this stage and triggers the downgrade rule. Never use a stale or narrower diff. `<default>` is the Step 0.6 branch; `default=` from `state` may be empty and does not replace it. The review base is that merge-base SHA. With no `origin`, the base is the HEAD SHA recorded at Step 0.6. Pass the base ref to each review Task. The Task (Devin: the session, per hosts.md) runs `git diff <base>` and lists untracked files from `git ls-files --others --exclude-standard`. Do not paste the diff. Exclude `docs/brainstorms/**` and `docs/plans/**` from the tracked diff and from the untracked input. `fingerprint=` and `head=` are the Stage 5 comparison against the fingerprint Stage 4 recorded.
 
 Skip **Phase A** only when all three hold: this session recorded Stage 4's `fingerprint=` and `head=`; a new `fingerprint` run prints the same values; and `head=` equals that review base. Otherwise run **Phase A** (at most two mid-tier reviews) and **Phase B** (at most one top-tier escalation, only when triggered). A skipped Phase A counts as ship-ready, so Phase B is not triggered. When Phase A is skipped and Stage 4's final review was a clean `top@*`, skip the closing top pass and run only the security pass. Keep the closing top pass when Stage 4's strongest review was `mid` or `none`. The security pass always runs.
 
@@ -126,9 +126,9 @@ Skip **Phase A** only when all three hold: this session recorded Stage 4's `fing
 
 Apply the downgrade checks **before staging or committing**. For a Stage 5 resume, inspect the saved execution/review evidence too; do not infer clean review from `completed` alone.
 
-- `finish=none`: stop ready-to-PR if checks are clean, leaving changes uncommitted. Report any unfinished work instead of calling it ready.
-- `finish=push`: follow [finish.md](finish.md#commit) section **Commit**, then [finish.md](finish.md#push) section **Push**, sequentially.
-- `finish=pr`: follow **Commit**, then **Push**, then [finish.md](finish.md#pull-request) section **Pull request**, including CI watch.
+- `finish=none`: stop ready-to-PR if checks are clean, leaving changes uncommitted. Report unfinished work, never as ready.
+- `finish=push`: follow [finish.md](finish.md#commit) **Commit**, then [finish.md](finish.md#push) **Push**, sequentially.
+- `finish=pr`: follow **Commit**, then **Push**, then [finish.md](finish.md#pull-request) **Pull request**, including CI watch.
 
 ## Downgrade rule
 
@@ -161,5 +161,5 @@ On completion, stop, or downgrade, report concisely:
 - Force-push, use `--no-verify`, or amend.
 - Commit `docs/brainstorms/**` or secret/credential files.
 - Stage foreign paths identified in Step 0.6, or include pre-staged foreign content in the conductor's commit.
-- Bypass plan approval/lock, independent review, failed verification, or a downgrade to satisfy the requested finish mode.
+- Bypass plan approval/lock, independent review (`/critique plan`'s Devin fallback is not a bypass), failed verification, or a downgrade to satisfy the requested finish mode.
 - Delete dropped plans, discard foreign work, auto-fix CI, or merge a PR.

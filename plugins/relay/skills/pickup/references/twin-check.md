@@ -1,10 +1,10 @@
 ## Step 3: Twin check (mirrored repo files)
 
-**Three cases** when deciding twin behaviour — never treat a mirrored file as unmirrored silently. The twin lives in the **active** root. A lock in the legacy root is not the twin's terminal state and is not a reason to write there.
+**Three cases** when deciding twin behaviour — never treat a mirrored file as unmirrored silently. The twin lives in the **active** root.
 
 1. **`mirror:` absent** — repo-only. Skip twin check; proceed to Step 4.
-2. **`mirror:` set, `status` is `on` or `deprecated-alias`, and Dropbox MCP is reachable** — first validate `id`/`mirror`/`rev` (*Validate twin identifiers* below; malformed → case 3). Then `list` `<root>/locks/` to the end. A not-found `<root>` is not a finished empty lock list. When `$legacy` is non-empty, apply **Absent root, before any active-root write** before any `create_if_absent`, rather than treating the missing root as "no terminal lock" and creating it. Match a terminal lock basename on this handoff's `id` only (see *Untrusted remote names*).
-   - If `locks/<id>.lock` exists: the twin is already terminal. Report **consumed elsewhere** (or already handled). Offer to delete the leftover repo file after confirm. Do **not** act on the directive. Do **not** write to the legacy root. Stop after the user's choice on cleanup.
+2. **`mirror:` set, `status` is `on` or `deprecated-alias`, and Dropbox MCP is reachable** — first validate `id`/`mirror`/`rev` (*Validate twin identifiers* below; malformed → case 3). Then `list` `<root>/locks/` to the end. A not-found `<root>` is not a finished empty lock list. Match a terminal lock basename on this handoff's `id` only (see *Untrusted remote names*).
+   - If `locks/<id>.lock` exists: the twin is already terminal. Report **consumed elsewhere** (or already handled). Offer to delete the leftover repo file after confirm. Do **not** act on the directive. Stop after the user's choice on cleanup.
    - If the listing cannot finish: report **possibly consumed elsewhere** (unknown) and do not guess. Proceed only if the user still wants the four-option dispatch knowing twin status is unknown.
    - If no terminal lock: continue to Step 4. Pending twin cleanup of stale lower revs can wait until Execute/Discard/Edit.
 3. **`mirror:` set but `status` is `off` / `not-implemented` / `unknown-backend` / `invalid-root`, Dropbox MCP is unavailable or errors, or `id`/`mirror`/`rev` is malformed** — warn that **the twin can't be claimed and may still be picked up from chat or another device**. Name the backend when it is not Dropbox. Do **not** fall through to the not-mirrored path. Continue to Step 4; Execute/Discard must use the "mirrored but unreachable" confirm below.

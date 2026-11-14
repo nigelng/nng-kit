@@ -222,8 +222,9 @@ Portable map tiers: **`top`** | **`execute`** | **`mid`** | **`low`** (legacy
 `opus` / `auto` / low-tier aliases still normalize to these four).
 **Roles:** `top-plan` = `/brainstorm`, `/make-plan`, and `/critique plan`;
 `top-review` = map tier `top`, `/execute-plan` orchestrator, reviews, and
-`/critique` escalate/closing; `top-critique` (optional) = second-family
-`/critique plan` — map tier **`top`** resolves to **`top-review`**. Per-skill
+`/critique` escalate/closing; `top-critique` (optional) = the second-family
+`/critique plan` review Task (`top-review` when absent or unpinnable) — map
+tier **`top`** resolves to **`top-review`**. Per-skill
 session/Task requirements: that skill's `SKILL.md`. Fallback and per-tool
 resolution: [model-tiers.md](model-tiers.md). Maintainers (source repo only)
 edit tier policy there, then run `bash scripts/sync-model-tiers.sh`; users
@@ -245,6 +246,9 @@ then run `bash scripts/sync-model-tiers.sh`. The registry schema, the
 override file, the default host and the adding-a-tool checklist live in the
 delegate plugin's
 [Tool registry](../delegate/README.md#tool-registry) section.
+Subagent spawning per host (claude-code, cursor, devin, agy; any other host or
+no way to pin the model stops) is in
+[skills/execute-plan/hosts.md](skills/execute-plan/hosts.md).
 
 ## Critique (policy A)
 
@@ -295,6 +299,12 @@ codebase.
   (`/execute-plan`, `/delegate:execute-via-cursor`, `/delegate:execute-via-agy`, `/delegate:execute-via-devin`) stop (do not proceed, do not ask a
   soft clarifying question) if the plan has an unresolved "Blocked on" note or
   is missing a Success criteria or Verification section entirely.
+- **Supported hosts and pinned models only.** `/execute-plan` and `/critique`
+  spawn subagents per [skills/execute-plan/hosts.md](skills/execute-plan/hosts.md)
+  (Claude Code, Cursor, Devin, and Antigravity (`agy`)). Any other host, or a
+  model that cannot be pinned, stops the run before delegating.
+  `/critique plan` on Devin without the profiles reviews in-session instead.
+  `delegate` runners need a Claude Code host.
 - **Independent review is never self-review** for `/critique change` and
   `/execute-plan`'s review loop — details:
   `skills/critique/SKILL.md`,

@@ -52,16 +52,11 @@ Run before core Step 1.2. Stop on failure.
 After Step 4 writes `<rows-json>`, before Step 5, follow
 [execute-via-core.md § Model default](../../references/execute-via-core.md).
 The pin is the Cursor chain for `launch_tier` (strongest selected tier), not
-always `execute`. Use the **cursor** block in
-[model-tiers.md](../../references/model-tiers.md). Pass dotted CLI slugs
-(`grok-4.7-high`, `composer-2.5`), not hyphenated summary spellings
-(`grok-4-7-high`).
-
-| `launch_tier` | First pin | Pin absent from `agent models` |
-| --- | --- | --- |
-| `execute` | `grok-4.7-high` | `--model auto`, `fallback: pin missing` |
-| `low` | `composer-2.5` | `--model auto`, `fallback: pin missing` |
-| `mid` | `grok-4.7-high` | `--model auto`, `fallback: pin missing` |
+always `execute`. `bash <skill-dir>/../../scripts/tiers.sh resolve cursor
+<launch_tier>` prints the first unexpired pin; the chains live only in the
+**cursor** block of [model-tiers.md](../../references/model-tiers.md). Pass the
+dotted CLI slug exactly as printed, not a hyphenated summary spelling. Pin
+absent from `agent models` → `--model auto`, `fallback: pin missing`.
 
 **Cursor model rule:** `execute` / `mid` / `low` use Grok, Composer 2.5, or
 Auto only. Claude only for `top-plan` / `top-review`, or a manual `model=`

@@ -24,8 +24,9 @@
    any path a selected row does not list.
 10. Run each row's Acceptance and the quoted Verification.
 11. Tier tags — you may hand a lower-tier row to a subagent pinned at that
-    tier if your tool supports it (agy: `Model: "flash_lite"` for `low`,
-    `"flash"` for `mid`), otherwise do it yourself.
+    tier if your tool supports it (agy: `Model: "flash_lite"` for `low`;
+    `"inherit"` only for a row at this session's tier), otherwise do it
+    yourself.
 12. Questions go to the path under **Run**.
 
 ## Required final output

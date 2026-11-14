@@ -1,6 +1,6 @@
 ## Resolve remote
 
-Before any remote call, resolve the backend and roots in the shell (pure env; no network). Same rules as `relay_resolve_remote` in `../../../scripts/relay-lib.sh` and storage.md § Env (process env, or `~/.config/relay/env` when unset). Do not source plugin scripts.
+Before any remote call, resolve the backend and root in the shell (pure env; no network). Same rules as `relay_resolve_remote` in `../../../scripts/relay-lib.sh` and storage.md § Env (process env, or `~/.config/relay/env` when unset). Do not source plugin scripts.
 
 ```bash
 # RELAY_* from ~/.config/relay/env when unset (same rules as relay_load_env_file)
@@ -11,12 +11,11 @@ if [ -r "$relay_env" ]; then
       *"$(printf '\t')"*|*"$(printf '\r')"*) continue ;;
       RELAY_BACKEND=*) [ -n "${RELAY_BACKEND+x}" ] || export RELAY_BACKEND="${l#*=}" ;;
       RELAY_ROOT=*) [ -n "${RELAY_ROOT+x}" ] || export RELAY_ROOT="${l#*=}" ;;
-      RELAY_LEGACY_ROOT=*) [ -n "${RELAY_LEGACY_ROOT+x}" ] || export RELAY_LEGACY_ROOT="${l#*=}" ;;
       RELAY_DROPBOX_ROOT=*) [ -n "${RELAY_DROPBOX_ROOT+x}" ] || export RELAY_DROPBOX_ROOT="${l#*=}" ;;
     esac
   done < "$relay_env"
 fi
-backend="" root="" legacy="" relay_status="off"
+backend="" root="" relay_status="off"
 if [ -n "${RELAY_ROOT:-}" ]; then
   root="$RELAY_ROOT"
   backend="${RELAY_BACKEND:-dropbox}"
@@ -30,23 +29,19 @@ elif [ -n "${RELAY_DROPBOX_ROOT:-}" ]; then
   root="$RELAY_DROPBOX_ROOT"
   relay_status="deprecated-alias"
 fi
-legacy="${RELAY_LEGACY_ROOT:-}"
-if [ -n "$legacy" ] && [ "$legacy" = "$root" ]; then
-  legacy=""
-fi
-# A tab or newline in either root → invalid-root (repo-only; roots cleared).
+# A tab or newline in the root → invalid-root (repo-only; root cleared).
 nl='
 '
-case "$root$legacy" in
-  *"$(printf '\t')"*|*"$nl"*) root="" legacy="" relay_status="invalid-root" ;;
+case "$root" in
+  *"$(printf '\t')"*|*"$nl"*) root="" relay_status="invalid-root" ;;
 esac
-printf 'backend=%s status=%s root=%s legacy=%s\n' \
-  "${backend:-none}" "$relay_status" "${root:-unset}" "${legacy:-unset}"
+printf 'backend=%s status=%s root=%s\n' \
+  "${backend:-none}" "$relay_status" "${root:-unset}"
 ```
 
 Without the Dropbox MCP `create_file` tool, follow storage.md § Without the Dropbox MCP.
 
-Refuse `root` or `legacy` when the value contains a newline. Do not word-split either value. They are configured paths, not listing results.
+Refuse `root` when the value contains a newline. Do not word-split it. It is a configured path, not a listing result.
 
 | `status` | Remote behaviour |
 | --- | --- |
@@ -55,9 +50,9 @@ Refuse `root` or `legacy` when the value contains a newline. Do not word-split e
 | `off` | Repo-only. No remote calls. Say that no root is set. |
 | `not-implemented` | Repo-only. Name the backend. No remote calls, including no Dropbox calls. |
 | `unknown-backend` | Repo-only. Name the backend. No remote calls. |
-| `invalid-root` | Repo-only. A root env value contains a tab or newline; tell the user to fix it. No remote calls; no migration or adoption. |
+| `invalid-root` | Repo-only. A root env value contains a tab or newline; tell the user to fix it. No remote calls. |
 
-`$legacy`, when non-empty, accepts `list` and `read` only, plus the single `superseded` lock in **Straggler adoption**. Claim-first verbs (`consumed`, `discarded`, `expired`, and every other lock) run against `<root>` only. **Never** take a `consumed`, `discarded`, or `expired` lock in the legacy root. **Never** `delete` in the legacy root. **Never** act on a directive read from the legacy root.
+Claim-first verbs (`consumed`, `discarded`, `expired`, and every other lock) run against `<root>` only.
 
 When `status` is `deprecated-alias`, say so once, then continue.
 
@@ -70,13 +65,13 @@ Name operations the way storage.md does. For backend `dropbox` the calls are:
 | `create_if_absent` | MCP `create_file` only. Conflict signal: `[ALREADY_EXISTS]`. |
 | `list` | MCP `list_folder`. Follow `cursor` / `has_more` to the end. |
 | `read` | MCP `fetch`. |
-| `move` | MCP `move`. If MCP rejects a **folder** move, `dbxcli mv` is allowed only when the Dropbox MCP `create_file` tool is available. |
-| `delete` | MCP `delete`. Active root only. |
+| `move` | MCP `move`. |
+| `delete` | MCP `delete`. |
 | `create_folder` | MCP `create_folder`. Not a claim. |
 
 `dbxcli` may run `list` and `read` when the MCP tool for that operation is unavailable. `dbxcli` `move`, `delete`, `create_folder`, and pending-file writes apply only when the Dropbox MCP `create_file` tool is available; when it is absent, remote writes are refused per storage.md § Without the Dropbox MCP. Discover the subcommand with `dbxcli … --help --output=json`, then pass `--output=json`. Pass each path as its own argument after `--`. A `dbxcli` write is **not** `create_if_absent` and is not a conflict signal.
 
-Lock files (`locks/*.lock`, including rev locks, including the legacy `superseded` lock) are created only with MCP `create_file`. When a step needs a lock and MCP `create_file` is unavailable, stop that step. Do not invent a lock with `dbxcli`.
+Lock files (`locks/*.lock`, including rev locks) are created only with MCP `create_file`. When a step needs a lock and MCP `create_file` is unavailable, stop that step. Do not invent a lock with `dbxcli`.
 
 A generic error is not a conflict. Only the backend conflict signal means the path already existed. Any other failure is unknown: stop that step and do not guess.
 
@@ -93,6 +88,4 @@ Before `create_if_absent`, `move`, `read`, or `delete` uses a listed name:
 
 Skip non-matching names, count them, and say they were ignored. Do not adopt, lock, move, or delete them.
 
-An unfinished `list` is **unknown**. Do not guess, do not move a folder, and do not adopt.
-
-Whole-folder `move` uses the two configured roots only. Never rewrite that move as a series of listed children.
+An unfinished `list` is **unknown**. Do not guess.

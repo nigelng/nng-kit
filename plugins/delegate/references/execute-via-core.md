@@ -173,7 +173,7 @@ say so. Do not divert, write `<rows-json>`, brief, or launch. Exit 2 → stop, s
 
 Only after both pass:
 
-1. **Branch divert** — on `main`/`master`/`develop`/`trunk`: slug `impl/<short-slug>` (lowercase,
+1. **Branch divert** — on `main`/`master`/`develop`/`trunk` or the default branch (`git symbolic-ref --short refs/remotes/origin/HEAD` minus `origin/`): slug `impl/<short-slug>` (lowercase,
    hyphens, ≤40 chars). Branch absent → `git switch -c <branch>`; present → `git switch <branch>`
    (reuse; failure → **stop and ask** — never invent slug or force-checkout). After a successful
    switch onto an existing branch, re-run `plan-status.sh lock <plan>` (Step 1 exit rules) — branch

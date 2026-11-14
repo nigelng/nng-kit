@@ -44,6 +44,7 @@ execution:
 1. <step> — <file(s) affected>
 2. <step> — <file(s) affected>
 3. **Update documentation** — <arch paths / create / one-line justified skip>
+4. **Update CHANGELOG** — <entry, or justified skip; only if the repo has `CHANGELOG.md`>
 ...
 
 ## Execution map
@@ -83,7 +84,7 @@ N. Final whole-branch review — top@<host defaultReviewRunner> — `/execute-pl
 ## Verification
 - <test / lint / type-check / build commands — concrete and copy-pastable>
 - **Coverage:** <available | not available>
-  - If available: command `<exact coverage command>`; **target: <N>%** (repo threshold if present, else **90%** unless user overrode); scope if known
+  - If available: command `<exact coverage command>`; **target: <N>%** (repo threshold if present, else **90%** unless user overrode); scope: files the plan changes
   - If not available: state that explicitly
 - **Architecture docs:** `git diff` / Files prove listed arch-doc changes, **or** one-line justified skip present
 

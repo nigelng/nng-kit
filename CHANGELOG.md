@@ -4,6 +4,106 @@ Notable changes to the nng-kit plugins, newest first. Each sync commit on
 nigelng/nng-kit quotes the lines added here since the previous sync, so write
 for plugin users. This file is public: keep private names and paths out.
 
+## 2026-11-14
+
+- lifecycle 0.16.0 (Devin follow-ups): Devin needs the six `kit-*` profiles
+  linked into `~/.config/devin/agents/` (README, Install (Devin)); the plugin
+  install does not place them. Without `kit-critique` and `kit-review-top`,
+  `/critique plan` reviews in-session, warns once and marks the verdict
+  `in-session review`; `/execute-plan` and `/critique change` still stop.
+  Read-only Devin profiles have no shell, so the session writes the diff and
+  `rows --lint` output to `.claude/tmp/` and passes the paths.
+
+- lifecycle 0.16.0, delegate 0.11.2 (ultrareview fixes): `gh-tag-release`
+  waits up to about 2 minutes for the push-triggered CI run before stopping.
+  The branch-divert check always covers `main`, `master`, `develop` and
+  `trunk`, plus the `origin/HEAD` default. Read-only Devin reviewer profiles
+  drop `exec` and have no shell. `/execute-plan` review findings outside the
+  plan's Files go to the user, not to fix Tasks. `relay` `check` names the
+  variable that supplied a bad root.
+
+- lifecycle 0.16.0, delegate 0.11.2: agy (Antigravity) re-pin, balanced
+  across its quota pools. Gemini 4 Hydrogen replaces Gemini 3.8 Flash.
+  `execute` and `mid` implement are `gemini-4-hydrogen-high`, then
+  `gemini-4-argon-medium` (Generic pool first, Argon on overflow; subagents
+  use `Model: "inherit"`, which runs the session model, so a row matches
+  only when the session is on that model). New `mid` review list:
+  `gemini-4-argon-medium`, then `gemini-4-hydrogen-high` (same `inherit`
+  rule, so the reviewer is the session model; logs `same-family mid
+  review`). `low` is
+  `gemini-4-hydrogen-medium` (`Model: "flash_lite"`, which resolves to
+  `gemini-3.5-flash-lite`). `top-plan` and
+  `top-review` inherit when the parent session is top, else stop.
+  `top-critique` stays `gemini-4-argon-high`. The agy tools no longer expire
+  (tool-level `until` removed).
+
+- lifecycle 0.16.0, delegate 0.11.2: Devin model re-pin (2026-11-13). Devin
+  `top-plan` is plain `claude-opus-5-5-high` (no Fusion, so planning
+  exploration stays on the lead). Devin `top-review` is
+  `fusion-claude-opus-5-5-medium-sidekick-swe-2-medium`, provisional until a
+  Fusion-vs-plain-Opus review test. Devin `top-critique` gains a
+  `gpt-6-1-terra-high` fallback. Devin `execute` `swe-2-high` no longer
+  expires. Devin `mid` implement is `swe-2-high`, then `swe-2-medium`, then
+  `gpt-6-1-terra-high` (review stays `gpt-6-1-sol-high`, then
+  `gemini-4-argon-medium`). Devin `low` is `swe-2-medium`, then
+  `claude-haiku-5-5-high`. The review runner and `execute-via-devin` resolve
+  pins through `tiers.sh` instead of listing slugs.
+
+- lifecycle 0.16.0: `/critique plan` reviews in a separate read-only Task at
+  the host's `top-critique` pin (else `top-review`). The drafting session only
+  applies edits and stamps. New `execute-plan/hosts.md` names the subagent
+  mechanism per host: Claude Code Task model alias, Cursor Task slug, Devin
+  `run_subagent` profile `kit-<role>`, and agy `invoke_subagent` `Model` alias
+  (`inherit` or `flash_lite`). Any other host, or a model that cannot
+  be pinned, stops the run. Devin custom subagent profiles
+  (`host-profiles/devin/kit-{execute,mid,low,review-mid,review-top,critique}.md`)
+  are generated from `tiers.json` by the sync script. Read-only reviewer
+  profiles have no edit or write tools.
+
+- lifecycle 0.16.0: `/execute-plan` final review and escalation diff against
+  `merge-base origin/<default> HEAD`, so multi-run plans are reviewed whole.
+  Step 5 deferral rules are one decision table. Run files under
+  `.claude/tmp/exec-claude-*` are deleted after the run. The coverage target
+  applies to files the plan changes. `/conduct` never stages `.claude/tmp/**`.
+  Gate B and `/make-plan` show a plan summary plus the path, not the full
+  plan. `/make-plan` suggests `pin subagent`, allows delegate runners only on
+  a Claude Code host, and requires a CHANGELOG step when the repo has
+  `CHANGELOG.md`. `git-preflight.sh version` prints `manifest_file=`.
+  `/gh-tag-release` waits for the CI run on HEAD and stages that manifest.
+  `/gh-draft-release` restores the branch and stash on every stop. Skills name
+  the host's question tool (`AskQuestion`, `AskUserQuestion` or
+  `ask_user_question`).
+
+- delegate 0.11.2: `execute-via-cursor` and `execute-via-agy` no longer
+  hardcode model chains. They resolve pins with `tiers.sh resolve`.
+  `/delegate:review` and the branch-divert check resolve the default branch
+  from `origin/HEAD`, then `main`, then `master`. The branch-divert check
+  also always covers `main`, `master`, `develop` and `trunk`.
+
+- relay 0.6.0 (breaking): the legacy remote root (`RELAY_LEGACY_ROOT`) is
+  removed, with its folder move, straggler adoption, absent and empty-root
+  gates, and `superseded` lock. `relay_resolve_remote` prints three fields
+  (`backend<TAB>root<TAB>status`). Before upgrading, run 0.5.x
+  `/relay:pickup` to migrate any handoffs still under the legacy root: they
+  become invisible afterwards and no tool can recover them. If you still set
+  `RELAY_LEGACY_ROOT`, remove it; it is ignored. `RELAY_DROPBOX_ROOT`, the `docs/handoffs`
+  repo-path migration and the `.claude/handoff/active.md` import are
+  unchanged.
+
+- lifecycle 0.16.0, delegate 0.11.2, relay 0.6.0 (follow-ups): aligned agy
+  `invoke_subagent` alias guidance across `tiers.json`, `hosts.md`, and
+  `brief-template.md` to probe-verified `inherit` (session tier) and
+  `flash_lite` (`low`), removing `else "pro"` and `"pro"`/`"flash"` claims.
+  Expanded `relay` `env-snippet.sh` to cover the full snippet (resolver
+  cases and `check` root masking) and removed remaining legacy folder-move
+  wording in `relay`/`pickup` references. Updated `delegate` `model-tiers.md`
+  to refer to the `lifecycle` plugin's `skills/execute-plan/hosts.md` as text
+  instead of a broken relative link. Clarified `execute-plan` Step 5
+  `/delegate:review` print count (one per skipped row, else at most one),
+  restored the `, ineffective cache` review criterion, added the `critique`
+  `top-plan` session warning note, and added the `LIFECYCLE.md` host-guard
+  bullet.
+
 ## 2026-11-12
 
 - README gains a Models & configuration section (tier roles, user

@@ -28,6 +28,6 @@ else
 fi
 ```
 
-If `$file` is set, show `$path_note` when it is non-empty, then continue with **Step 1 (repo)**. When the branch-file flow ends (for Execute: after the claim and file deletion, before acting), go to **Legacy import**, the **Orphan pass**, **Migrate legacy repo files**, and **Remote migration**, then stop (the pending list is only for the no-branch-file case).
+If `$file` is set, show `$path_note` when it is non-empty, then continue with **Step 1 (repo)**. When the branch-file flow ends (for Execute: after the claim and file deletion, before acting), go to **Legacy import**, the **Orphan pass**, and **Migrate legacy repo files**, then stop (the pending list is only for the no-branch-file case).
 
 Execute and Discard work on the located file, including a legacy path. They delete that file. They do not `git mv` it.

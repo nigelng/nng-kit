@@ -107,6 +107,22 @@ devin plugins install --local <dir>
 Recommendation: use the web app for cloud + multi-machine delivery;
 `--local` is for one machine only.
 
+Devin subagents need the `kit-*` profiles that `/execute-plan` and `/critique`
+pick from, in `plugins/lifecycle/host-profiles/devin/`. Copy or link those six
+files into `~/.config/devin/agents/`:
+
+```bash
+mkdir -p ~/.config/devin/agents
+ln -sf <kit>/plugins/lifecycle/host-profiles/devin/kit-*.md ~/.config/devin/agents/
+```
+
+A missing profile stops the run. The exception is `/critique plan`: with
+neither `kit-critique` nor `kit-review-top` it reviews in-session and says so.
+
+The profiles carry the shipped model pins. A `tiers.json` override or a pin
+change does not reach them: regenerate them (maintainers:
+`scripts/sync-model-tiers.sh`) and reinstall, or Devin runs the profile's model.
+
 ## Install (Cursor)
 
 For Teams/Enterprise, an admin imports this repo (or a fork) under
@@ -155,10 +171,10 @@ Invoke as `/<name>`.
 
 | Plugin | Version | What it is |
 | --- | --- | --- |
-| `lifecycle` | 0.15.1 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
-| `delegate` | 0.11.1 | Hands plan implementation to the Cursor (`agent`), Antigravity (`agy`), or Devin (`devin`) CLI while Claude Code gates and reviews. See [README](plugins/delegate/README.md). |
+| `lifecycle` | 0.16.0 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
+| `delegate` | 0.11.2 | Hands plan implementation to the Cursor (`agent`), Antigravity (`agy`), or Devin (`devin`) CLI while Claude Code gates and reviews. See [README](plugins/delegate/README.md). |
 | `exec-observe` | 0.5.0 | Pane + status line for `/exec` runs of `delegate` (Cursor, Antigravity and Devin badges). Replaces the retired observe plugin. See [README](plugins/exec-observe/README.md). |
-| `relay` | 0.5.0 | Cross-surface handoff (save / pickup / check / discard + SessionStart). See [README](plugins/relay/README.md). |
+| `relay` | 0.6.0 | Cross-surface handoff (save / pickup / check / discard + SessionStart). See [README](plugins/relay/README.md). |
 
 ### `lifecycle` skills
 
@@ -219,6 +235,22 @@ The generated `model-tiers.md` does not reflect it; check with
 Advisor: the kit does not configure one. In Claude Code, set `advisorModel`
 in `settings.json`; in Cursor, install the Advisor plugin and run
 `/advisor <slug>` per project.
+
+### Hosts
+
+`/execute-plan` and `/critique` spawn subagents per
+[execute-plan/hosts.md](plugins/lifecycle/skills/execute-plan/hosts.md):
+
+- Claude Code: `Task` with the tier's model alias.
+- Cursor: `Task` with the resolved model slug.
+- Devin: `run_subagent` with the `kit-<role>` profile (see
+  [Install (Devin)](#install-devin)). Read-only profiles have no shell, so the
+  session passes them the diff and lint output as files.
+- Antigravity (agy): `invoke_subagent` with its `Model` alias.
+
+Any other host, or a model that cannot be pinned, stops the run before
+delegating. `/critique plan` on Devin without the profiles reviews in-session
+instead. `delegate` runners need a Claude Code host.
 
 ## Portability rules
 
