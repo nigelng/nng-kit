@@ -13,7 +13,7 @@ Spawn Tasks per the host: the lifecycle plugin's `skills/execute-plan/hosts.md`.
 - **Expired rows (`until: YYYY-MM-DD`):** skip any row whose `until:` date has passed (`today > until`, local date) and log `fallback: expired <slug>`. A tool-level `until` (shown in the tool's header) applies to every row of that tool.
 - **Planning fallback order:** per `tiers.sh order` (registry `planningOrder`), handing off via `/relay:save` + `/relay:pickup`.
 - **Routers:** Cursor `auto` (Cost mode, included pool) only (1) as the logged fallback for Cursor `execute`, `mid`, and `low` (existing triggers: the pin missing from `agent models`, a usage/quota error, or an explicit `model=auto`; record `fallback: <reason>`), or (2) on a map row with `Model: auto` + `Tier: low` + `Runner: delegate:cursor`, recorded `auto(router)`. Never on top or review work. Devin `adaptive` never: it costs more than the pins and has no pool advantage.
-- **Tier exhaustion:** if `low` is exhausted → fall back to `mid` (never stall a wave). `top-plan` → next tool in the planning fallback order. `top-review` → `top@devin-fusion` when Devin is active and not the host, logged `fallback: top-review exhausted`; otherwise stop and ask.
+- **Tier exhaustion:** if `low` is exhausted → fall back to `mid` (never stall a wave). `top-plan` → next tool in the planning fallback order. `top-review` → `top@devin-fusion` when Devin is enabled and not the host, logged `fallback: top-review exhausted`; otherwise stop and ask.
 - **Review family:** a mid review pass prefers an allowed model from a different family than the implementer's; if the host has none at mid, proceed and log `same-family mid review` in the run notes. On Cursor the second family is `claude-sonnet-5-5-high` (third-party pool; the one exception to Cursor-models-only for `mid`); on Devin it is `gpt-6-1-sol-high` against the SWE-2 implementer; when the Devin implementer fell back to GPT, keep that reviewer and log `same-family mid review`. agy: the reviewer inherits the session model; log `same-family mid review`. Top-review is unaffected.
 - **Cursor model rule:** on Cursor, `execute`/`mid`/`low` use Cursor models only (Grok for `execute`/`mid` pins, Composer 2.5, Auto), except `mid` review passes, which use `claude-sonnet-5-5-high`. Other Claude models only for `top-plan`/`top-review`, or by a manual `model=` override. Never GPT.
 
@@ -37,7 +37,7 @@ Spawn Tasks per the host: the lifecycle plugin's `skills/execute-plan/hosts.md`.
   - `top-review` = `fusion-claude-opus-5-5-medium-sidekick-swe-2-medium` (provisional until the Fusion-vs-plain-Opus review test)
   - `top-critique` = `gpt-6-1-sol-high` → `gpt-6-1-terra-high`
   - `execute` = `swe-2-high` → `swe-2-medium` → `gpt-6-1-terra-high`
-  - `mid` = implement: `swe-2-high` → `swe-2-medium` → `gpt-6-1-terra-high`; review passes: `gpt-6-1-sol-high` → `gemini-4-argon-medium` (`until: 2026-12-01`)
+  - `mid` = implement: `swe-2-high` → `swe-2-medium` → `gpt-6-1-terra-high`; review passes: `gpt-6-1-sol-high` → `claude-sonnet-5-5-high` → `kimi-k3-1-pro-high`
   - `low` = `swe-2-medium` → `claude-haiku-5-5-high`
 - **agy** (Antigravity; cli `agy`; delegate; default review runner `top@claude-headless`):
   - `top-plan` = `claude-opus-5-5-high` (subagent Model: "inherit" when parent session is top, else stop)
@@ -51,7 +51,7 @@ Spawn Tasks per the host: the lifecycle plugin's `skills/execute-plan/hosts.md`.
 <!-- tiers:tool-notes:start -->
 - **claude-code:** Always set `model:` explicitly on spawns.
 - **devin:** never `adaptive` or `fusion-*` for `execute`/`mid`/`low`; Fusion only for `top-review`; Devin CLI strips the `cognition-` prefix on `swe-2-*`.
-  - **Standalone Devin tasks** (guidance, not a resolver row): Fusion lead `gpt-6-1-sol-high` with sidekick `swe-2-medium` (`fusion-gpt-6-1-sol-high-sidekick-swe-2-medium`, `until: 2026-11-30`), then `gpt-6-1-terra-high` (`fusion-gpt-6-1-sol-high-sidekick-gpt-6-1-terra-high`); Adaptive (`adaptive`) only for ad-hoc interactive use.
+  - **Standalone Devin tasks** (guidance, not a resolver row): Fusion lead `gpt-6-1-sol-high` with sidekick `swe-2-medium` (`fusion-gpt-6-1-sol-high-sidekick-swe-2-medium`), then `gpt-6-1-terra-high` (`fusion-gpt-6-1-sol-high-sidekick-gpt-6-1-terra-high`); Adaptive (`adaptive`) only for ad-hoc interactive use.
 - **agy:** pools: Generic (largest) `execute`, `mid` implement, `low`; Argon `top-critique`, overflow, Argon-session `mid` review; Claude + GPT only `top-plan`/`top-review`.
 <!-- tiers:tool-notes:end -->
 
@@ -89,7 +89,7 @@ top-plan: claude-opus-5-5-high
 top-review: fusion-claude-opus-5-5-medium-sidekick-swe-2-medium
 top-critique: gpt-6-1-sol-high→gpt-6-1-terra-high
 execute: swe-2-high→swe-2-medium→gpt-6-1-terra-high
-mid(auto): implement swe-2-high→swe-2-medium→gpt-6-1-terra-high; review gpt-6-1-sol-high→gemini-4-argon-medium(until 2026-12-01)
+mid(auto): implement swe-2-high→swe-2-medium→gpt-6-1-terra-high; review gpt-6-1-sol-high→claude-sonnet-5-5-high→kimi-k3-1-pro-high
 low(haiku): swe-2-medium→claude-haiku-5-5-high
 <!-- tiers:summary:devin:end -->
 

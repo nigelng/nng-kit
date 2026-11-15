@@ -1123,6 +1123,37 @@ reset_row_state() {
   DONE_SET=$'\n'
 }
 
+check_selected_review_tools() {
+  local si
+  for si in ${SEL[@]+"${SEL[@]}"}; do
+    if review_tool_disabled "${ROW_REVIEW[$si]}" >/dev/null; then
+      refuse "${ROW_ID[$si]}: Review ${ROW_REVIEW[$si]} is disabled (${REVIEW_TOOL_LAST})"
+    fi
+  done
+}
+
+check_disabled_lint() {
+  local i id runner
+  for ((i = 0; i < ROW_N; i++)); do
+    [[ ${ROW_UNSCHED[$i]} -eq 0 && ${ROW_BAD[$i]} -eq 0 ]] || continue
+    id=${ROW_ID[$i]}
+    if is_done "$id"; then
+      continue
+    fi
+    runner=${ROW_RUNNER[$i]}
+    case "$runner" in
+      delegate:*)
+        if ! tool_enabled "${runner#delegate:}"; then
+          refuse "$id: Runner $runner is disabled"
+        fi
+        ;;
+    esac
+    if review_tool_disabled "${ROW_REVIEW[$i]}" >/dev/null; then
+      refuse "$id: Review ${ROW_REVIEW[$i]} is disabled (${REVIEW_TOOL_LAST})"
+    fi
+  done
+}
+
 cmd_rows_lint() {
   local plan=$1
   if [[ ! -f "$plan" ]]; then
@@ -1134,11 +1165,13 @@ cmd_rows_lint() {
   if [[ "$MAP_KIND" == none ]]; then
     parse_steps "$plan"
   fi
+  parse_done "$plan"
   validate_rows
   if [[ "$MAP_KIND" == v2 ]]; then
     check_acceptance_lint
   fi
   check_overlap_all
+  check_disabled_lint
   if [[ ${#REFUSES[@]} -gt 0 ]]; then
     print_refuses
     exit 3
@@ -1178,6 +1211,10 @@ cmd_rows() {
     usage
     exit 2
   fi
+  if [[ "$backend" != "claude-code" ]] && ! tool_enabled "$backend"; then
+    printf '%s\n' "REFUSE: delegate:${backend} is disabled" >&2
+    exit 3
+  fi
   BACKEND=$backend
   REQ=("$@")
   reset_row_state
@@ -1203,6 +1240,7 @@ cmd_rows() {
     done
   fi
   if [[ ${#REFUSES[@]} -eq 0 ]]; then
+    check_selected_review_tools
     check_deps
     check_overlap
   fi
@@ -2767,9 +2805,53 @@ valid_backend() {
   in_list "$1" "$REG_DELEGATES"
 }
 
-# Read delegate ids and review runners once, in this shell, from tiers.sh
-# beside this script. Later $(...) subshells inherit the lists. A missing
-# or failing resolver is an environment error (exit 2, not the exit 3
+tool_enabled() {
+  in_list "$(lower_ascii "$1")" "$REG_ENABLED_LC"
+}
+
+# Resolve bare review runner name to owning tool id via tiers.sh, caching
+# hits in parallel indexed arrays (Bash 3.2). Sets REVIEW_TOOL_LAST.
+lookup_review_tool() {
+  local bare=$1 i n=${#REVIEW_TOOL_CACHE_K[@]} tool="" line orig_bare=$1
+  for ((i = 0; i < n; i++)); do
+    if [[ "${REVIEW_TOOL_CACHE_K[$i]}" == "$bare" ]]; then
+      REVIEW_TOOL_LAST=${REVIEW_TOOL_CACHE_V[$i]}
+      return 0
+    fi
+  done
+  while IFS= read -r line; do
+    if [[ "$(lower_ascii "$line")" == "top@$bare" ]]; then
+      orig_bare=${line#top@}
+      break
+    fi
+  done <<<"$REG_RUNNERS"
+  tool=$(bash "$REG_TIERS" runner-tool "$orig_bare") || registry_unavailable "$REG_TIERS"
+  REVIEW_TOOL_CACHE_K+=("$bare")
+  REVIEW_TOOL_CACHE_V+=("$tool")
+  REVIEW_TOOL_LAST=$tool
+}
+
+# For top@<x> other than top@session, print the owning tool id (and set
+# REVIEW_TOOL_LAST) and return 0 when that tool is disabled; else return 1.
+review_tool_disabled() {
+  local review=$1 bare=""
+  REVIEW_TOOL_LAST=""
+  case "$review" in
+    top@session) return 1 ;;
+    top@*) bare=${review#top@} ;;
+    *) return 1 ;;
+  esac
+  lookup_review_tool "$bare" || return 1
+  if ! tool_enabled "$REVIEW_TOOL_LAST"; then
+    printf '%s' "$REVIEW_TOOL_LAST"
+    return 0
+  fi
+  return 1
+}
+
+# Read delegate ids, review runners, and enabled tools once, in this shell,
+# from tiers.sh beside this script. Later $(...) subshells inherit the lists.
+# A missing or failing resolver is an environment error (exit 2, not the exit 3
 # plan-body refusal); there is no built-in list.
 registry_unavailable() {
   echo "plan-status.sh: tier registry unavailable: $1" >&2
@@ -2781,10 +2863,16 @@ load_registry() {
   dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
   tiers="$dir/tiers.sh"
   [[ -f "$tiers" ]] || registry_unavailable "$tiers"
+  REG_TIERS="$tiers"
   REG_DELEGATES=$(bash "$tiers" delegates) || registry_unavailable "$tiers"
   REG_RUNNERS=$(bash "$tiers" runners) || registry_unavailable "$tiers"
+  REG_ENABLED=$(bash "$tiers" tools) || registry_unavailable "$tiers"
   REG_DELEGATES_LC=$(printf '%s\n' "$REG_DELEGATES" | tr '[:upper:]' '[:lower:]')
   REG_RUNNERS_LC=$(printf '%s\n' "$REG_RUNNERS" | tr '[:upper:]' '[:lower:]')
+  REG_ENABLED_LC=$(printf '%s\n' "$REG_ENABLED" | tr '[:upper:]' '[:lower:]')
+  REVIEW_TOOL_CACHE_K=()
+  REVIEW_TOOL_CACHE_V=()
+  REVIEW_TOOL_LAST=""
 }
 
 main() {

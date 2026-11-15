@@ -2280,6 +2280,247 @@ run_cmd env NNG_KIT_TIERS="$work/tiers-bad.json" "$BASH" "$SCRIPT" lock "$work/n
 assert_rc "malformed override lock exits 0" 0
 assert_stdout "malformed override lock returns legacy" "legacy"
 
+# --- disabled tools (S1) ---
+
+cat >"$work/tiers-disabled.json" <<'EOF'
+{"tools":{"devin":{"enabled":false},"cursor":{"enabled":false}}}
+EOF
+
+write_stamped "$work/dis-devin.md" <<EOF
+---
+created_at: "2026-01-01T00:00:00Z"
+plan_sha: "placeholder"
+approved_at: "2026-01-02T00:00:00Z"
+execution:
+  status: not-started
+---
+
+# Disabled devin
+
+## Execution map
+
+$MAP_TABLE
+| S1 | execute | delegate:devin | 1 | - | \`a.sh\` | \`true\` | mid |
+EOF
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" "$BASH" "$SCRIPT" rows "$work/dis-devin.md" devin
+assert_rc "rows on disabled backend exits 3" 3
+assert_stdout_empty "rows on disabled backend no stdout"
+assert_stderr_has "rows on disabled backend reason" "REFUSE: delegate:devin is disabled"
+
+write_stamped "$work/dis-lint.md" <<EOF
+---
+created_at: "2026-01-01T00:00:00Z"
+plan_sha: "placeholder"
+approved_at: "2026-01-02T00:00:00Z"
+execution:
+  status: not-started
+---
+
+# Disabled lint
+
+## Execution map
+
+$MAP_TABLE
+| S1 | execute | delegate:devin | 1 | - | \`a.sh\` | \`true\` | mid |
+| S2 | mid | subagent | 1 | - | \`b.sh\` | \`true\` | top@cursor-ask |
+| S3 | mid | subagent | 1 | - | \`c.sh\` | \`true\` | top@cursor-ask |
+| S4 | execute | delegate:agy | 1 | - | \`d.sh\` | \`true\` | top@claude-headless |
+| S5 | top | session | 2 | - | — | — | top@session |
+EOF
+cache_fix="$work/cache-fixture"
+cache_log="$work/cache-runner-tool.log"
+mkdir -p "$cache_fix"
+cp "$SCRIPT" "$cache_fix/plan-status.sh"
+cat >"$cache_fix/tiers.sh" <<EOW
+#!/usr/bin/env bash
+[[ "\${1:-}" == runner-tool ]] && printf '%s\n' "\${2:-}" >>"$cache_log"
+exec bash "$REG_SRC/tiers.sh" "\$@"
+EOW
+rm -f "$cache_log"
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" "$BASH" "$cache_fix/plan-status.sh" rows --lint "$work/dis-lint.md"
+assert_rc "lint flags disabled runner and review" 3
+assert_stderr_has "lint flags disabled Runner S1" "REFUSE: S1: Runner delegate:devin is disabled"
+assert_stderr_has "lint flags disabled Review S2" "REFUSE: S2: Review top@cursor-ask is disabled (cursor)"
+assert_stderr_has "lint flags disabled Review S3" "REFUSE: S3: Review top@cursor-ask is disabled (cursor)"
+if [[ "$(grep -cx 'cursor-ask' "$cache_log")" == 1 ]]; then
+  pass "lint looks up shared top@cursor-ask review once (cached)"
+else
+  fail "lint looks up shared top@cursor-ask review once (cached): $(cat "$cache_log")"
+fi
+if [[ "$LAST_ERR" != *"REFUSE: S4:"* && "$LAST_ERR" != *"REFUSE: S5:"* ]]; then
+  pass "lint does not flag enabled top@claude-headless or top@session"
+else
+  fail "lint does not flag enabled top@claude-headless or top@session"
+fi
+
+write_stamped "$work/dis-done-lint.md" <<EOF
+---
+created_at: "2026-01-01T00:00:00Z"
+plan_sha: "placeholder"
+approved_at: "2026-01-02T00:00:00Z"
+execution:
+  status: partial
+---
+
+# Done row with disabled tools
+
+## Execution map
+
+$MAP_TABLE
+| S1 | execute | delegate:devin | 1 | - | \`a.sh\` | \`true\` | top@cursor-ask |
+| S2 | execute | delegate:agy | 1 | - | \`b.sh\` | \`true\` | top@claude-headless |
+
+## Execution log
+
+| ID | Status | Notes |
+| --- | --- | --- |
+| S1 | done | finished earlier |
+| S2 | pending | |
+EOF
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" "$BASH" "$SCRIPT" rows --lint "$work/dis-done-lint.md"
+assert_rc "lint skips done row with disabled runner and review" 0
+assert_stdout "done row disabled lint prints ok" "ok"
+
+write_stamped "$work/dis-pending-lint.md" <<EOF
+---
+created_at: "2026-01-01T00:00:00Z"
+plan_sha: "placeholder"
+approved_at: "2026-01-02T00:00:00Z"
+execution:
+  status: in-progress
+---
+
+# Pending row with disabled tools
+
+## Execution map
+
+$MAP_TABLE
+| S1 | execute | delegate:devin | 1 | - | \`a.sh\` | \`true\` | top@cursor-ask |
+
+## Execution log
+
+| ID | Status | Notes |
+| --- | --- | --- |
+| S1 | pending | |
+EOF
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" "$BASH" "$SCRIPT" rows --lint "$work/dis-pending-lint.md"
+assert_rc "lint still flags pending row with disabled runner and review" 3
+assert_stderr_has "lint flags pending disabled Runner" "REFUSE: S1: Runner delegate:devin is disabled"
+assert_stderr_has "lint flags pending disabled Review" "REFUSE: S1: Review top@cursor-ask is disabled (cursor)"
+
+write_stamped "$work/dis-cc-review.md" <<EOF
+---
+created_at: "2026-01-01T00:00:00Z"
+plan_sha: "placeholder"
+approved_at: "2026-01-02T00:00:00Z"
+execution:
+  status: not-started
+---
+
+# claude-code review tool gating
+
+## Execution map
+
+$MAP_TABLE
+| S1 | mid | subagent | 1 | - | \`a.sh\` | \`true\` | top@cursor-ask |
+| S2 | mid | subagent | 2 | - | \`b.sh\` | \`true\` | top@cursor-ask |
+| S3 | mid | subagent | 3 | - | \`c.sh\` | \`true\` | top@claude-headless |
+| S4 | top | session | 4 | - | — | — | top@session |
+| S5 | execute | delegate:devin | 1 | - | \`d.sh\` | \`true\` | top@devin-fusion |
+EOF
+rm -f "$cache_log"
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" "$BASH" "$cache_fix/plan-status.sh" rows "$work/dis-cc-review.md" claude-code
+assert_rc "claude-code rows refuses selected subagent with disabled review" 3
+assert_stdout_empty "claude-code disabled review no stdout"
+assert_stderr_has "claude-code disabled review reason S1" "REFUSE: S1: Review top@cursor-ask is disabled (cursor)"
+assert_stderr_has "claude-code disabled review reason S2" "REFUSE: S2: Review top@cursor-ask is disabled (cursor)"
+if [[ "$(grep -cx 'cursor-ask' "$cache_log")" == 1 ]]; then
+  pass "claude-code rows looks up shared top@cursor-ask review once (cached)"
+else
+  fail "claude-code rows looks up shared top@cursor-ask review once (cached): $(cat "$cache_log")"
+fi
+if [[ "$LAST_ERR" != *"REFUSE: S3:"* && "$LAST_ERR" != *"REFUSE: S4:"* && "$LAST_ERR" != *"REFUSE: S5:"* ]]; then
+  pass "claude-code rows ignores enabled/session/skipped-delegate reviews"
+else
+  fail "claude-code rows ignores enabled/session/skipped-delegate reviews"
+fi
+
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" "$BASH" "$SCRIPT" rows "$work/dis-cc-review.md" claude-code S3 S4
+assert_rc "claude-code rows allows top@claude-headless and top@session when cursor/devin disabled" 0
+assert_jq "claude-code rows selects S3 and S4" '[.selected[].id] == ["S3","S4"]'
+
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" "$BASH" "$SCRIPT" rows "$work/dis-done-lint.md" agy
+assert_rc "enabled backend agy with top@claude-headless passes while cursor/devin disabled" 0
+assert_jq "enabled backend agy selects S2" '[.selected[].id] == ["S2"]'
+
+# Mixed-case reviewRunners key in user override on a disabled tool is still refused.
+cat >"$work/tiers-mixed-runner.json" <<'EOF'
+{"tools":{"cursor":{"enabled":false,"reviewRunners":{"Cursor-Custom":{"runner":"cursor-agent","args":["--mode=ask"]}}}}}
+EOF
+write_stamped "$work/dis-mixed-runner.md" <<EOF
+---
+created_at: "2026-01-01T00:00:00Z"
+plan_sha: "placeholder"
+approved_at: "2026-01-02T00:00:00Z"
+execution:
+  status: not-started
+---
+
+# Mixed-case review runner on disabled tool
+
+## Execution map
+
+$MAP_TABLE
+| S1 | mid | subagent | 1 | - | \`a.sh\` | \`true\` | top@Cursor-Custom |
+EOF
+run_cmd env NNG_KIT_TIERS="$work/tiers-mixed-runner.json" "$BASH" "$SCRIPT" rows --lint "$work/dis-mixed-runner.md"
+assert_rc "lint refuses mixed-case reviewRunners key on disabled tool" 3
+assert_stderr_has "lint mixed-case reviewRunners reason" "REFUSE: S1: Review top@cursor-custom is disabled (cursor)"
+run_cmd env NNG_KIT_TIERS="$work/tiers-mixed-runner.json" "$BASH" "$SCRIPT" rows "$work/dis-mixed-runner.md" claude-code
+assert_rc "rows refuses mixed-case reviewRunners key on disabled tool" 3
+assert_stderr_has "rows mixed-case reviewRunners reason" "REFUSE: S1: Review top@cursor-custom is disabled (cursor)"
+
+# In-flight start/batch/terminal/review stay open when backend is later disabled.
+write_stamped "$work/dis-inflight.md" <<EOF
+---
+created_at: "2026-01-01T00:00:00Z"
+plan_sha: "placeholder"
+approved_at: "2026-01-02T00:00:00Z"
+execution:
+  status: not-started
+---
+
+# In-flight devin
+
+## Execution map
+
+$MAP_TABLE
+| S1 | execute | delegate:devin | 1 | - | \`a.sh\` | \`true\` | mid |
+| S2 | top | session | 2 | - | — | — | top@devin-fusion |
+EOF
+run_cmd "$BASH" "$SCRIPT" rows "$work/dis-inflight.md" devin
+assert_rc "inflight baseline rows devin exits 0" 0
+printf '%s\n' "$LAST_OUT" >"$work/dis-inflight-rows.json"
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" "$BASH" "$SCRIPT" start \
+  "$work/dis-inflight.md" execute-via-devin "$work/dis-inflight-rows.json" --now 2026-04-01T00:00:00Z
+assert_rc "start execute-via-devin allowed when devin disabled" 0
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" "$BASH" "$SCRIPT" batch \
+  "$work/dis-inflight.md" execute-via-devin --done S1 --now 2026-04-01T01:00:00Z
+assert_rc "batch execute-via-devin allowed when devin disabled" 0
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" "$BASH" "$SCRIPT" terminal \
+  "$work/dis-inflight.md" execute-via-devin "$work/dis-inflight-rows.json" \
+  --outcome pass --backend devin --model-requested swe-2-high \
+  --model-resolved swe-2-high --effort high \
+  --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 --fallback null \
+  --now 2026-04-01T02:00:00Z
+assert_rc "terminal --backend devin allowed when devin disabled" 0
+assert_file_has "terminal devin marked S1 done" "$work/dis-inflight.md" "| S1 | done | |"
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" "$BASH" "$SCRIPT" review \
+  "$work/dis-inflight.md" S2 --outcome pass --runner top@devin-fusion --findings 0 \
+  --now 2026-04-01T03:00:00Z
+assert_rc "review with disabled tool runner allowed for in-flight plan" 0
+assert_file_has "review marked S2 done" "$work/dis-inflight.md" "| S2 | done | review=top@devin-fusion clean |"
+
 printf 'PASS/FAIL summary: %s failed\n' "$fails"
 if [[ "$fails" -ne 0 ]]; then
   exit 1

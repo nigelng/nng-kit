@@ -1,35 +1,35 @@
 # Drafting rules (coverage, architecture docs, tiers, waves)
 
-Read when drafting Step 4 content or validating an update. Companion to [plan-template.md](plan-template.md). SoT for coverage, architecture-doc, map v2, Runner policy, and wave rules.
+Read in the Step 2 prefetch or at the start of Update mode. SoT for coverage, architecture-doc, map v2, Runner policy, and wave rules.
 
 ## Execution scaffold (Step 4–5, required)
 
-Every new plan **must** ship the execution scaffold from [plan-template.md](plan-template.md): YAML frontmatter `execution:` block with `status: not-started` and zeroed progress, plus an empty `## Execution log` placed **immediately after** `## Execution map` and **before** `## Files to modify/create`. Do not append it at EOF. Field meanings and update rules live in `../execute-plan/execution-status.md` (SoT); do not restate them in the plan.
+Every new plan **must** ship the execution scaffold from [plan-template.md](plan-template.md): YAML frontmatter `execution:` block with `status: not-started` and zeroed progress, plus an empty `## Execution log` placed **immediately after** `## Execution map` and **before** `## Files to modify/create`. Field meanings and update rules live in `../execute-plan/execution-status.md` (SoT); do not restate them in the plan.
 
-## Test coverage probe (Step 3)
+## Test coverage probe (Step 2 prefetch)
 
-Default numeric target when tooling exists but the repo has no threshold: **90%** on files the plan changes (unless the user chooses otherwise after the probe).
+Default numeric target when tooling exists but the repo has no threshold: **90%** on files the plan changes.
 
 1. Inspect manifests/CI for coverage tooling (JS/TS `coverage`/`vitest`/`jest`/`c8`/`nyc`; Python `pytest-cov`/`.coveragerc`; Go `-cover`; Rust `llvm-cov`/`tarpaulin`; CI gates).
 2. Record **Available + threshold** (command + percent), **Available, no threshold** (command; use the default above), or **Not available** (do not invent a gate; note in Verification; optional follow-up).
-3. If available and the target is still unclear, ask once: repo threshold / that default / Other.
+3. If available and the target is still unclear, ask once in the Step 2 batch: repo threshold / that default / Other.
 
-Always record the probe under **Verification**. When available: include command + numeric target; prefer map/Implementation rows that close coverage gaps. When not: say so — no fake percentage or non-existent command.
+Always record the probe under **Verification**. When available: include command + numeric target; prefer map/Implementation rows that close coverage gaps. When not: no fake percentage or command.
 
 ## Update documentation (architecture docs)
 
-Every new plan **must** include Implementation step(s) **and** matching Execution-map row(s) to **update** relevant architecture docs (or **create** under `docs/architecture/` if the Step 3 scan found none and the change affects system shape), **or** an explicit **justified skip** in Scope or Implementation.
+Every new plan **must** include Implementation step(s) **and** matching Execution-map row(s) to **update** relevant architecture docs (or **create** under `docs/architecture/` if the scan found none and the change affects system shape), **or** an explicit **justified skip** in Scope or Implementation.
 
-**Scan (Step 3):** `Glob` / `Grep` / `Read` for architecture documentation. Default hints: `docs/architecture/**`, `**/ARCHITECTURE*`, `**/architecture/**`, README Architecture links, and Archify artifacts under `docs/architecture/`. Record paths for Assumptions / Dependencies / a short Architecture docs note. If a canonical prose doc (e.g. `OVERVIEW`) names a diagram or path, treat that as canonical; else prefer the newest `docs/architecture/**` artifact by folder timestamp; never ground on historical folders that disagree with the canonical doc.
+**Scan (`Glob` in Step 2 prefetch or Update step 4; `Read` in Step 3 or Update step 4):** architecture docs. Default hints: `docs/architecture/**`, `**/ARCHITECTURE*`, `**/architecture/**`, README Architecture links, and Archify artifacts under `docs/architecture/`. Record paths for Assumptions / Dependencies / a short Architecture docs note. Prefer a canonical prose doc (e.g. `OVERVIEW`) and any diagram/path it names; else the newest `docs/architecture/**` artifact by folder timestamp; ignore conflicting historical folders.
 
 - **Prefer updating** `docs/architecture/OVERVIEW.md` and the **canonical** Archify / diagram path from the scan over inventing parallel docs.
-- **Justified skip** — allowed only for pure chore / docs-only / formatting with **no** change to: runtime topology, config contracts, control plane, trust boundaries, or subsystem ownership. One line is enough (e.g. in Scope or the Implementation docs step).
+- **Justified skip** — allowed only for pure chore / docs-only / formatting with **no** change to: runtime topology, config contracts, control plane, trust boundaries, or subsystem ownership. One line is enough.
 - **Verification** must be execute-checkable (`git diff` / Files show those architecture-doc paths changed as listed, **or** the one-line skip is present). Recording scan paths in Assumptions/Dependencies alone does **not** satisfy Verification.
 - **Success criteria** must say architecture docs reflect the shape change, or that the skip is recorded.
 
 **Changelog:** if the repo has `CHANGELOG.md`, add a step and map row for it, or a one-line justified skip.
 
-On **update**, if the change alters system shape or Scope, re-run the scan and add/adjust the docs step + map row, or the justified skip. Pure wording-only plan edits may keep the prior note if Scope/shape is unchanged.
+On **update**, if the change alters system shape or Scope, re-run the scan and add/adjust the docs step + map row, or the justified skip. Wording-only edits may keep the prior note.
 
 ## Map v2 rules (when writing the map)
 
@@ -71,7 +71,7 @@ Columns and generation rules for the Execution map. Do not restate per-tool pins
 - **Small plans** (see Small plans below) omit the per-wave review lines entirely.
 - Then one final whole-branch review line naming the final `top` | `session` review row `<ID>` (Review: `top@` + the host's `defaultReviewRunner` unless the planner names another `top@*`): `Final whole-branch review — top@<x> — /execute-plan <plan> <ID>` for `top@session` / `top@claude-task`, else `Final whole-branch review — top@<x> — /delegate:review <plan> <ID>`.
 
-**Size budget:** keep the body (per SoT in `../execute-plan/execution-status.md`) under about 15 KB. Risk registers, decision records and long evidence go to a sibling `<plan-file>.notes.md` (same basename with `.notes.md` in place of `.md`), which only `top` rows and reviews read.
+**Size budget:** keep the body (per SoT in `../execute-plan/execution-status.md`) under about 15 KB. Risk registers, decision records and long evidence go to a sibling `<plan-file>.notes.md`, which only `top` rows and reviews read.
 
 ## Small plans
 
@@ -114,7 +114,9 @@ Never write a runner the policy didn't pick. If no member is eligible, use `suba
 
 ## Wave / parallel rules
 
-- Same **Wave** number → independent (no shared write paths, no ordering dependency) → `/execute-plan` may run them **in parallel**.
-- Higher wave waits on listed `Depends on` IDs.
-- Split large steps until most rows are `low`, `execute`, or `mid`; avoid “do the feature” mega-steps.
-- Prefer many small steps over few large ones when it does not create thrash (shared file conflicts → serial in the same wave or a later wave).
+- Same **Wave** → independent (no shared writes or ordering). Waves are barriers: wave count is the critical path.
+- **Earliest wave:** 1 + highest `Depends on` Wave (1 if none). Split a step's independent part into an earlier wave.
+- Same-file rows cannot share a wave (lint refuses): merge, split Files, or chain via `Depends on`.
+- Split large steps until most rows are `low`, `execute`, or `mid`; no “do the feature” mega-steps, but avoid thrash.
+- Docs/CHANGELOG rows depend only on rows whose output they quote; else they join implementation's wave.
+- One runner per wave where policy allows, so the wave runs as one parallel batch (`/execute-plan` Tasks or delegate subagents); mixed-runner waves run serially.

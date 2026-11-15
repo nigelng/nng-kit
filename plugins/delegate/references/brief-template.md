@@ -14,11 +14,12 @@
 5. **Do not** commit, push, or change git branches.
 6. On ambiguity or a hard block: stop and write questions to the path under
    **Run** — do not guess.
-7. **Parallel subagents (optional):** you may delegate scoped steps to
-   parallel subagents (Task tool) **only** when the steps are independent and
-   touch **disjoint files**. Give each subagent its exact file list and these
-   same rules. Keep dependent or overlapping steps sequential in the main
-   session. Run Verification yourself after all subagents finish.
+7. **Waves:** run rows in ascending Wave, each after its Depends on.
+   Same-Wave rows that all list Files have disjoint Files; if none depends on
+   another and your tool has subagents, run them in parallel (one per row,
+   with its Files and these rules). Rows with Wave or Files `—` run one at a
+   time, in order.
+   Run Verification yourself after all rows.
 8. Implement only the rows under **Rows**.
 9. Each row's Files is its write allowlist. Do not create, modify, or delete
    any path a selected row does not list.
@@ -27,7 +28,6 @@
     tier if your tool supports it (agy: `Model: "flash_lite"` for `low`;
     `"inherit"` only for a row at this session's tier), otherwise do it
     yourself.
-12. Questions go to the path under **Run**.
 
 ## Required final output
 
@@ -74,12 +74,12 @@ Verification, and Success criteria.
 
 ## Rows
 
-One table row per selected row. Escape a literal pipe in a cell as `\|`.
+One table row per selected row; an empty cell is `—`. Escape a literal pipe in a cell as `\|`.
 After the table, paste each row's Implementation-step text verbatim.
 
-| ID | Tier | Files | Acceptance | Depends on |
-| --- | --- | --- | --- | --- |
-| {{ROW_ID}} | {{ROW_TIER}} | {{ROW_FILES}} | {{ROW_ACCEPTANCE}} | {{ROW_DEPENDS}} |
+| ID | Tier | Wave | Files | Acceptance | Depends on |
+| --- | --- | --- | --- | --- | --- |
+| {{ROW_ID}} | {{ROW_TIER}} | {{ROW_WAVE}} | {{ROW_FILES}} | {{ROW_ACCEPTANCE}} | {{ROW_DEPENDS}} |
 
 ### {{ROW_ID}}
 

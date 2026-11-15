@@ -94,7 +94,8 @@
           { "model": "swe-2-medium", "role": "implement" },
           { "model": "gpt-6-1-terra-high", "role": "implement" },
           { "model": "gpt-6-1-sol-high", "role": "review" },
-          { "model": "gemini-4-argon-medium", "until": "2026-12-01", "role": "review" }
+          { "model": "claude-sonnet-5-5-high", "role": "review" },
+          { "model": "kimi-k3-1-pro-high", "role": "review" }
         ],
         "low": [
           { "model": "swe-2-medium" },

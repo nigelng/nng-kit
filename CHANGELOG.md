@@ -4,7 +4,59 @@ Notable changes to the nng-kit plugins, newest first. Each sync commit on
 nigelng/nng-kit quotes the lines added here since the previous sync, so write
 for plugin users. This file is public: keep private names and paths out.
 
+## 2026-11-15
+
+- delegate 0.12.0: Cursor delegate runs default to `--sandbox enabled` with
+  no `--force`; `DELEGATE_SANDBOX=off` restores the old argv. The Cursor
+  sandbox blocks writes outside the workspace (including `$HOME` and
+  `.git/hooks/`) and rejects network-classified commands such as
+  `curl https://…` before they run; it does not stop reads outside the
+  workspace, `git commit`, or ssh egress. Devin and agy runs are unchanged
+  (`DELEGATE_SANDBOX` is validated for every backend but changes only the
+  Cursor argv). Known gap: a run whose commands were refused still exits 0
+  and classifies `ok:true` in `delegate-verdict.sh`.
+
+- lifecycle 0.17.0, delegate 0.12.0: Devin `mid` review passes now fall back
+  `gpt-6-1-sol-high` → `claude-sonnet-5-5-high` → `kimi-k3-1-pro-high`. The
+  dated `gemini-4-argon-medium` row is gone (its Devin price doubles on
+  2026-12-01). The standalone Devin Fusion guidance keeps the `swe-2-medium`
+  sidekick with no end date. No `until:` rows remain in the shipped tiers.
+
 ## 2026-11-14
+
+- lifecycle 0.17.0, delegate 0.12.0: `enabled: false` in the tier registry
+  (`~/.config/nng-kit/tiers.json` or `$NNG_KIT_TIERS`) is now enforced as a
+  real off switch across row selection, lint, and launch (`cursor`, `devin`,
+  `agy`). `plan-status.sh rows` refuses a disabled delegate backend or any
+  selected row whose external `Review` runner belongs to a disabled tool
+  (exit 3, `REFUSE:`); `rows --lint` flags non-`done` rows whose `Runner` or
+  `Review` tool is disabled while leaving completed (`done`) rows valid.
+  `delegate-launch.sh` (run, `--print`, `--interactive`) and
+  `delegate-review-launch.sh run` (including `--print`) refuse disabled tools
+  with exit 3 even when an explicit model slug is given, before writing
+  `.claude/tmp` files or snapshots. Status-recording commands (`start`, `batch`,
+  `terminal`, `review`), review guard/verdict helpers (`snapshot`, `check`,
+  `scope`, `verdict`), and `tiers.sh delegates` keep accepting disabled ids so
+  in-flight runs can finish. Agent references (`execute-via-core.md`,
+  `review-runner.md`), `model-tiers.md`, and the README document the switch,
+  verification via `tiers.sh`, and refusals.
+
+- lifecycle 0.17.0: `/make-plan` runs its context reads (git state, recent
+  plan, architecture-doc and coverage probes, template and drafting rules) as
+  one parallel batch before the requirements interview. It asks the coverage
+  target in that same batch instead of a second round. Drafting rules now
+  schedule each map row in the earliest wave its dependencies allow, let docs
+  and CHANGELOG rows run alongside implementation when nothing needs quoting,
+  and say how to handle same-file rows, which `rows --lint` refuses in one
+  wave. Plans keep each wave on one runner where the policy allows, so the
+  whole wave runs as one parallel batch. `/critique` adds the recent-plan
+  lookup to its first parallel batch. In change mode it merges security
+  findings into lean round 1's fixes, so round 2 reviews them, and it runs
+  fixes as one fix Task per separate file group, all launched together.
+
+- delegate 0.12.0: the execute-via brief now passes each row's `Wave`. Backends
+  run waves in order and run same-wave rows in parallel subagents when the CLI
+  supports them, instead of working out row independence themselves.
 
 - lifecycle 0.16.0 (Devin follow-ups): Devin needs the six `kit-*` profiles
   linked into `~/.config/devin/agents/` (README, Install (Devin)); the plugin

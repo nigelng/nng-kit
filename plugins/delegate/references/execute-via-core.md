@@ -61,7 +61,9 @@ Resolve slug from `<rows-json>` **after Step 4 writes it**, **before** Step 5 �
 (`--reexecute` or not): pre-switch Step 2 `launch_tier`/pin does not stick if the branch plan body
 differs. Always pass as `--model` via `delegate-launch.sh`.
 
-1. `model=<slug>` → overrides pin; `model_requested` = that slug; `model=auto` = logged fallback
+1. A disabled `<backend>` stops before model resolution (Step 1 enabled gate, `rows`, and
+   `delegate-launch.sh` all refuse it — `model=<slug>` does not bypass this). Otherwise,
+   `model=<slug>` → overrides pin; `model_requested` = that slug; `model=auto` = logged fallback
    (`fallback: model=auto`); preflight checks it against CLI model list.
 2. `router: true` (no `model=`) → `--model auto`.
 3. Else → `launch_tier` (`low`/`execute`/`mid`) backend pin from
@@ -108,6 +110,18 @@ Stop and report on any failure. **Never stash for the user.**
    they must never execute there — no `claude` background sessions, no `Task`
    review runners, and headless backend runs would escape the gates). Do not run
    any script, `cd`, or status write.
+
+   **Enabled gate** — immediately after the host gate, before any backend CLI probe, `cd`, or
+   status write:
+
+   ```bash
+   bash <skill-dir>/../../scripts/tiers.sh tools
+   ```
+
+   `tiers.sh tools` must list `<backend>` (`enabled: true` in the tier registry). Not listed →
+   **stop** and report that `<backend>` is disabled (`model=<slug>` does not bypass it); do not
+   probe the CLI, `cd`, or write status. Exit 2 → stop, show stderr.
+
 1. **Backend CLI & auth preflight (skill hook)** — calling skill's check (`which agent` / `which agy`
    + auth/model / `which devin` + `devin auth status`). Missing/unauthenticated → stop with install/
    login hint. Model listing here; slug choice waits for **Model default**.
@@ -324,8 +338,11 @@ New run id `<n>` per implement/FIX round (`1`,`2`,…). `<model>` = slug from **
   bash <skill-dir>/../../scripts/delegate-launch.sh <backend> /absolute/repo/root <n> <model> brief
   ```
 
-  Script exit 0 after recording backend status in `.exit` (even on backend failure); exit 2 =
-  usage error → stop, show stderr.
+  Script exit 0 after recording backend status in `.exit` (even on backend failure); exit 3 =
+  disabled backend (`REFUSE:` on stderr, no run files written) → stop, show stderr; exit 2 =
+  usage or registry error → stop, show stderr. Cursor runs are sandboxed by default; set
+  `DELEGATE_SANDBOX=off` on the call only when a selected row needs network access or writes
+  outside the workspace (validated for every backend; no effect on agy/Devin argv).
 - **`safe`/`no-force`:** Claude **never** invokes the backend CLI. Print the command, wait for the
   user to say done:
 
@@ -333,7 +350,8 @@ New run id `<n>` per implement/FIX round (`1`,`2`,…). `<model>` = slug from **
   bash <skill-dir>/../../scripts/delegate-launch.sh --interactive <backend> /absolute/repo/root <n> <model> brief
   ```
 
-  Step 3 was skipped. **Skip Step 6** (no run logs); proceed to Step 7.
+  Exit 3 (disabled backend) or exit 2 (usage or registry error) → stop, show stderr. Step 3 was
+  skipped. **Skip Step 6** (no run logs); proceed to Step 7.
 
 ### Step 6 — Verdict (default path only)
 

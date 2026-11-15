@@ -6,6 +6,8 @@ ROOT=$(cd "$(dirname "$0")/../../../.." && pwd)
 SCRIPT="$ROOT/nng-kit/plugins/delegate/scripts/delegate-launch.sh"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/test-delegate-launch.XXXXXX")
+export XDG_CONFIG_HOME="$work/xdg-config"
+unset NNG_KIT_TIERS
 cleanup() { rm -rf "$work"; }
 trap cleanup EXIT
 
@@ -55,7 +57,7 @@ no_files() {
 
 # --- argv: each backend × brief / fix+resume / fix fresh / interactive ---
 
-cursor_base=$'agent\n-p\n--force\n--trust\n--workspace\n'"$repo"$'\n--output-format\nstream-json\n--stream-partial-output\n--model\ngrok-4.7-high'
+cursor_base=$'agent\n-p\n--sandbox\nenabled\n--trust\n--workspace\n'"$repo"$'\n--output-format\nstream-json\n--stream-partial-output\n--model\ngrok-4.7-high'
 
 run_print bash "$SCRIPT" --print cursor "$repo" 3 grok-4.7-high brief
 if [[ "$LAST_RC" -eq 0 && "$LAST_OUT" == "$cursor_base"$'\n'"Read .claude/tmp/exec-cursor-brief.md and follow it exactly." ]]; then
@@ -185,6 +187,34 @@ else
   fail "devin interactive fix"
 fi
 
+# --- DELEGATE_SANDBOX: on (default) sandboxes cursor; off restores --force ---
+
+cursor_base_off=$'agent\n-p\n--force\n--trust\n--workspace\n'"$repo"$'\n--output-format\nstream-json\n--stream-partial-output\n--model\ngrok-4.7-high'
+
+run_print env DELEGATE_SANDBOX=off bash "$SCRIPT" --print cursor "$repo" 3 grok-4.7-high brief
+want="$cursor_base_off"$'\n'"Read .claude/tmp/exec-cursor-brief.md and follow it exactly."
+if [[ "$LAST_RC" -eq 0 && "$LAST_OUT" == "$want" ]]; then
+  pass "DELEGATE_SANDBOX=off restores the --force cursor argv"
+else
+  fail "DELEGATE_SANDBOX=off restores the --force cursor argv"
+fi
+
+run_print env DELEGATE_SANDBOX=on bash "$SCRIPT" --print cursor "$repo" 3 grok-4.7-high brief
+want="$cursor_base"$'\n'"Read .claude/tmp/exec-cursor-brief.md and follow it exactly."
+if [[ "$LAST_RC" -eq 0 && "$LAST_OUT" == "$want" ]]; then
+  pass "DELEGATE_SANDBOX=on equals the default cursor argv"
+else
+  fail "DELEGATE_SANDBOX=on equals the default cursor argv"
+fi
+
+run_print env DELEGATE_SANDBOX=off bash "$SCRIPT" --print devin "$repo" 3 gpt-6-1-terra-high brief
+want="$devin_base"$'\n--print=Read .claude/tmp/exec-devin-brief.md and follow it exactly.'
+if [[ "$LAST_RC" -eq 0 && "$LAST_OUT" == "$want" ]]; then
+  pass "DELEGATE_SANDBOX=off leaves devin argv unchanged"
+else
+  fail "DELEGATE_SANDBOX=off leaves devin argv unchanged"
+fi
+
 # --- interactive lines shell-quote a repo root containing spaces ---
 
 space_repo="$work/repo with space"
@@ -223,7 +253,12 @@ cat >"$stub/agent" <<'EOF'
 printf '%s\n' "$@" >"${STUB_ARGV_LOG:?}"
 exit "${STUB_RC:-0}"
 EOF
-chmod +x "$stub/timeout" "$stub/agent"
+cat >"$stub/devin" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$@" >"${STUB_ARGV_LOG:?}"
+exit "${STUB_RC:-0}"
+EOF
+chmod +x "$stub/timeout" "$stub/agent" "$stub/devin"
 
 export STUB_TIMEOUT_LOG="$work/timeout.args"
 export STUB_ARGV_LOG="$work/agent.args"
@@ -250,6 +285,22 @@ if [[ "$(head -2 "$STUB_TIMEOUT_LOG")" == $'--kill-after=2m\n90m' ]]; then
 else
   fail "timeout ceiling is 90m (got $(head -2 "$STUB_TIMEOUT_LOG"))"
 fi
+
+# Invalid DELEGATE_SANDBOX is rejected in run mode: exit 2 naming the
+# variable, before the stub CLI is invoked and before any exec-run file.
+rm -rf "$repo/.claude"
+rm -f "$STUB_TIMEOUT_LOG" "$STUB_ARGV_LOG"
+for sb_backend in cursor devin; do
+  run_cmd env DELEGATE_SANDBOX=maybe PATH="$stub:$PATH" \
+    bash "$SCRIPT" "$sb_backend" "$repo" 3 m-1 brief
+  if [[ "$LAST_RC" -eq 2 && "$LAST_ERR" == *DELEGATE_SANDBOX* ]] \
+    && [[ ! -e "$STUB_TIMEOUT_LOG" && ! -e "$STUB_ARGV_LOG" ]] \
+    && no_files; then
+    pass "DELEGATE_SANDBOX=maybe rejected for $sb_backend before any file is written"
+  else
+    fail "DELEGATE_SANDBOX=maybe rejected for $sb_backend before any file is written"
+  fi
+done
 
 rm -rf "$repo/.claude"
 export STUB_RC=3
@@ -307,10 +358,12 @@ if [[ "$(tr -d '[:space:]' <"$repo/.claude/tmp/exec-run-cursor-8.exit")" == 4 ]]
 else
   fail "missing timeout runs the cli"
 fi
-if grep -q -- '--force' "$work/agent-notime.args"; then
-  pass "missing timeout invoked agent"
+if grep -qx -- '--sandbox' "$work/agent-notime.args" \
+  && grep -qx 'enabled' "$work/agent-notime.args" \
+  && ! grep -qx -- '--force' "$work/agent-notime.args"; then
+  pass "missing timeout invoked agent with --sandbox enabled, no --force"
 else
-  fail "missing timeout invoked agent"
+  fail "missing timeout invoked agent with --sandbox enabled, no --force"
 fi
 
 # gtimeout is used when timeout is absent.
@@ -519,6 +572,136 @@ if [[ "$LAST_RC" -eq 2 ]] && no_files; then
   pass "bad kind rejected"
 else
   fail "bad kind rejected"
+fi
+
+# --- disabled backend gate: exit 3, REFUSE: on stderr, no stdout/files ---
+
+assert_refused_launch() {
+  local label=$1 backend=$2
+  shift 2
+  rm -rf "$repo/.claude"
+  run_cmd "$@"
+  local want_err="REFUSE: ${backend} is disabled (enabled: false in the tier registry)"
+  if [[ "$LAST_RC" -eq 3 && -z "$LAST_OUT" && "$LAST_ERR" == "$want_err" ]] && no_files; then
+    pass "$label"
+  else
+    fail "$label (want rc=3, empty stdout, stderr='$want_err', no .claude)"
+  fi
+}
+
+disabled_cd="$work/tiers-disabled-cd.json"
+printf '{"tools":{"cursor":{"enabled":false},"devin":{"enabled":false}}}\n' >"$disabled_cd"
+
+for mode in run --print --interactive; do
+  mode_args=()
+  if [[ "$mode" != "run" ]]; then
+    mode_args=("$mode")
+  fi
+
+  if [[ "$mode" == "run" ]]; then
+    assert_refused_launch "disabled cursor $mode (default model) exits 3" cursor \
+      env NNG_KIT_TIERS="$disabled_cd" PATH="$stub:$PATH" \
+      STUB_TIMEOUT_LOG="$work/disabled-timeout.args" STUB_ARGV_LOG="$work/disabled-agent.args" \
+      "$BASH" "$SCRIPT" cursor "$repo" 1 grok-4.7-high brief
+    if [[ ! -e "$work/disabled-timeout.args" && ! -e "$work/disabled-agent.args" ]]; then
+      pass "disabled cursor run never invoked stub CLI"
+    else
+      fail "disabled cursor run never invoked stub CLI"
+    fi
+  else
+    assert_refused_launch "disabled cursor $mode (default model) exits 3" cursor \
+      env NNG_KIT_TIERS="$disabled_cd" \
+      "$BASH" "$SCRIPT" ${mode_args[@]+"${mode_args[@]}"} cursor "$repo" 1 grok-4.7-high brief
+  fi
+
+  assert_refused_launch "disabled cursor $mode (explicit model=<slug>) exits 3" cursor \
+    env NNG_KIT_TIERS="$disabled_cd" \
+    "$BASH" "$SCRIPT" ${mode_args[@]+"${mode_args[@]}"} cursor "$repo" 1 claude-opus-5-5-high brief
+
+  assert_refused_launch "disabled cursor $mode (auto) exits 3" cursor \
+    env NNG_KIT_TIERS="$disabled_cd" \
+    "$BASH" "$SCRIPT" ${mode_args[@]+"${mode_args[@]}"} cursor "$repo" 1 auto brief
+
+  assert_refused_launch "disabled devin $mode (default model) exits 3" devin \
+    env NNG_KIT_TIERS="$disabled_cd" \
+    "$BASH" "$SCRIPT" ${mode_args[@]+"${mode_args[@]}"} devin "$repo" 1 swe-2-high brief
+
+  assert_refused_launch "disabled devin $mode (explicit model=<slug> fix) exits 3" devin \
+    env NNG_KIT_TIERS="$disabled_cd" \
+    "$BASH" "$SCRIPT" ${mode_args[@]+"${mode_args[@]}"} devin "$repo" 1 gpt-6-1-terra-high fix:1
+done
+
+# Enabled backend under the same override still works across --print, --interactive, and run.
+rm -rf "$repo/.claude"
+run_print env NNG_KIT_TIERS="$disabled_cd" "$BASH" "$SCRIPT" --print agy "$repo" 3 gemini-4-argon-medium brief
+if [[ "$LAST_RC" -eq 0 && "$LAST_OUT" == "$agy_base"$'\n-p\n'"Read .claude/tmp/exec-agy-brief.md and follow it exactly." ]] && no_files; then
+  pass "enabled agy --print still works when cursor/devin disabled"
+else
+  fail "enabled agy --print still works when cursor/devin disabled"
+fi
+
+run_cmd env NNG_KIT_TIERS="$disabled_cd" "$BASH" "$SCRIPT" --interactive agy "$repo" 3 gemini-4-argon-medium brief
+want="cd $repo && agy --model gemini-4-argon-medium \"Read .claude/tmp/exec-agy-brief.md and follow it exactly.\""
+if [[ "$LAST_RC" -eq 0 && "$LAST_OUT" == "$want" ]] && no_files; then
+  pass "enabled agy --interactive still works when cursor/devin disabled"
+else
+  fail "enabled agy --interactive still works when cursor/devin disabled"
+fi
+
+rm -rf "$repo/.claude"
+rm -f "$work/child-enabled.env"
+run_cmd env NNG_KIT_TIERS="$disabled_cd" PATH="$envstub" STUB_ENV_LOG="$work/child-enabled.env" \
+  DELEGATE_ENV_ALLOW=STUB_ENV_LOG "$BASH" "$SCRIPT" agy "$repo" 22 gemini-4-argon-medium brief
+if [[ "$LAST_RC" -eq 0 && -f "$repo/.claude/tmp/exec-run-agy-22.exit" && "$(tr -d '[:space:]' <"$repo/.claude/tmp/exec-run-agy-22.exit")" == 0 ]]; then
+  pass "enabled agy run still works when cursor/devin disabled"
+else
+  fail "enabled agy run still works when cursor/devin disabled"
+fi
+
+# Disabling agy refuses agy across all three modes, including with stubbed agy on PATH.
+disabled_agy="$work/tiers-disabled-agy.json"
+printf '{"tools":{"agy":{"enabled":false}}}\n' >"$disabled_agy"
+for mode in run --print --interactive; do
+  mode_args=()
+  if [[ "$mode" != "run" ]]; then
+    mode_args=("$mode")
+  fi
+  rm -f "$work/disabled-agy.env"
+  assert_refused_launch "disabled agy $mode (default model) exits 3" agy \
+    env NNG_KIT_TIERS="$disabled_agy" PATH="$envstub" STUB_ENV_LOG="$work/disabled-agy.env" \
+    DELEGATE_ENV_ALLOW=STUB_ENV_LOG "$BASH" "$SCRIPT" ${mode_args[@]+"${mode_args[@]}"} agy "$repo" 1 gemini-4-hydrogen-high brief
+  if [[ ! -e "$work/disabled-agy.env" ]]; then
+    pass "disabled agy $mode never invoked agy stub"
+  else
+    fail "disabled agy $mode never invoked agy stub"
+  fi
+  assert_refused_launch "disabled agy $mode (explicit model=<slug>) exits 3" agy \
+    env NNG_KIT_TIERS="$disabled_agy" \
+    "$BASH" "$SCRIPT" ${mode_args[@]+"${mode_args[@]}"} agy "$repo" 1 claude-opus-5-5-high brief
+done
+
+# XDG_CONFIG_HOME override (without NNG_KIT_TIERS) is respected.
+xdg_dis="$work/xdg-disabled"
+mkdir -p "$xdg_dis/nng-kit"
+printf '{"tools":{"cursor":{"enabled":false}}}\n' >"$xdg_dis/nng-kit/tiers.json"
+assert_refused_launch "XDG_CONFIG_HOME disabled cursor --print exits 3" cursor \
+  env -u NNG_KIT_TIERS XDG_CONFIG_HOME="$xdg_dis" \
+  "$BASH" "$SCRIPT" --print cursor "$repo" 1 grok-4.7-high brief
+run_print env -u NNG_KIT_TIERS XDG_CONFIG_HOME="$xdg_dis" "$BASH" "$SCRIPT" --print agy "$repo" 3 gemini-4-argon-medium brief
+if [[ "$LAST_RC" -eq 0 && "$LAST_OUT" == "$agy_base"$'\n-p\n'"Read .claude/tmp/exec-agy-brief.md and follow it exactly." ]]; then
+  pass "XDG_CONFIG_HOME enabled agy --print still succeeds"
+else
+  fail "XDG_CONFIG_HOME enabled agy --print still succeeds"
+fi
+
+# Malformed tiers override exits 2 with REFUSE: and writes nothing.
+printf '{bad\n' >"$work/tiers-malformed.json"
+rm -rf "$repo/.claude"
+run_cmd env NNG_KIT_TIERS="$work/tiers-malformed.json" "$BASH" "$SCRIPT" --print cursor "$repo" 1 grok-4.7-high brief
+if [[ "$LAST_RC" -eq 2 && -z "$LAST_OUT" && "$LAST_ERR" == *"REFUSE:"* ]] && no_files; then
+  pass "malformed tiers override exits 2 with REFUSE:"
+else
+  fail "malformed tiers override exits 2 with REFUSE:"
 fi
 
 printf 'PASS/FAIL summary: %s failed\n' "$fails"

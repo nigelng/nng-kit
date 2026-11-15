@@ -837,7 +837,7 @@ assert_rc "bad authEnv name exits 2" 2
 # planningOrder that also lists agy-plan owns it, so its authEnv applies.
 cat >"$work/tiers-runner-owner.json" <<'EOF'
 {"planningOrder":["zz","claude-code","cursor","devin","agy"],
- "tools":{"zz":{"authEnv":["ZZ_TOKEN"],"reviewRunners":{"agy-plan":{"tier":"top-review","mode":"plan"}}}}}
+ "tools":{"zz":{"enabled":true,"authEnv":["ZZ_TOKEN"],"reviewRunners":{"agy-plan":{"tier":"top-review","mode":"plan"}}}}}
 EOF
 clean_print env NNG_KIT_TIERS="$work/tiers-runner-owner.json" ZZ_TOKEN=z bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$agy_model"
 assert_rc "registry-owned runner --print exits 0" 0
@@ -1072,6 +1072,137 @@ run_cmd bash "$SCRIPT" verdict "$run_repo" final-19
 assert_rc "verdict bad guard exits 2" 2
 run_cmd bash "$SCRIPT" verdict "$run_repo" nope
 assert_rc "verdict bad rid exits 2" 2
+
+# --- disabled tools (enabled: false): run / run --print exit 3; snapshot/check/scope/verdict unchanged ---
+
+disabled_repo="$work/disabled-run"
+new_repo "$disabled_repo"
+printf 'base\n' >"$disabled_repo/tracked.txt"
+commit_paths "$disabled_repo" add-tracked tracked.txt
+
+cat >"$work/tiers-disabled.json" <<'EOF'
+{"tools":{"cursor":{"enabled":false},"devin":{"enabled":false}}}
+EOF
+cat >"$work/tiers-all-ext-disabled.json" <<'EOF'
+{"tools":{"cursor":{"enabled":false},"devin":{"enabled":false},"agy":{"enabled":false}}}
+EOF
+cat >"$work/tiers-first-owner-disabled.json" <<'EOF'
+{"planningOrder":["zz","claude-code","cursor","devin","agy"],
+ "tools":{"zz":{"enabled":false,"authEnv":["ZZ_TOKEN"],"reviewRunners":{"agy-plan":{"tier":"top-review","mode":"plan"}}}}}
+EOF
+
+assert_refuse_disabled() {
+  local label=$1 runner=$2 tool=$3
+  local want="REFUSE: review runner ${runner}: ${tool} is disabled"
+  assert_rc "$label exits 3" 3
+  assert_stdout_empty "$label stdout empty"
+  if [[ "$LAST_ERR" == "$want" ]]; then
+    pass "$label stderr REFUSE"
+  else
+    fail "$label stderr REFUSE (want '$want')"
+  fi
+}
+
+assert_no_review_artifacts() {
+  local label=$1 dir=$2 rid=$3
+  if [[ ! -e "$dir/.claude/tmp/exec-review-${rid}.snap" \
+     && ! -e "$dir/.claude/tmp/exec-review-${rid}.guard.json" \
+     && ! -e "$dir/.claude/tmp/exec-review-${rid}.md" \
+     && ! -e "$dir/.claude/tmp/exec-review-${rid}.err" \
+     && ! -e "$dir/.claude/tmp/exec-review-${rid}.exit" ]]; then
+    pass "$label writes no snapshot or launch artifacts"
+  else
+    fail "$label writes no snapshot or launch artifacts"
+  fi
+}
+
+# --print refusals for disabled devin and cursor (default and explicit override model)
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" bash "$SCRIPT" run --print devin-fusion "$disabled_repo" devin-1 "$devin_model"
+assert_refuse_disabled "disabled devin-fusion --print" devin-fusion devin
+
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" bash "$SCRIPT" run --print devin-fusion "$disabled_repo" devin-1 "fusion-custom-override-1"
+assert_refuse_disabled "disabled devin-fusion --print explicit model" devin-fusion devin
+
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" bash "$SCRIPT" run --print cursor-ask "$disabled_repo" cursor-1 "$cursor_model"
+assert_refuse_disabled "disabled cursor-ask --print" cursor-ask cursor
+
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" bash "$SCRIPT" run --print cursor-ask "$disabled_repo" cursor-1 "custom-override-model"
+assert_refuse_disabled "disabled cursor-ask --print explicit model" cursor-ask cursor
+
+if [[ ! -e "$disabled_repo/.claude" ]]; then
+  pass "disabled --print creates no .claude dir"
+else
+  fail "disabled --print creates no .claude dir"
+fi
+
+# run refusals with brief present and PATH stubs (no snapshot, no CLI execution)
+write_brief "$disabled_repo" devin-1
+rm -f "$timeout_log"
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" PATH="$runpath" STUB_TIMEOUT_LOG="$timeout_log" \
+  STUB_RC=0 STUB_STDOUT="$pass_trailer" \
+  "$bash_bin" "$SCRIPT" run devin-fusion "$disabled_repo" devin-1 "fusion-custom-override-1"
+assert_refuse_disabled "disabled devin-fusion run explicit model" devin-fusion devin
+assert_no_review_artifacts "disabled devin-fusion run" "$disabled_repo" devin-1
+if [[ ! -e "$timeout_log" ]]; then
+  pass "disabled devin-fusion run never invokes timeout/CLI"
+else
+  fail "disabled devin-fusion run never invokes timeout/CLI"
+fi
+
+write_brief "$disabled_repo" cursor-1
+rm -f "$timeout_log"
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" PATH="$runpath" STUB_TIMEOUT_LOG="$timeout_log" \
+  STUB_RC=0 STUB_STDOUT="$pass_trailer" \
+  "$bash_bin" "$SCRIPT" run cursor-ask "$disabled_repo" cursor-1 "custom-override-model"
+assert_refuse_disabled "disabled cursor-ask run explicit model" cursor-ask cursor
+assert_no_review_artifacts "disabled cursor-ask run" "$disabled_repo" cursor-1
+if [[ ! -e "$timeout_log" ]]; then
+  pass "disabled cursor-ask run never invokes timeout/CLI"
+else
+  fail "disabled cursor-ask run never invokes timeout/CLI"
+fi
+
+# agy-plan refused when agy is disabled (both --print and run)
+run_cmd env NNG_KIT_TIERS="$work/tiers-all-ext-disabled.json" bash "$SCRIPT" run --print agy-plan "$disabled_repo" agy-1 "custom-agy-override"
+assert_refuse_disabled "disabled agy-plan --print explicit model" agy-plan agy
+
+write_brief "$disabled_repo" agy-1
+rm -f "$timeout_log"
+run_cmd env NNG_KIT_TIERS="$work/tiers-all-ext-disabled.json" PATH="$runpath" STUB_TIMEOUT_LOG="$timeout_log" \
+  STUB_RC=0 STUB_STDOUT="$pass_trailer" \
+  "$bash_bin" "$SCRIPT" run agy-plan "$disabled_repo" agy-1 "$agy_model"
+assert_refuse_disabled "disabled agy-plan run" agy-plan agy
+assert_no_review_artifacts "disabled agy-plan run" "$disabled_repo" agy-1
+
+# Duplicate runner name: first owner in planningOrder disabled -> refused even when agy is enabled
+run_cmd env NNG_KIT_TIERS="$work/tiers-first-owner-disabled.json" bash "$SCRIPT" run --print agy-plan "$disabled_repo" agy-2 "$agy_model"
+assert_refuse_disabled "first-owner disabled refuses runner" agy-plan zz
+
+# claude-headless continues working when cursor, devin, and agy are disabled
+run_cmd env NNG_KIT_TIERS="$work/tiers-all-ext-disabled.json" bash "$SCRIPT" run --print claude-headless "$disabled_repo" final-1 "$claude_model"
+assert_rc "claude-headless --print succeeds with other tools disabled" 0
+assert_stderr_empty "claude-headless --print no stderr with other tools disabled"
+
+write_brief "$disabled_repo" final-1
+rm -f "$timeout_log"
+run_cmd env NNG_KIT_TIERS="$work/tiers-all-ext-disabled.json" PATH="$runpath" STUB_TIMEOUT_LOG="$timeout_log" \
+  STUB_RC=0 STUB_STDOUT="$pass_trailer" \
+  "$bash_bin" "$SCRIPT" run claude-headless "$disabled_repo" final-1 "$claude_model"
+assert_rc "claude-headless run succeeds with other tools disabled" 0
+assert_jq "claude-headless run guard clean with other tools disabled" '.clean == true and .reverted == [] and .removed == []'
+
+# snapshot, check, scope, verdict remain open for disabled tools
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" bash "$SCRIPT" snapshot "$disabled_repo" cursor-2
+assert_rc "snapshot stays open when cursor disabled" 0
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" bash "$SCRIPT" check "$disabled_repo" cursor-2
+assert_rc "check stays open when cursor disabled" 0
+assert_jq "check clean when cursor disabled" '.clean == true'
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" bash "$SCRIPT" scope "$disabled_repo" HEAD '{"map":"v2","files_union":[]}' "$disabled_repo/plan.md"
+assert_rc "scope stays open when tools disabled" 0
+put_review "$disabled_repo" devin-2 "$pass_trailer" true 0
+run_cmd env NNG_KIT_TIERS="$work/tiers-disabled.json" bash "$SCRIPT" verdict "$disabled_repo" devin-2
+assert_rc "verdict stays open when devin disabled" 0
+assert_jq "verdict ok when devin disabled" '.ok == true and .verdict == "PASS"'
 
 printf 'PASS/FAIL summary: %s failed\n' "$fails"
 if [[ "$fails" -ne 0 ]]; then

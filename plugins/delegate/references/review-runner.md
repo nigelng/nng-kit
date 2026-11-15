@@ -23,7 +23,8 @@ Reviewer preflight — before `run`:
    Step 8 `ok: false` handling — stop and ask).
 2. The model is that tool's `top-review` pin from [model-tiers.md](model-tiers.md):
    `bash <skill-dir>/../../scripts/tiers.sh resolve <tool> top-review`, `<tool>` from
-   `tiers.sh runner-tool <runner>`. The table's model list must show it **exactly**, else
+   `tiers.sh runner-tool <runner>`. If `<tool>` is disabled (not listed by `tiers.sh tools`),
+   stop per **Run** exit 3 below. The table's model list must show it **exactly**, else
    **reviewer failure** (Claude: no list, skip).
 3. agy past its `until:` date → refuse → **reviewer failure**.
 
@@ -39,6 +40,12 @@ bash <skill-dir>/../../scripts/delegate-review-launch.sh run <runner> /absolute/
 Run it in the background (`run_in_background: true`, same as a headless implement run). Wait for
 the **background-task completion notification**; do not poll with `sleep`. `<model>` is the
 preflighted `top-review` pin.
+
+- **Exit 3 (disabled tool):** `delegate-review-launch.sh run` refuses before taking a snapshot
+  when `<runner>`'s owning tool is disabled in the tier registry (`REFUSE: review runner
+  <runner>: <tool> is disabled` on stderr). **Stop immediately**, print the `REFUSE:` line, and
+  offer `/make-plan update <plan>` or re-enabling the tool — never silently fall back to another
+  review runner. Exit 2 → stop, show stderr.
 
 The reviewer reads the host verifier summary in the brief and **never runs Verification** itself.
 After the run completes, core Step 7 item 5's shared `verdict` call produces the result JSON.

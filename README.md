@@ -56,7 +56,9 @@ Plugin skills are namespaced: `/lifecycle:make-plan`, `/relay:save`,
 
 ### Prerequisites for `delegate`
 
-`delegate` needs only the CLI for the backend you use. Each is optional.
+`delegate` needs only the CLI for the backend you use. Each is optional — if
+you do not install Cursor, Antigravity, or Devin on a host, turn it off in
+[Enable or disable a tool](#enable-or-disable-a-tool).
 
 - **Cursor** (`/delegate:execute-via-cursor`): the Cursor CLI `agent`,
   installed and signed in.
@@ -122,6 +124,8 @@ neither `kit-critique` nor `kit-review-top` it reviews in-session and says so.
 The profiles carry the shipped model pins. A `tiers.json` override or a pin
 change does not reach them: regenerate them (maintainers:
 `scripts/sync-model-tiers.sh`) and reinstall, or Devin runs the profile's model.
+If you do not install or use Devin on a host, disable `devin` across the kit
+(see [Enable or disable a tool](#enable-or-disable-a-tool)).
 
 ## Install (Cursor)
 
@@ -158,7 +162,8 @@ consumer CI to catch drift from the stamped tag.
 
 Recommendation: the personal import covers your own Cloud Agents, the team
 marketplace covers a team, and vendoring covers repos used by others or
-automations.
+automations. If you do not install or use Cursor on a host, disable `cursor`
+across the kit (see [Enable or disable a tool](#enable-or-disable-a-tool)).
 
 ## Install (Windsurf / plain skills)
 
@@ -171,8 +176,8 @@ Invoke as `/<name>`.
 
 | Plugin | Version | What it is |
 | --- | --- | --- |
-| `lifecycle` | 0.16.0 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
-| `delegate` | 0.11.2 | Hands plan implementation to the Cursor (`agent`), Antigravity (`agy`), or Devin (`devin`) CLI while Claude Code gates and reviews. See [README](plugins/delegate/README.md). |
+| `lifecycle` | 0.17.0 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
+| `delegate` | 0.12.0 | Hands plan implementation to the Cursor (`agent`), Antigravity (`agy`), or Devin (`devin`) CLI while Claude Code gates and reviews. See [README](plugins/delegate/README.md). |
 | `exec-observe` | 0.5.0 | Pane + status line for `/exec` runs of `delegate` (Cursor, Antigravity and Devin badges). Replaces the retired observe plugin. See [README](plugins/exec-observe/README.md). |
 | `relay` | 0.6.0 | Cross-surface handoff (save / pickup / check / discard + SessionStart). See [README](plugins/relay/README.md). |
 
@@ -220,21 +225,71 @@ registry `plugins/delegate/scripts/tiers.json`.
 To change the registry without forking, create
 `~/.config/nng-kit/tiers.json` (or point `$NNG_KIT_TIERS` at a file). It is
 deep-merged over the shipped registry: objects merge, arrays replace, so set
-only what you change. For example, turn Devin off:
-
-```json
-{ "tools": { "devin": { "enabled": false } } }
-```
-
-A disabled tool drops out of `tiers.sh tools` and resolves to no pin
-(`tiers.sh resolve` exits 3). The override also applies
-to lifecycle-only installs, since `execute-plan` ships its own `tiers.sh`.
-The generated `model-tiers.md` does not reflect it; check with
-`tiers.sh resolve <tool> <tier>`.
+only what you change (for example, `{"host": "cursor"}` switches the default
+host). The override also applies to lifecycle-only installs, since
+`execute-plan` ships its own `tiers.sh`. To turn individual tools off or back
+on, see [Enable or disable a tool](#enable-or-disable-a-tool).
 
 Advisor: the kit does not configure one. In Claude Code, set `advisorModel`
 in `settings.json`; in Cursor, install the Advisor plugin and run
 `/advisor <slug>` per project.
+
+### Enable or disable a tool
+
+Set `.tools.<id>.enabled` to `false` in `~/.config/nng-kit/tiers.json`
+(respects `$XDG_CONFIG_HOME`, or override the path with `$NNG_KIT_TIERS`) for
+any tool you do not use (`cursor`, `devin`, or `agy`; keep `claude-code`
+enabled):
+
+```bash
+mkdir -p ~/.config/nng-kit
+[ -f ~/.config/nng-kit/tiers.json ] || printf '{}\n' >~/.config/nng-kit/tiers.json
+jq '.tools.<id>.enabled = false' ~/.config/nng-kit/tiers.json >~/.config/nng-kit/tiers.json.tmp && mv ~/.config/nng-kit/tiers.json.tmp ~/.config/nng-kit/tiers.json
+```
+
+Replace `<id>` with `cursor`, `devin`, or `agy` — this merges
+`{ "tools": { "<id>": { "enabled": false } } }` over the shipped registry. To
+re-enable a tool, remove `.tools.<id>.enabled` (`jq 'del(.tools.<id>.enabled)'`)
+or set it back to `true`.
+
+Verify live enablement and pins with `tiers.sh` (under
+`plugins/delegate/scripts/tiers.sh`, or
+`plugins/lifecycle/skills/execute-plan/scripts/tiers.sh` in lifecycle-only
+installs):
+
+```bash
+bash plugins/delegate/scripts/tiers.sh tools
+bash plugins/delegate/scripts/tiers.sh resolve <id> execute
+```
+
+`tiers.sh tools` omits disabled tools (as does `tiers.sh order` for planning
+fallback), and `tiers.sh resolve` exits `3` with no pin when a tool is
+disabled. Generated [model-tiers.md](plugins/lifecycle/model-tiers.md) tables
+(and the shipped Devin `kit-*.md` profiles) are built from the shipped
+`tiers.json` and ignore runtime overrides — always check `tiers.sh tools` and
+`tiers.sh resolve <tool> <tier>` for live state.
+
+Once disabled, the kit refuses that tool with exit `3` (`REFUSE:` on stderr)
+at row selection, lint, and launch:
+
+- **`plan-status.sh rows <plan> <backend>`** refuses a disabled `<backend>`
+  (`REFUSE: delegate:<backend> is disabled`) and refuses any selected row whose
+  external `Review` runner (`top@<x>`, other than `top@session`) belongs to a
+  disabled tool (`REFUSE: <ID>: Review top@<x> is disabled (<tool>)`).
+- **`plan-status.sh rows --lint <plan>`** checks scheduled rows not yet marked
+  `done` in `## Execution log` and refuses disabled `Runner` (`delegate:<x>`)
+  or `Review` (`top@<x>`) tools; completed (`done`) rows remain valid.
+- **`delegate-launch.sh`** refuses a disabled backend in every mode (headless
+  run, `--print`, and `--interactive`, even with an explicit `model=<slug>`),
+  before writing `.claude/tmp` files.
+- **`delegate-review-launch.sh run`** (including `--print`, even with an
+  explicit `<model>`) refuses when the runner's owning tool
+  (`tiers.sh runner-tool <runner>`) is disabled, before taking a snapshot.
+
+`tiers.sh delegates`, `plan-status.sh` status writers (`start`, `batch`,
+`terminal`, `review`), and `delegate-review-launch.sh`
+`snapshot`/`check`/`scope`/`verdict` keep accepting disabled ids so in-flight
+runs can finish.
 
 ### Hosts
 

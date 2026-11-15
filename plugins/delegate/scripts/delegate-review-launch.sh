@@ -455,6 +455,24 @@ build_review_argv() {
   esac
 }
 
+# Resolve the registry tool owning <runner> into RUNNER_TOOL and verify it is
+# enabled. Exits 2 on registry error and 3 when the owning tool is disabled.
+require_enabled_runner_tool() {
+  local runner=$1 enabled_tools
+  if ! RUNNER_TOOL=$("$BASH" "$DIR/tiers.sh" runner-tool "$runner"); then
+    printf 'REFUSE: no registry tool lists review runner %s\n' "$runner" >&2
+    exit 2
+  fi
+  if ! enabled_tools=$("$BASH" "$DIR/tiers.sh" tools); then
+    printf 'REFUSE: tiers.sh tools failed (%s)\n' "$DIR/tiers.sh" >&2
+    exit 2
+  fi
+  if [[ -z "$RUNNER_TOOL" ]] || ! has_line "$enabled_tools" "$RUNNER_TOOL"; then
+    printf 'REFUSE: review runner %s: %s is disabled\n' "$runner" "$RUNNER_TOOL" >&2
+    exit 3
+  fi
+}
+
 cmd_run() {
   local print=0
   if [[ "${1:-}" == "--print" ]]; then
@@ -471,6 +489,8 @@ cmd_run() {
   if ! grep -qxF "top@$runner" <<<"$runners_out"; then
     die_usage
   fi
+  require_enabled_runner_tool "$runner"
+  tool=$RUNNER_TOOL
   [[ "$model" =~ ^[A-Za-z0-9._-]+$ && "$model" != -* ]] || die_usage
   case "$runner" in
     devin-fusion)
@@ -494,10 +514,6 @@ cmd_run() {
   fi
   build_review_argv "$runner" "$root" "$rid" "$model"
   [[ ${#argv[@]} -gt 0 ]] || die_usage
-  if ! tool=$("$BASH" "$DIR/tiers.sh" runner-tool "$runner"); then
-    printf 'REFUSE: no registry tool lists review runner %s\n' "$runner" >&2
-    exit 2
-  fi
   build_clean_env "$tool" || die_usage
   if [[ "$print" -eq 1 ]]; then
     print_clean_env

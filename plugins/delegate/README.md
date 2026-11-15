@@ -83,12 +83,24 @@ copies are compact (a generated header, then Fallback, Per-tool resolution,
 tool notes, and Review runners). Regenerate with
 `bash scripts/sync-model-tiers.sh`.
 
+**Launcher exit codes:** `delegate-launch.sh` (headless run, `--print`, and
+`--interactive`, even with `model=<slug>`) and `delegate-review-launch.sh run`
+(including `--print`, even with `<model>`) exit `0` when launched/printed
+(headless runs record the CLI exit code in `.exit`), `2` on usage or registry
+errors, and `3` (`REFUSE:`) when the target tool is disabled (`enabled: false`),
+before writing `.claude/tmp` files or guard snapshots; see
+[Enable or disable a tool](../../README.md#enable-or-disable-a-tool).
+(`snapshot`, `check`, `scope`, and `verdict` keep running for in-flight
+reviews.)
+
 **Row routing (`plan-status.sh rows`):** On a v2 Execution map, only rows whose
 `Runner` is `delegate:<backend>` for the active skill (`delegate:cursor`,
 `delegate:agy`, or `delegate:devin`) are selected; legacy plans without a map
 fall back to Implementation-step selection. **Refuse:** a **top** row on
 `delegate:*`, or a top ID you named in step-scope (`top rows never run on a
-delegate`). **Skip** (exit 0): an unscoped top row whose runner is `session` or
+delegate`), a disabled `<backend>`, or a selected row whose external `Review`
+runner belongs to a disabled tool (exit 3; see
+[Enable or disable a tool](../../README.md#enable-or-disable-a-tool)). **Skip** (exit 0): an unscoped top row whose runner is `session` or
 `subagent`, with a note like `out of step-scope (top row: run in session)`.
 Also refuses rows routed to a foreign runner (when step-scope names that ID).
 `launch_tier` is the strongest tier among the
@@ -99,10 +111,16 @@ and record `auto(router)`.
 
 **Lifecycle commands on the same script.** `rows <plan> claude-code` selects
 `session` and `subagent` rows, including `top`; `delegate:*` rows are skips
-(`out of step-scope (dispatch via delegate)`). A selected row blocked on an
-unfinished delegate row is reported as `blocked`, not refused, and an empty
-selection still exits 0. `rows --lint <plan>` validates every scheduled row
-and does not refuse for dependencies or an empty selection. `batch --skipped
+(`out of step-scope (dispatch via delegate)`), and selected rows whose external
+`Review` runner belongs to a disabled tool are refused (exit 3). A selected row
+blocked on an unfinished delegate row is reported as `blocked`, not refused, and
+an empty selection still exits 0. `rows --lint <plan>` validates every scheduled
+row and does not refuse for dependencies or an empty selection; it refuses
+(exit 3) any non-`done` row whose `Runner` (`delegate:*`) or `Review` (`top@*`
+other than `top@session`) belongs to a disabled tool while keeping `done` rows
+valid (see [Enable or disable a tool](../../README.md#enable-or-disable-a-tool)).
+Status-recording subcommands (`start`, `batch`, `terminal`, `review`) remain
+open for disabled tools. `batch --skipped
 ID --note TEXT` records a skip. `terminal --deferred-review` forces status
 `partial` even on `--outcome pass`. `stamp` writes `plan_sha` and
 `approved_at` (never `created_at`). `recent <dir>` prints the newest plan,
@@ -142,7 +160,11 @@ none). Rows are `{model, until?, role?, note?}`.
 An optional user file —
 `${NNG_KIT_TIERS:-${XDG_CONFIG_HOME:-$HOME/.config}/nng-kit/tiers.json}` —
 is deep-merged over the shipped registry (objects merge, arrays replace). It
-is partial: set only what you change. Generated docs ignore it.
+is partial: set only what you change. Generated docs ignore it. Setting
+`.tools.<id>.enabled = false` turns a tool off across `tiers.sh`,
+`plan-status.sh rows` / `rows --lint`, and both launchers (exit 3) while keeping
+`tiers.sh delegates` and status-recording commands open; see
+[Enable or disable a tool](../../README.md#enable-or-disable-a-tool).
 
 `bash scripts/sync-kit-scripts.sh` copies `tiers.json` and `tiers.sh` into
 `lifecycle/skills/execute-plan/scripts/`; skills call
@@ -284,8 +306,11 @@ An external review runner (`top@devin-fusion`, `top@cursor-ask`,
 diff — from the same vendor as that backend's execution.
 
 **Headless runs are unattended.** The default (non-`safe`) path auto-approves
-every tool the backend calls: Cursor `--force --trust`, Antigravity
-`--dangerously-skip-permissions`, Devin `--permission-mode dangerous`. Devin also
+every tool the backend calls: Cursor `--sandbox enabled --trust` auto-approves
+within its sandbox, which rejects network-classified commands and writes
+outside the workspace (not `--force`; `DELEGATE_SANDBOX=off` restores the
+previous `--force` argv), Antigravity `--dangerously-skip-permissions`, Devin
+`--permission-mode dangerous`. Devin also
 gets `--respect-workspace-trust=false`, which skips its workspace-trust check, so
 repo-local Devin config and anything the plan or repository tells the agent to
 run executes without a prompt. Delegate headless only on repositories you trust;
@@ -300,16 +325,43 @@ abort).
 
 Read [Data egress and trust](#data-egress-and-trust) first. This section
 covers what a delegate can reach and what the kit does and does not limit.
-It reduces exposure; it is not a sandbox.
+It reduces exposure; only Cursor execute runs are sandboxed.
 
-**What a delegate can reach.** Headless runs use the permission-bypass flags
-above, so a backend (and any review runner) can use:
+**What a delegate can reach.** Headless runs use the flags above, so a
+backend (and any review runner) can use:
 
 - the working tree;
 - a shell with your permissions;
 - files under `$HOME`, including credential files such as `~/.config/gh`
   and `~/.aws`, and CLI logins held in the macOS keychain;
 - the network.
+
+The Cursor sandbox narrows that reach for `execute-via-cursor` runs only. It
+blocks writes outside the workspace (including `$HOME`), writes under
+`.git/hooks/` (a test suite that builds temp git repos with hooks outside
+the workspace fails), and network-classified commands such as
+`curl https://…`, which are rejected before they run. It does **not** block
+reads outside the workspace, `git commit` inside it, or ssh egress —
+`git fetch` over ssh works, and the sandbox does not stop a push either:
+the brief forbids it, and the launcher's clean env drops `SSH_AUTH_SOCK`,
+which does not help when the user's ssh config names an agent
+(`IdentityAgent`). Cursor
+`permissions.deny` rules are not honoured in headless runs (neither under
+`--sandbox` nor `--force`), and neither did an interactive session (tested
+2026-11-15, also with the broader spellings `Shell(git)`, `Shell(cat)` and an
+absolute `Read(...)` path, and with other Cursor hooks off): `git commit`, a
+shell `cat` and the Read tool on a denied path all ran without a prompt.
+Treat Cursor's deny list as unenforced; the sandbox is the only guard. Tasks
+needing HTTPS or writes outside the workspace → `DELEGATE_SANDBOX=off`.
+
+Devin and agy runs are not sandboxed; the list above applies in full.
+Devin's own sandbox (a research preview) is not used: it blocked the nix
+daemon socket, and under it Devin ignores `--permission-mode` and needs a
+`Write(**)` allow rule for its write tool. `Read(…)` deny rules in Devin's
+user config do hide paths from its read tool and from a plain shell `cat`
+naming the path — verified both under `--sandbox` and under the delegate
+default `--permission-mode dangerous` (no `--sandbox`). Indirect shell reads
+were not tested.
 
 **What the environment allowlist removes.** `delegate-launch.sh` and
 `delegate-review-launch.sh` start the CLI under `env -i` plus an allowlist
@@ -356,14 +408,18 @@ per run and inherit the MCP servers you have configured:
 
 **What neither protects.**
 
-- Credential files under `$HOME` and keychain-backed logins.
-- The permission-bypass flags listed under
+- Credential files under `$HOME` and keychain-backed logins. The Cursor
+  sandbox does not hide paths: reads outside the workspace still work.
+- The flags listed under
   [Data egress and trust](#data-egress-and-trust). The review runners are
   read-only by mode, not by sandbox: Cursor `--mode=ask` still passes
   `--trust`, agy runs `--mode plan`, Devin Fusion runs
   `--permission-mode auto` with workspace trust off, and the Claude reviewer
   keeps a `Bash` tool in plan mode.
-- Network access.
+- Network access. The Cursor sandbox rejects network-classified commands
+  such as `curl https://…`, but ssh egress works inside it, so
+  `git fetch`/`push` over ssh are not reliably blocked; agy, Devin and the
+  review runners are unrestricted.
 - Environment variables of your other processes. Same-user processes can
   read each other's environment (`ps -E`), so the allowlist stops
   inheritance, not a delegate that goes looking. The launcher, `timeout`,
@@ -371,7 +427,13 @@ per run and inherit the MCP servers you have configured:
   environment. The same applies to the SSH agent socket (`SSH_AUTH_SOCK`)
   and keys under `~/.ssh`.
 
-Worktree or sandbox isolation is the real fix. It is out of scope here.
+Sandboxing is now partly in place: Cursor execute runs are sandboxed by
+default (`--sandbox enabled`; `DELEGATE_SANDBOX=off` opts out). Not covered:
+agy and Devin runs, the review runners, `git commit` and ssh egress under
+the Cursor sandbox, and a verdict gap — a run whose commands the sandbox
+refused still exits 0 and `delegate-verdict.sh` classifies it `ok:true`
+(the refusal is visible only as a `result.rejected` tool call in the
+NDJSON). Worktree isolation for parallel runs stays open.
 
 **The review git guard, and its limit.** `delegate-review-launch.sh
 snapshot` records HEAD, the index and a tree of tracked and untracked files
@@ -405,6 +467,11 @@ tags can move.
   allowlist for that tool. Entries are validated the same way.
 - `DELEGATE_MCP=1` re-enables MCP on the headless Claude reviewer only. It
   has no effect on Cursor, agy or Devin.
+- `DELEGATE_SANDBOX=off` restores the pre-sandbox Cursor argv (`--force`,
+  no `--sandbox`) for runs that need network access or writes outside the
+  workspace. `on` (or unset) is the default; any other value is a usage
+  error (exit 2). The launcher validates it for every backend but it changes
+  only the Cursor argv — Devin and agy are unaffected.
 
 ## Long runs
 

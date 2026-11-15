@@ -90,6 +90,7 @@ find .claude/tmp -maxdepth 1 -type f -name 'exec-run-devin-*' -delete
 | `--model <slug>` | Exact effort slug (space form) | Always |
 | `cwd` (no `--workspace`) | Workspace is cwd | Script `cd`s to the repo root |
 | `safe` / `no-force` | Not a `devin` flag | `--interactive` only |
+| `DELEGATE_SANDBOX` | Launcher env var; validated, no effect on this argv | n/a |
 
 ## Devin constraints
 

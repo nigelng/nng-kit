@@ -9,6 +9,21 @@ usage() {
   echo "usage: delegate-launch.sh [--print|--interactive] <backend> <repo-root> <n> <model> <kind> [resume-id]" >&2
 }
 
+require_enabled_backend() {
+  local tool_id=$1 enabled_tools tool
+  if ! enabled_tools=$("$BASH" "$DIR/tiers.sh" tools); then
+    printf 'REFUSE: tiers.sh tools failed (%s)\n' "$DIR/tiers.sh" >&2
+    exit 2
+  fi
+  while IFS= read -r tool || [[ -n "$tool" ]]; do
+    if [[ "$tool" == "$tool_id" ]]; then
+      return 0
+    fi
+  done <<<"$enabled_tools"
+  printf 'REFUSE: %s is disabled (enabled: false in the tier registry)\n' "$tool_id" >&2
+  exit 3
+}
+
 mode=run
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -55,6 +70,8 @@ case "$backend" in
     exit 2
     ;;
 esac
+
+require_enabled_backend "$backend"
 
 case "$root" in
   /*) ;;
@@ -114,8 +131,29 @@ else
   ceiling=90m
 fi
 
+# DELEGATE_SANDBOX: unset or on (default) runs the cursor backend under
+# `agent --sandbox enabled` with no --force; off restores the old --force
+# argv. Devin has no sandbox flip, but the value is validated for every
+# backend. Read here only; never passed to the child env.
+sandbox=on
+if [[ -n "${DELEGATE_SANDBOX+x}" ]]; then
+  case "$DELEGATE_SANDBOX" in
+    on | off) sandbox=$DELEGATE_SANDBOX ;;
+    *)
+      printf 'DELEGATE_SANDBOX must be on or off (got %s)\n' "$DELEGATE_SANDBOX" >&2
+      usage
+      exit 2
+      ;;
+  esac
+fi
+
 # shellcheck source=SCRIPTDIR/lib-clean-env.sh
+# shellcheck disable=SC1091 # sibling lib; followed under -x or as an input
 source "$DIR/lib-clean-env.sh"
+
+# Assigned by build_clean_env in the sourced lib; declared so shellcheck and
+# `set -u` see a defined array before the run-mode expansions.
+cleanenv=()
 
 prompt_for() {
   case "$kind" in
@@ -148,8 +186,14 @@ build_argv() {
   # effect here and no MCP flag is added; see the delegate README threat model.
   case "$backend" in
     cursor)
-      argv=(
-        agent -p --force --trust --workspace "$root"
+      argv=(agent -p)
+      if [[ "$sandbox" == off ]]; then
+        argv+=(--force)
+      else
+        argv+=(--sandbox enabled)
+      fi
+      argv+=(
+        --trust --workspace "$root"
         --output-format stream-json --stream-partial-output --model "$model"
       )
       if [[ -n "$resume" ]]; then

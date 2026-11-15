@@ -59,13 +59,7 @@ writes: stop and tell the user to switch to Agent mode.
 
 ## Step 1 — Detect review context
 
-Determine whether this is a **plan review** or a **change review**. Run `git status`, `git diff`, `git log --oneline -10`, and `Glob docs/plans/*.md` in parallel first. Drop `*.notes.md` hits; a notes file is never a plan. `<skill-dir>` is the absolute directory of this `SKILL.md`. Newest plan:
-
-```bash
-bash <skill-dir>/../execute-plan/scripts/plan-status.sh recent docs/plans
-```
-
-Exit 3 (`tie`) → ask which plan. Exit 2 → no plan.
+Determine whether this is a **plan review** or a **change review**. First, one parallel batch: `git status`, `git diff`, `git log --oneline -10`, `Glob docs/plans/*.md`, and `bash <skill-dir>/../execute-plan/scripts/plan-status.sh recent docs/plans; echo "exit=$?"` (newest plan; `<skill-dir>` = this `SKILL.md`'s absolute directory). Drop `*.notes.md` hits; a notes file is never a plan. `recent` printed `exit=3` (`tie`) → ask which plan; `exit=2` → no plan; `exit=0` → its stdout is the newest plan.
 
 Parse the user's slash-command or message args.
 
@@ -117,9 +111,9 @@ Plan mode has no lean loop (one top-tier Task per pass; budget in Plan mode).
 
 ### Phase A — lean mid-tier (change mode only), max 2
 
-1. Spawn an independent **read-only** lean review Task (`generalPurpose`, mid-tier).
-2. Parse findings; auto-apply only `blocking` / `important` via fix Task.
-3. Stop lean loop if Ship as-is / only nits / no high-confidence issues.
+1. Spawn an independent **read-only** lean review Task (`generalPurpose`, mid-tier). Round 1: launch the Security pass Task in the same message when it runs as a Task.
+2. Parse findings (round 1: lean + security, merged); auto-apply only `blocking` / `important` in one fix batch.
+3. Stop lean loop if Ship as-is / only nits / no high-confidence issues (round 1: lean + security merged, so an applied security fix means round 2 runs).
 4. If blockers remain with clear fixes: apply, then **at most one more** lean
    review (max **2** mid-tier reviews total).
 
@@ -145,7 +139,7 @@ or a converged delegate PASS applies, the user opts out, or that Task already
 ran this turn (in-session self-review does **not** count).
 
 If the closing pass finds `blocking` / `important`: apply clear fixes via a
-fix Task (**no re-review**), list those fixes as **unverified**, and **stop**.
+fix batch (**no re-review**), list those fixes as **unverified**, and **stop**.
 
 ---
 
@@ -231,16 +225,11 @@ Resolve the base ref and changed-file list. Pass each review Task that base ref 
 ### After execute-plan or a converged delegate PASS
 
 If this session (or the user) just finished `/execute-plan` with a converged
-**top-tier** review: **skip Phase A lean** and **skip** the closing final
-`/critique change` pass by default (execute-plan review already closed the
-change). In the round table, note skipped Phase A / final closing rows with
-reason `after converged execute-plan`.
-
-Also **skip Phase A lean** and **skip** the closing final `/critique change`
-pass when this session just finished a `/delegate:execute-via-*` PASS whose
-last review was `top@*` and clean, or a `/delegate:review` PASS (log note
-`review=top@… clean`). In the round table, note those skipped rows with reason
-`after converged delegate PASS`.
+**top-tier** review, a `/delegate:execute-via-*` PASS whose last review was a
+clean `top@*`, or a `/delegate:review` PASS (log `review=top@… clean`): by
+default **skip Phase A lean** and the closing final pass (that review closed
+the change). Note the skipped rows in the round table with reason `after
+converged execute-plan` or `after converged delegate PASS`.
 
 Either skip still proceeds to **Security pass** unless docs-only or the user
 opts out. Run this skill’s closing top-tier pass only when **this skill’s own
@@ -257,19 +246,20 @@ Optional catch-all: other high-confidence issues (caching, resources, convention
 
 ### Fix subagent contract
 
-- Only edit files in the current diff. Minimal change. No mutating git. No installs/migrations (defer those).
+- **Fix batch:** one fix Task per disjoint file group, launched in one message; a finding that spans files keeps them in one group.
+- Only edit the group's files (all in the current diff). Minimal change. No mutating git. No installs/migrations (defer those).
 - Per finding: `fixed` | `deferred` | `disputed` | `skipped` (nits).
 - Verify edited regions by reading them. Main agent may run fast lint/typecheck after fixes; prefer revert + defer if a non-trivial regression appears.
 
 ### Post-round verification (main agent)
 
-1. `git diff --stat` — revert out-of-scope files with `git checkout -- <file>` if needed.
-2. Optional fast lint/typecheck/test; fix or revert+defer on failure.
+1. In one parallel batch: `git diff --stat` and optional fast lint/typecheck/test, each check suffixed `; echo "exit=$?"` so a failure does not cancel its siblings.
+2. Revert out-of-scope files with `git checkout -- <file>`; on a failed check, fix or revert+defer.
 3. Record round outcomes for the summary.
 
 ### Security pass (change mode)
 
-Run **once** per `/critique change` (not per lean round). Prefer **in parallel** with the first lean review when the surface allows concurrent Tasks; otherwise after locating the diff / after skipping lean post-execute-plan or a converged delegate PASS.
+Run **once** per `/critique change` (not per lean round): alongside lean round 1 (Phase A) when it runs as a Task, else after locating the diff or skipping lean.
 
 #### When to run
 
@@ -305,8 +295,9 @@ One short mid-tier read-only Task on trust-boundary issues only: injection, auth
 
 #### Merge security findings
 
-Map into `blocking` / `important` / `nit`. Auto-fix via fix Task only when
-concrete, in-diff, and safe; otherwise defer. No multi-round security loop.
+Map into `blocking` / `important` / `nit`. Auto-fix (in the round-1 fix batch
+when it ran alongside lean) only when concrete, in-diff, and safe; otherwise
+defer. No multi-round security loop.
 
 ---
 

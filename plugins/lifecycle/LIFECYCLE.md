@@ -240,7 +240,10 @@ plugin at `plugins/delegate/scripts/tiers.json`, copied into
 `skills/execute-plan/scripts/` — through `tiers.sh resolve <tool> <tier>`. An
 optional user file
 (`${NNG_KIT_TIERS:-${XDG_CONFIG_HOME:-$HOME/.config}/nng-kit/tiers.json}`)
-is deep-merged over it. `model-tiers.md` is generated from the registry:
+is deep-merged over it. Setting `.tools.<id>.enabled = false` in that file
+disables a tool across `tiers.sh`, row selection/lint, and delegate launches
+(exit 3; see [Enable or disable a tool](../../README.md#enable-or-disable-a-tool)).
+`model-tiers.md` is generated from the registry:
 pins live in `tiers.json`, policy prose in `model-tiers.md`; edit either,
 then run `bash scripts/sync-model-tiers.sh`. The registry schema, the
 override file, the default host and the adding-a-tool checklist live in the
@@ -354,8 +357,8 @@ delegate, so they run the copies under `skills/execute-plan/scripts/`.
 
 - `lock <plan>` — stdout `ok` when `plan_sha` matches, `legacy` when the plan has none (exit 0), exit 3 when the body changed.
 - `lock --gate <plan>` — exit 0 and print `gate_b_at` only when `gate_b_sha` equals both the frontmatter `plan_sha` and the computed hash. A mismatch, a missing stamp, or no `plan_sha` exits 3. `--gate` must be the first argument; any extra or unknown argument exits 2. `/conduct` uses this to start a fresh session at Stage 4.
-- `rows <plan> claude-code [ID…]` — selects `session` and `subagent` rows, including `top`. `delegate:*` rows are skips (`out of step-scope (dispatch via delegate)`). A selected row that depends on an unfinished delegate row is reported as `blocked`, not refused. Exit 0 with an empty selection when only skips remain.
-- `rows --lint <plan>` — validates every scheduled row: the same row checks, plus Acceptance on non-`top` rows and Files overlap across a wave. Does not refuse for dependencies or an empty selection. `/make-plan` runs it before presenting; `/critique plan` cites it.
+- `rows <plan> claude-code [ID…]` — selects `session` and `subagent` rows, including `top`. `delegate:*` rows are skips (`out of step-scope (dispatch via delegate)`). A selected row that depends on an unfinished delegate row is reported as `blocked`, not refused. Refuses (exit 3) if a selected row's external `Review` runner belongs to a disabled tool. Exit 0 with an empty selection when only skips remain.
+- `rows --lint <plan>` — validates every scheduled row: the same row checks, plus Acceptance on non-`top` rows and Files overlap across a wave. Does not refuse for dependencies or an empty selection. Refuses (exit 3) any non-`done` row whose `Runner` (`delegate:*`) or `Review` (`top@*` other than `top@session`) belongs to a disabled tool (completed `done` rows stay valid; see [Enable or disable a tool](../../README.md#enable-or-disable-a-tool)). `/make-plan` runs it before presenting; `/critique plan` cites it.
 - `start`, `batch`, `terminal`, `review` — the status writers. `batch` takes `--done`, `--failed`, and `--skipped ID --note TEXT`. `terminal --deferred-review` forces status `partial` even when `--outcome` is `pass`, and with it only explicit `--done` IDs are marked. Auto-marking by `terminal` never overwrites a `skipped` row, never marks a `blocked` row (direct or indirect) `done` or `failed`; an explicit `--done` still applies.
 - `stamp <plan>` — writes `plan_sha` and `approved_at`, never `created_at`. Prints the body size and warns over 15,000 bytes. `/make-plan` calls it. Do not hand-edit `plan_sha`.
 - `recent <dir>` — prints the newest plan (`created_at`, then the filename date, then mtime), ignoring `*.notes.md`. Exit 3 on a tie.

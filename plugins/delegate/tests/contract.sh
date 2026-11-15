@@ -43,7 +43,7 @@ report() {
 }
 
 # --- (a) flag inventory vs help fixtures ---
-AGENT_FLAGS=(-p --force --trust --workspace --output-format --stream-partial-output --resume --model --mode)
+AGENT_FLAGS=(-p --force --sandbox --trust --workspace --output-format --stream-partial-output --resume --model --mode)
 AGY_FLAGS=(--dangerously-skip-permissions --output-format --conversation --model -p --mode)
 DEVIN_FLAGS=(--model --permission-mode --respect-workspace-trust --export --print --resume)
 
@@ -679,7 +679,7 @@ run_stub_cursor() {
   local err="$repo/.claude/tmp/exec-run-cursor-1.err"
   : >"$err"
   set +e
-  agent -p --force --trust --workspace /tmp \
+  agent -p --sandbox enabled --trust --workspace /tmp \
     --output-format stream-json --stream-partial-output \
     "noop" >"$ndjson" 2>"$err"
   rc=$?

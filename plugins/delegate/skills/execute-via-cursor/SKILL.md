@@ -101,8 +101,9 @@ verify script (`delegate-verify.sh`).
 | `model=<slug>` | Overrides the `launch_tier` pin. Validate with `agent models`. |
 | (no `model=`) | Pin for `launch_tier`, or `--model auto` when `router: true` (`auto(router)`). |
 
-`--force`, `--trust`, `stream-json`, `--stream-partial-output`, `--workspace`,
-and `--resume` are inside `delegate-launch.sh`, not skill args. Do not pass
+`--sandbox enabled` (default; `--force` under `DELEGATE_SANDBOX=off`),
+`--trust`, `stream-json`, `--stream-partial-output`, `--workspace`, and
+`--resume` are inside `delegate-launch.sh`, not skill args. Do not pass
 `--yolo`.
 
 ## Constraints
@@ -114,9 +115,13 @@ In addition to core Shared constraints:
 - Never hand-build `agent` argv, and never invoke `agent` on `safe` /
   `no-force`. Launch only through `delegate-launch.sh`; classify only through
   `delegate-verdict.sh`.
-- Never treat `--trust` alone or `--force` alone as headless-ready, and never
-  prefer `--yolo`. The script pairs both and sets `--workspace` to the recorded
-  absolute repo root.
+- Never treat `--trust` alone, `--force` alone or `--sandbox` alone as
+  headless-ready, and never prefer `--yolo`. The script pairs `--sandbox
+  enabled` (or `--force` under `DELEGATE_SANDBOX=off`) with `--trust` and sets
+  `--workspace` to the recorded absolute repo root.
+- Sandboxed runs cannot write outside the workspace or run
+  network-classified commands like `curl`. A row that needs either → set
+  `DELEGATE_SANDBOX=off` on the `delegate-launch.sh` call.
 - `model_resolved` is a display label (for example `Grok 4.7 256K High`), not
   the slug. That difference is not a mismatch. Router runs record
   `auto(router)` and ignore the label.
