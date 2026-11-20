@@ -191,16 +191,19 @@ Invoke as `/<name>`.
 | `critique` | Lean independent review of a plan or a change, plus a security pass | Plan file or working tree | Never |
 | `execute-plan` | Runs the plan's waves through subagents, mid-tier review passes plus a top-tier final pass. Lock, map rows, and status writes go through `plan-status.sh`; Verification through `delegate-verify.sh` | Working tree + plan audit metadata | Never |
 | `commit` | Conventional Commit (optional version/CHANGELOG bump) after approval | Local git history | Commits only |
+| `retro` | One-line lessons from a completed plan's runs | `docs/lessons.md` | Never |
 | `gh-create-pr` | Branch, push, open PR via `gh`, watch CI | Remote branch + PR | After approval |
+| `gh-address-review` | Triage PR feedback and failing CI, fix, commit, push, reply, watch CI | Working tree, remote branch + PR replies | After approval |
 | `gh-draft-release` | Draft GitHub Release with notes | Draft release | After approval |
 | `gh-tag-release` | Date the changelog and push a release tag | Tag + publish CI | After approval |
 
 Plan lock, map checks, status writes, verification, the PR artifact
-inventory, and git preflight are bash scripts the skills call
-(`plan-status.sh`, `delegate-verify.sh`, `pr-artifacts.sh`,
-`git-preflight.sh`). The first two ship inside the lifecycle `execute-plan`
-skill too, so a host that installs lifecycle without delegate still runs
-them. Detail is in [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md).
+inventory, git preflight, PR feedback inspection, and lesson caps are bash
+scripts the skills call (`plan-status.sh`, `delegate-verify.sh`,
+`pr-artifacts.sh`, `git-preflight.sh`, `pr-feedback.sh`, `lessons.sh`). The
+first two ship inside the lifecycle `execute-plan` skill too, so a host that
+installs lifecycle without delegate still runs them. Detail is in
+[LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md).
 
 Maintainers only (source repo; `scripts/` is not published here):
 `scripts/sync-kit-scripts.sh` copies those scripts from `delegate` into

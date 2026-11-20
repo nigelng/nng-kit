@@ -61,10 +61,10 @@ Only for `finish=pr`, after a successful push, read [../gh-create-pr/SKILL.md](.
 - Step 1 **Inspect (parallel)**: resolve the base, inspect the branch diff and discover any existing PR.
 - Step 5 **Draft PR title and body**: use its title, summary, test-plan and repository-template rules. List kept plans and their notes under planning artifacts only when committed at `HEAD`. A plan excluded by `plan=drop` was never committed: do not invent a dropped-plan blob permalink.
 - Step 8 **Create PR (sequential)**: create against the resolved default branch, or report the existing PR URL without creating a duplicate or editing its body.
-- Step 9 **Watch CI status**: watch within its time limit, then report the PR URL and CI state.
+- Step 9 **Watch CI status**: follow [../gh-create-pr/ci-triage.md](../gh-create-pr/ci-triage.md) within its time limit, then report the PR URL and CI state.
 
 Skip Step 2 **Commit uncommitted work (if any)**: deliberately excluded artifacts may leave the tree dirty; they are outside this PR. Skip Step 3 **Planning-artifacts gate**: Keep/Drop was already decided up front, and a dropped plan was never committed. Skip Step 4 **Ensure feature branch**: Stage 4 already ensured it. Skip Step 7 **Push (sequential)**: the push above already succeeded.
 
 Skip Step 6 **Present for review** when `confirm=no`; the up-front `finish=pr` choice authorizes PR creation. When `confirm=yes`, follow its approve / revise / cancel gate for the branch, title and body; cancellation stops PR creation but does not undo the commit or push.
 
-For Step 9 **Watch CI status**, investigate failures using failed-job logs and report the failing checks, errors, likely cause and recommended next step. Never auto-fix CI, create follow-up commits, push again or rerun jobs during this finish stage. Report pending, skipped or absent checks without claiming success. Do not merge.
+For Step 9 **Watch CI status**, restrict [../gh-create-pr/ci-triage.md](../gh-create-pr/ci-triage.md) to reporting: investigate failures using failed-job logs and report the failing checks, errors, likely cause and recommended next step. Never auto-fix CI, create follow-up commits, push again or rerun jobs during this finish stage. Report pending, skipped or absent checks without claiming success. Do not merge.

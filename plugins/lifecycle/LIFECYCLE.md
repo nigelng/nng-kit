@@ -133,6 +133,10 @@ same plan audit metadata as `/execute-plan`.
                                        tracked-eligible `docs/plans/**` with the feature
                                        (`docs/brainstorms/**` never)
 
+/retro [plan]                      optional; run before the plan is dropped.
+  → docs/lessons.md                   One approved entry (stats + 1–3 lessons) via
+                                       lessons.sh. Never commits; never edits the plan.
+
 /gh-create-pr                      planning-artifacts gate (Keep/Drop per plan and relay
   → pull request                      file on the branch), then ensures a feature branch,
                                        pushes, opens a PR via `gh`, and watches CI
@@ -350,6 +354,7 @@ delegate, so they run the copies under `skills/execute-plan/scripts/`.
 | `tiers.sh` | Resolve tier pins from `tiers.json` beside it (`tools`, `host`, `order`, `delegates`, `runners`, `resolve`, `validate`); exit 3 when no pin is usable. Source of truth in delegate; lifecycle copy next to `execute-plan`. |
 | `pr-artifacts.sh` | Read-only JSON for `/gh-create-pr`: added and modified plans (with `execution.status`), sibling notes at HEAD, relay files (`current_branch`, `mirror`), dropped plans (resolved SHA), and paths skipped for an unusual name. Never runs `git rm`. |
 | `git-preflight.sh` | Read-only `key=value` facts for `/commit` and the release skills. |
+| `lessons.sh` | `summary`, `add`, `has`, and `read` for `/retro`. Caps: 500 bytes and 3 lessons per entry, 8 entries, 4096 bytes; exit 3 when over cap. |
 | `skill-budget.sh` | Own and closure bytes for each kit `SKILL.md`, checked against `scripts/nng-kit-skill-budgets.tsv`. |
 | `sync-model-tiers.sh` | Regenerate the tier copies from [model-tiers.md](model-tiers.md). |
 
@@ -384,6 +389,7 @@ delegate, so they run the copies under `skills/execute-plan/scripts/`.
 | `delegate:execute-via-devin` | Working tree (via Devin `devin` CLI; Claude reviews); plan audit metadata on `docs/plans/**` (frontmatter + Execution log) | Never (leaves changes uncommitted; Claude Code only, in the `delegate` plugin) |
 | `delegate:review` | Plan audit metadata on `docs/plans/**` (`plan-status.sh review` marks the final `top` row; log stanza only, no `runs:` entry) | Never (read-only review through the plan's Review runner; Claude Code only, in the `delegate` plugin) |
 | `commit` | Local git history | Commits only, after approval; never pushes |
+| `retro` | `docs/lessons.md` | Never |
 | `gh-create-pr` | Remote branch + PR; runs planning-artifacts gate on branch plans/relay | Pushes + opens PR, after approval; Keep/Drop (plans) or Keep/Discard (relay) — user runs `/commit` if dropping |
 | `gh-draft-release` | Draft GitHub Release | Creates a draft release, after approval |
 | `gh-tag-release` | Git tag + publish CI trigger | Tags + pushes, after approval per step |

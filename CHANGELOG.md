@@ -4,6 +4,12 @@ Notable changes to the nng-kit plugins, newest first. Each sync commit on
 nigelng/nng-kit quotes the lines added here since the previous sync, so write
 for plugin users. This file is public: keep private names and paths out.
 
+## Unreleased
+
+- lifecycle: `/retro [plan]` writes one approved lessons entry to
+  `docs/lessons.md` through `lessons.sh` (at most 500 bytes and 3 lessons
+  per entry, 8 entries, and 4096 bytes). It never commits.
+
 ## 2026-11-15
 
 - delegate 0.12.0: Cursor delegate runs default to `--sandbox enabled` with
