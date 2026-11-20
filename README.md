@@ -176,8 +176,8 @@ Invoke as `/<name>`.
 
 | Plugin | Version | What it is |
 | --- | --- | --- |
-| `lifecycle` | 0.17.0 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
-| `delegate` | 0.12.0 | Hands plan implementation to the Cursor (`agent`), Antigravity (`agy`), or Devin (`devin`) CLI while Claude Code gates and reviews. See [README](plugins/delegate/README.md). |
+| `lifecycle` | 0.18.0 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
+| `delegate` | 0.13.0 | Hands plan implementation to the Cursor (`agent`), Antigravity (`agy`), or Devin (`devin`) CLI while Claude Code gates and reviews. See [README](plugins/delegate/README.md). |
 | `exec-observe` | 0.5.0 | Pane + status line for `/exec` runs of `delegate` (Cursor, Antigravity and Devin badges). Replaces the retired observe plugin. See [README](plugins/exec-observe/README.md). |
 | `relay` | 0.6.0 | Cross-surface handoff (save / pickup / check / discard + SessionStart). See [README](plugins/relay/README.md). |
 
@@ -304,7 +304,7 @@ runs can finish.
 - Devin: `run_subagent` with the `kit-<role>` profile (see
   [Install (Devin)](#install-devin)). Read-only profiles have no shell, so the
   session passes them the diff and lint output as files.
-- Antigravity (agy): `invoke_subagent` with its `Model` alias.
+- Antigravity (agy): `invoke_subagent` (`Model: "inherit"`) when the resolved model matches the session, else a `swarm` worker pinned to the resolved model slug.
 
 Any other host, or a model that cannot be pinned, stops the run before
 delegating. `/critique plan` on Devin without the profiles reviews in-session

@@ -25,9 +25,10 @@
    any path a selected row does not list.
 10. Run each row's Acceptance and the quoted Verification.
 11. Tier tags — you may hand a lower-tier row to a subagent pinned at that
-    tier if your tool supports it (agy: `Model: "flash_lite"` for `low`;
-    `"inherit"` only for a row at this session's tier), otherwise do it
-    yourself.
+    tier if your tool supports it (agy: `invoke_subagent` `Model: "inherit"`
+    when the row's pin matches this session's model, else a `swarm` worker
+    `action: "add"` with `model` set to the tier's agy pin and `kill` when
+    done; never `flash_lite`/`flash`/`pro`), otherwise do it yourself.
 
 ## Required final output
 

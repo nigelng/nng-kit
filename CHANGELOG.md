@@ -4,9 +4,25 @@ Notable changes to the nng-kit plugins, newest first. Each sync commit on
 nigelng/nng-kit quotes the lines added here since the previous sync, so write
 for plugin users. This file is public: keep private names and paths out.
 
-## Unreleased
+## 2026-11-20
 
-- lifecycle: `/retro [plan]` writes one approved lessons entry to
+- lifecycle 0.18.0, delegate 0.13.0: Antigravity (`agy`) tiers now use the full
+  Gemini 4 Hydrogen / Neon / Argon lineup (`top-plan` `claude-opus-5-5-high` →
+  `gemini-4-neon-xhigh` → `gemini-4-argon-high`; `top-review`
+  `claude-opus-5-5-medium` → `gemini-4-neon-high` → `gemini-4-argon-medium`;
+  `top-critique` `gemini-4-neon-xhigh` → `gemini-4-argon-high`; `execute`
+  `gemini-4-hydrogen-high` → `gemini-4-neon-high` → `gemini-4-argon-medium`;
+  `mid` implement `gemini-4-neon-high` → `gemini-4-hydrogen-high` →
+  `gemini-4-argon-medium`; `mid` review `gemini-4-argon-medium` →
+  `gemini-4-neon-high` → `gemini-4-hydrogen-high`; `low`
+  `gemini-4-hydrogen-medium`). `hosts.md`, `brief-template.md`, and the README
+  now route `agy` subagents to `invoke_subagent` (`Model: "inherit"`) only when
+  the resolved pin matches the session model, and to a pinned `swarm` worker
+  (`action: "add"`, `model: "<slug>"`, `workspace: "inherit"`, then `kill`) for
+  any other tier or effort level—dropping legacy `flash_lite`/`flash`/`pro`
+  approximations and `else stop` row notes.
+
+- lifecycle 0.18.0: `/retro [plan]` writes one approved lessons entry to
   `docs/lessons.md` through `lessons.sh` (at most 500 bytes and 3 lessons
   per entry, 8 entries, and 4096 bytes). It never commits.
 
