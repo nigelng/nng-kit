@@ -83,6 +83,11 @@ done
 # a CLI flag. --flag=value counts as --flag. Quoted interactive prompts are
 # dropped so prose is not read as flags.
 work=$(mktemp -d "${TMPDIR:-/tmp}/delegate-contract.XXXXXX")
+export XDG_CONFIG_HOME="$work/xdg-config"
+unset NNG_KIT_TIERS
+# agy ships disabled; re-enable it here so its delegate paths stay covered.
+mkdir -p "$XDG_CONFIG_HOME/nng-kit"
+printf '{"tools":{"agy":{"enabled":true,"delegate":true}}}\n' >"$XDG_CONFIG_HOME/nng-kit/tiers.json"
 repo="$work/repo"
 mkdir -p "$repo"
 git -C "$repo" init -q

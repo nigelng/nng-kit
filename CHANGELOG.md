@@ -4,6 +4,26 @@ Notable changes to the nng-kit plugins, newest first. Each sync commit on
 nigelng/nng-kit quotes the lines added here since the previous sync, so write
 for plugin users. This file is public: keep private names and paths out.
 
+## 2026-11-21
+
+- lifecycle 0.19.0, delegate 0.14.0: Antigravity (`agy`) now ships disabled
+  (`enabled: false`, `delegate: false` in `tiers.json`). Tier resolution,
+  `/delegate:execute-via-agy`, and the `top@agy-plan` review runner refuse
+  `agy`; the generated Review runners list now skips disabled tools, so
+  `top@agy-plan` is no longer listed; its summary block is gone, and the grunt-work and review-family rules
+  no longer list it. Pins are kept; to re-enable, set
+  `{"tools":{"agy":{"enabled":true,"delegate":true}}}` in
+  `~/.config/nng-kit/tiers.json`.
+- lifecycle 0.19.0, delegate 0.14.0: Cursor gains a second model family for
+  review work: `top-critique` (the `/critique plan` review Task) is
+  `gemini-4-neon-xhigh`, and `top-review` falls back from
+  `claude-opus-5-5-medium` to `gemini-4-neon-high` (both `--mode=ask`). Both
+  draw on Cursor's third-party pool; `top-plan` stays on Opus.
+- lifecycle 0.19.0, delegate 0.14.0: Claude Code pins `top-critique` (the
+  `/critique plan` review Task) to `claude-fable-5-2` at effort medium
+  (`Task(model: "fable")`); it falls back to `top-review` when Fable is
+  unavailable. Every other Claude Code tier stays on Opus, Sonnet or Haiku.
+
 ## 2026-11-20
 
 - lifecycle 0.18.0, delegate 0.13.0: Antigravity (`agy`) tiers now use the full

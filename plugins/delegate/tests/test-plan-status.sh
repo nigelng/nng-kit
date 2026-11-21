@@ -9,6 +9,9 @@ SOT="$ROOT/nng-kit/plugins/delegate/references/execution-status.md"
 work=$(mktemp -d "${TMPDIR:-/tmp}/test-plan-status.XXXXXX")
 export XDG_CONFIG_HOME="$work/xdg"
 unset NNG_KIT_TIERS
+# agy ships disabled; re-enable it here so its delegate paths stay covered.
+mkdir -p "$XDG_CONFIG_HOME/nng-kit"
+printf '{"tools":{"agy":{"enabled":true,"delegate":true}}}\n' >"$XDG_CONFIG_HOME/nng-kit/tiers.json"
 cleanup() { rm -rf "$work"; }
 trap cleanup EXIT
 
@@ -2283,7 +2286,7 @@ assert_stdout "malformed override lock returns legacy" "legacy"
 # --- disabled tools (S1) ---
 
 cat >"$work/tiers-disabled.json" <<'EOF'
-{"tools":{"devin":{"enabled":false},"cursor":{"enabled":false}}}
+{"tools":{"devin":{"enabled":false},"cursor":{"enabled":false},"agy":{"enabled":true,"delegate":true}}}
 EOF
 
 write_stamped "$work/dis-devin.md" <<EOF
@@ -2455,7 +2458,7 @@ assert_jq "enabled backend agy selects S2" '[.selected[].id] == ["S2"]'
 
 # Mixed-case reviewRunners key in user override on a disabled tool is still refused.
 cat >"$work/tiers-mixed-runner.json" <<'EOF'
-{"tools":{"cursor":{"enabled":false,"reviewRunners":{"Cursor-Custom":{"runner":"cursor-agent","args":["--mode=ask"]}}}}}
+{"tools":{"cursor":{"enabled":false,"reviewRunners":{"Cursor-Custom":{"runner":"cursor-agent","args":["--mode=ask"]}}},"agy":{"enabled":true,"delegate":true}}}
 EOF
 write_stamped "$work/dis-mixed-runner.md" <<EOF
 ---

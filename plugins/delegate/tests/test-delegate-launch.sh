@@ -8,6 +8,9 @@ SCRIPT="$ROOT/nng-kit/plugins/delegate/scripts/delegate-launch.sh"
 work=$(mktemp -d "${TMPDIR:-/tmp}/test-delegate-launch.XXXXXX")
 export XDG_CONFIG_HOME="$work/xdg-config"
 unset NNG_KIT_TIERS
+# agy ships disabled; re-enable it here so its launcher paths stay covered.
+mkdir -p "$XDG_CONFIG_HOME/nng-kit"
+printf '{"tools":{"agy":{"enabled":true,"delegate":true}}}\n' >"$XDG_CONFIG_HOME/nng-kit/tiers.json"
 cleanup() { rm -rf "$work"; }
 trap cleanup EXIT
 
@@ -400,7 +403,8 @@ esac
 # --- clean environment: allowlist, DELEGATE_ENV_ALLOW, names-only --print ---
 
 clean_print() {
-  run_cmd env -i HOME=/h PATH="$PATH" SECRET_TOKEN=sekrit-value CURSOR_API_KEY=key-value "$@"
+  run_cmd env -i HOME=/h PATH="$PATH" NNG_KIT_TIERS="$XDG_CONFIG_HOME/nng-kit/tiers.json" \
+    SECRET_TOKEN=sekrit-value CURSOR_API_KEY=key-value "$@"
 }
 
 clean_print bash "$SCRIPT" --print agy "$repo" 3 gemini-4-argon-medium brief
@@ -464,7 +468,7 @@ for bad_allow in 'bad.name' 'A B' 'GOOD,' ',GOOD' '1ABC' 'A-B' 'A;B'; do
   fi
 done
 
-printf '{"tools":{"agy":{"authEnv":["bad name"]}}}\n' >"$work/tiers-auth-bad.json"
+printf '{"tools":{"agy":{"enabled":true,"authEnv":["bad name"]}}}\n' >"$work/tiers-auth-bad.json"
 clean_print env NNG_KIT_TIERS="$work/tiers-auth-bad.json" bash "$SCRIPT" --print agy "$repo" 3 gemini-4-argon-medium brief
 if [[ "$LAST_RC" -eq 2 ]]; then pass "bad authEnv name rejected"; else fail "bad authEnv name rejected"; fi
 
@@ -473,7 +477,7 @@ globdir="$work/globdir"
 mkdir -p "$globdir"
 : >"$globdir/ZZTOP"
 for bad_auth in 'FOO BAR' 'Z*'; do
-  printf '{"tools":{"agy":{"authEnv":["%s"]}}}\n' "$bad_auth" >"$work/tiers-auth-split.json"
+  printf '{"tools":{"agy":{"enabled":true,"authEnv":["%s"]}}}\n' "$bad_auth" >"$work/tiers-auth-split.json"
   pushd "$globdir" >/dev/null
   clean_print env NNG_KIT_TIERS="$work/tiers-auth-split.json" bash "$SCRIPT" --print agy "$repo" 3 gemini-4-argon-medium brief
   popd >/dev/null
@@ -590,7 +594,7 @@ assert_refused_launch() {
 }
 
 disabled_cd="$work/tiers-disabled-cd.json"
-printf '{"tools":{"cursor":{"enabled":false},"devin":{"enabled":false}}}\n' >"$disabled_cd"
+printf '{"tools":{"cursor":{"enabled":false},"devin":{"enabled":false},"agy":{"enabled":true}}}\n' >"$disabled_cd"
 
 for mode in run --print --interactive; do
   mode_args=()
@@ -683,7 +687,7 @@ done
 # XDG_CONFIG_HOME override (without NNG_KIT_TIERS) is respected.
 xdg_dis="$work/xdg-disabled"
 mkdir -p "$xdg_dis/nng-kit"
-printf '{"tools":{"cursor":{"enabled":false}}}\n' >"$xdg_dis/nng-kit/tiers.json"
+printf '{"tools":{"cursor":{"enabled":false},"agy":{"enabled":true}}}\n' >"$xdg_dis/nng-kit/tiers.json"
 assert_refused_launch "XDG_CONFIG_HOME disabled cursor --print exits 3" cursor \
   env -u NNG_KIT_TIERS XDG_CONFIG_HOME="$xdg_dis" \
   "$BASH" "$SCRIPT" --print cursor "$repo" 1 grok-4.7-high brief

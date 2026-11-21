@@ -4,7 +4,7 @@ Canonical ordered preference lists (`provider-model-version-effort`, left-to-rig
 
 **Roles:** `top-plan` = `/brainstorm`, `/make-plan` and `/critique plan` sessions (Claude Code: a `/make-plan` the user declares small may run at `mid` + advisor; see the Claude overlay). `top-review` = map tier `top`, the batch/final reviews, and `/critique` escalate + closing pass. The `/execute-plan` orchestrator is `mid` on a v2 map (`plan-status.sh rows --lint` exits 0), else `top-review`. `top-critique` (optional) = the `/critique plan` review Task (second family); absent or unpinnable → `top-review`. `execute` is a map tier: it resolves to the host's `execute` pin, else `mid`. Delegates default to it.
 
-**Grunt-work rule:** `execute`/`mid`/`low` resolve to each tool's own free or included models: Cursor Grok/Composer/Auto (included pool), Devin SWE-2 family for implement (GPT Terra only as the last fallback), agy Gemini (Generic and Argon pools). Paid or third-party models (Claude on Cursor, Claude on agy, Opus/Fusion on Devin) only for `top-plan`/`top-review`, with exceptions: `mid` review passes (Cursor uses `claude-sonnet-5-5-high`, Cursor's third-party pool; Devin uses paid GPT or Gemini, never Claude) and Devin `top-critique` (the `/critique plan` review Task, paid GPT). Claude Code is exempt (every model is Claude).
+**Grunt-work rule:** `execute`/`mid`/`low` resolve to each tool's own free or included models: Cursor Grok/Composer/Auto (included pool), Devin SWE-2 family for implement (GPT Terra only as the last fallback). Paid or third-party models (Claude or Gemini on Cursor, Opus/Fusion on Devin) only for `top-plan`/`top-review`, with exceptions: `mid` review passes (Cursor uses `claude-sonnet-5-5-high`, Cursor's third-party pool; Devin uses paid GPT or Gemini, never Claude) and `top-critique` (Cursor Gemini Neon; Devin paid GPT). Claude Code is exempt (every model is Claude).
 
 ## Fallback
 
@@ -14,8 +14,8 @@ Spawn Tasks per the host: `<skill-dir>/../execute-plan/hosts.md`.
 - **Planning fallback order:** per `tiers.sh order` (registry `planningOrder`), handing off via `/relay:save` + `/relay:pickup`.
 - **Routers:** Cursor `auto` (Cost mode, included pool) only (1) as the logged fallback for Cursor `execute`, `mid`, and `low` (existing triggers: the pin missing from `agent models`, a usage/quota error, or an explicit `model=auto`; record `fallback: <reason>`), or (2) on a map row with `Model: auto` + `Tier: low` + `Runner: delegate:cursor`, recorded `auto(router)`. Never on top or review work. Devin `adaptive` never: it costs more than the pins and has no pool advantage.
 - **Tier exhaustion:** if `low` is exhausted → fall back to `mid` (never stall a wave). `top-plan` → next tool in the planning fallback order. `top-review` → `top@devin-fusion` when Devin is enabled and not the host, logged `fallback: top-review exhausted`; otherwise stop and ask.
-- **Review family:** a mid review pass prefers an allowed model from a different family than the implementer's; if the host has none at mid, proceed and log `same-family mid review` in the run notes. On Cursor the second family is `claude-sonnet-5-5-high` (third-party pool; the one exception to Cursor-models-only for `mid`); on Devin it is `gpt-6-1-sol-high` against the SWE-2 implementer; when the Devin implementer fell back to GPT, keep that reviewer and log `same-family mid review`. agy: mid pins are all Gemini (Argon reviews Neon/Hydrogen); log `same-family mid review`. Top-review is unaffected.
-- **Cursor model rule:** on Cursor, `execute`/`mid`/`low` use Cursor models only (Grok for `execute`/`mid` pins, Composer 2.5, Auto), except `mid` review passes, which use `claude-sonnet-5-5-high`. Other Claude models only for `top-plan`/`top-review`, or by a manual `model=` override. Never GPT.
+- **Review family:** a mid review pass prefers an allowed model from a different family than the implementer's; if the host has none at mid, proceed and log `same-family mid review` in the run notes. On Cursor the second family is `claude-sonnet-5-5-high` (third-party pool; the one exception to Cursor-models-only for `mid`); on Devin it is `gpt-6-1-sol-high` against the SWE-2 implementer; when the Devin implementer fell back to GPT, keep that reviewer and log `same-family mid review`. Top-review is unaffected.
+- **Cursor model rule:** on Cursor, `execute`/`mid`/`low` use Cursor models only (Grok for `execute`/`mid` pins, Composer 2.5, Auto), except `mid` review passes, which use `claude-sonnet-5-5-high`. Other Claude models only for `top-plan`/`top-review`, or by a manual `model=` override. Gemini Neon only for `top-critique` and the `top-review` fallback. Never GPT.
 
 ## Per-tool resolution
 
@@ -23,12 +23,14 @@ Spawn Tasks per the host: `<skill-dir>/../execute-plan/hosts.md`.
 - **claude-code** (Claude Code; cli `claude`; default review runner `top@claude-task`):
   - `top-plan` = `claude-opus-5-5` (effort high (xhigh for large/risky plans); Task(model: "opus"))
   - `top-review` = `claude-opus-5-5` (effort medium; Task(model: "opus"))
+  - `top-critique` = `claude-fable-5-2` (effort medium; Task(model: "fable"))
   - `execute` = none (resolves to `mid`)
   - `mid` = `claude-sonnet-5-5` (effort high; Task(model: "sonnet"))
   - `low` = `claude-haiku-5-5` (effort high; Task(model: "haiku"))
 - **cursor** (Cursor; cli `agent`; delegate; default review runner `top@claude-headless`):
   - `top-plan` = `claude-opus-5-5-high`
-  - `top-review` = `claude-opus-5-5-medium` (--mode=ask)
+  - `top-review` = `claude-opus-5-5-medium` (--mode=ask) → `gemini-4-neon-high` (--mode=ask)
+  - `top-critique` = `gemini-4-neon-xhigh`
   - `execute` = `grok-4.7-high` → `auto` (logged fallback)
   - `mid` = implement: `grok-4.7-high` → `auto` (logged fallback); review passes: `claude-sonnet-5-5-high` (Cursor third-party pool)
   - `low` = `composer-2.5` → `auto` (logged fallback)
@@ -39,7 +41,7 @@ Spawn Tasks per the host: `<skill-dir>/../execute-plan/hosts.md`.
   - `execute` = `swe-2-high` → `swe-2-medium` → `gpt-6-1-terra-high`
   - `mid` = implement: `swe-2-high` → `swe-2-medium` → `gpt-6-1-terra-high`; review passes: `gpt-6-1-sol-high` → `claude-sonnet-5-5-high` → `kimi-k3-1-pro-high`
   - `low` = `swe-2-medium` → `claude-haiku-5-5-high`
-- **agy** (Antigravity; cli `agy`; delegate; default review runner `top@claude-headless`):
+- **agy** (Antigravity; cli `agy`; disabled; default review runner `top@claude-headless`):
   - `top-plan` = `claude-opus-5-5-high` → `gemini-4-neon-xhigh` → `gemini-4-argon-high`
   - `top-review` = `claude-opus-5-5-medium` (--mode plan) → `gemini-4-neon-high` (--mode plan) → `gemini-4-argon-medium` (--mode plan)
   - `top-critique` = `gemini-4-neon-xhigh` → `gemini-4-argon-high`
@@ -52,7 +54,7 @@ Spawn Tasks per the host: `<skill-dir>/../execute-plan/hosts.md`.
 - **claude-code:** Always set `model:` explicitly on spawns.
 - **devin:** never `adaptive` or `fusion-*` for `execute`/`mid`/`low`; Fusion only for `top-review`; Devin CLI strips the `cognition-` prefix on `swe-2-*`.
   - **Standalone Devin tasks** (guidance, not a resolver row): Fusion lead `gpt-6-1-sol-high` with sidekick `swe-2-medium` (`fusion-gpt-6-1-sol-high-sidekick-swe-2-medium`), then `gpt-6-1-terra-high` (`fusion-gpt-6-1-sol-high-sidekick-gpt-6-1-terra-high`); Adaptive (`adaptive`) only for ad-hoc interactive use.
-- **agy:** pools: Generic (largest; Neon + Hydrogen) `top-critique`, `execute`, `mid` implement, `low`, `top-plan`/`top-review`/`mid` review fallback; Argon `mid` review, overflow; Claude + GPT only `top-plan`/`top-review`.
+- **agy:** disabled; pins kept for re-enable. Pools: Generic (largest; Neon + Hydrogen) `top-critique`, `execute`, `mid` implement, `low`, `top-plan`/`top-review`/`mid` review fallback; Argon `mid` review, overflow; Claude + GPT only `top-plan`/`top-review`.
 <!-- tiers:tool-notes:end -->
 
 ## Review runners
@@ -63,7 +65,6 @@ Spawn Tasks per the host: `<skill-dir>/../execute-plan/hosts.md`.
 - `top@claude-headless` = Claude Code `top-review` pin, mode `headless`
 - `top@cursor-ask` = Cursor `top-review` pin, mode `ask`
 - `top@devin-fusion` = Devin `top-review` pin, mode `auto`
-- `top@agy-plan` = Antigravity `top-review` pin, mode `plan`
 <!-- tiers:generated:review-runners:end -->
 
 External runners (every runner except `top@session` and `top@claude-task`) run through the delegate plugin's review launcher. They read the host's verify-script summary and never run Verification themselves, and they run under a git guard that reverts any reviewer edit. A reviewer failure (launch error, quota, timeout, guard trip, missing or inconsistent verdict) → stop and ask: retry, the host's `defaultReviewRunner`, or abort.
@@ -71,6 +72,7 @@ External runners (every runner except `top@session` and `top@claude-task`) run t
 <!-- tiers:summary:claude-code:start -->
 top-plan: claude-opus-5-5
 top-review: claude-opus-5-5
+top-critique: claude-fable-5-2
 execute: none
 mid(auto): claude-sonnet-5-5
 low(haiku): claude-haiku-5-5
@@ -78,7 +80,8 @@ low(haiku): claude-haiku-5-5
 
 <!-- tiers:summary:cursor:start -->
 top-plan: claude-opus-5-5-high
-top-review: claude-opus-5-5-medium
+top-review: claude-opus-5-5-medium→gemini-4-neon-high
+top-critique: gemini-4-neon-xhigh
 execute: grok-4.7-high→auto
 mid(auto): implement grok-4.7-high→auto; review claude-sonnet-5-5-high
 low(haiku): composer-2.5→auto
@@ -92,14 +95,5 @@ execute: swe-2-high→swe-2-medium→gpt-6-1-terra-high
 mid(auto): implement swe-2-high→swe-2-medium→gpt-6-1-terra-high; review gpt-6-1-sol-high→claude-sonnet-5-5-high→kimi-k3-1-pro-high
 low(haiku): swe-2-medium→claude-haiku-5-5-high
 <!-- tiers:summary:devin:end -->
-
-<!-- tiers:summary:agy:start -->
-top-plan: claude-opus-5-5-high→gemini-4-neon-xhigh→gemini-4-argon-high
-top-review: claude-opus-5-5-medium→gemini-4-neon-high→gemini-4-argon-medium
-top-critique: gemini-4-neon-xhigh→gemini-4-argon-high
-execute: gemini-4-hydrogen-high→gemini-4-neon-high→gemini-4-argon-medium
-mid(auto): implement gemini-4-neon-high→gemini-4-hydrogen-high→gemini-4-argon-medium; review gemini-4-argon-medium→gemini-4-neon-high→gemini-4-hydrogen-high
-low(haiku): gemini-4-hydrogen-medium
-<!-- tiers:summary:agy:end -->
 
 **Edit:** pins live in `nng-kit/plugins/delegate/scripts/tiers.json`; prose lives here. Edit either, then run `bash scripts/sync-model-tiers.sh`.
