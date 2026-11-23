@@ -494,6 +494,152 @@ export const isSwitchedRun = (
   current.backend !== newest.backend ||
   newest.size < offset
 
+// A settled run stays in the status line this long after it ended, and only
+// when it ended after this session started: an old run left in `.claude/tmp`
+// by an earlier session never shows. A running run always shows. A stalled run
+// shows only if it last grew during this session: a killed run (no `.exit`, no
+// result) stays stalled forever and must not haunt every new session. `/exec`
+// and `/exec history` still reach all of them.
+export const STATUS_FRESH_MS = 10 * 60_000
+
+// When a settled run ended: the `.exit` mtime, else the last event, else the
+// last growth of the file. Null when nothing says.
+export const settledAt = (run: Run): number | null => run.endedAt ?? run.lastEventAt ?? run.lastGrowthAt
+
+export const shouldShowStatus = (run: Run, now: number, sessionStartedAt: number): boolean => {
+  const phase = phaseOf(run, now)
+  if (phase === 'running') return true
+  if (phase === 'stalled') return run.lastGrowthAt !== null && run.lastGrowthAt >= sessionStartedAt
+  const endedAt = settledAt(run)
+  return endedAt !== null && endedAt >= sessionStartedAt && now - endedAt <= STATUS_FRESH_MS
+}
+
+// Persistent history: one JSON line per finished run in
+// `<repo>/.claude/exec-history.ndjson`, newest last, so it outlives the
+// `.claude/tmp` run files the skill clears.
+export const HISTORY_MAX = 50
+export const HISTORY_FILE_MAX_BYTES = 256 * 1024
+export const HISTORY_LIST = 10
+
+export type HistoryRecord = {
+  key: string
+  backend: Backend
+  n: number
+  plan: string | null
+  scope: string | null
+  ok: boolean
+  reason: string | null
+  exitCode: number | null
+  tools: number
+  files: number
+  durationMs: number | null
+  endedAt: number | null
+  model: string | null
+  sessionId: string | null
+}
+
+type StatLike = { kind: string; isLink?: boolean } | null
+
+// The history file is written (and read) only when `.claude` is a real
+// directory (or missing: the write creates it) and the file is absent or a
+// regular file, so a symlink committed by a hostile repo cannot redirect it.
+export const isSafeHistoryTarget = (dir: StatLike, file: StatLike): boolean =>
+  (dir === null || (dir.kind === 'dir' && !dir.isLink)) && (file === null || (file.kind === 'file' && !file.isLink))
+
+export const historyKey = (run: Run): string => `${run.backend}-${run.n}-${settledAt(run) ?? 0}`
+
+// Null until the run has finished and its `.exit` is read: a `result` event
+// alone settles the phase early, and `.exit` later moves endedAt and the key,
+// which would record the run twice.
+export function historyRecord(run: Run, now: number): HistoryRecord | null {
+  const phase = phaseOf(run, now)
+  if ((phase !== 'passed' && phase !== 'failed') || run.exitCode === null) return null
+  return {
+    key: historyKey(run),
+    backend: run.backend,
+    n: run.n,
+    plan: run.task?.plan ? oneLine(run.task.plan, SNIPPET) : null,
+    scope: run.task?.scope ? oneLine(run.task.scope, SNIPPET) : null,
+    ok: phase === 'passed',
+    reason: phase === 'failed' ? oneLine(failureReason(run), 80) : null,
+    exitCode: run.exitCode,
+    tools: run.tools,
+    files: run.files.length,
+    durationMs: runElapsed(run, now),
+    endedAt: settledAt(run),
+    model: run.model,
+    sessionId: run.sessionId,
+  }
+}
+
+const BACKENDS: readonly string[] = ['cursor', 'agy', 'devin']
+const num = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null)
+const str = (value: unknown, max: number): string | null =>
+  typeof value === 'string' && value !== '' ? oneLine(value, max) : null
+
+// Tolerant: a line that is not valid JSON, or not a record, is skipped, so a
+// hand-edited or truncated file never breaks the list.
+export function parseHistory(text: string): HistoryRecord[] {
+  const records: HistoryRecord[] = []
+  for (const line of text.split('\n')) {
+    if (line.trim() === '') continue
+    let value: unknown
+    try {
+      value = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (!isObj(value)) continue
+    const n = num(value.n)
+    const key = str(value.key, 80)
+    if (n === null || key === null || typeof value.backend !== 'string' || !BACKENDS.includes(value.backend)) continue
+    records.push({
+      key,
+      backend: value.backend as Backend,
+      n,
+      plan: str(value.plan, SNIPPET),
+      scope: str(value.scope, SNIPPET),
+      ok: value.ok === true,
+      reason: str(value.reason, 80),
+      exitCode: num(value.exitCode),
+      tools: num(value.tools) ?? 0,
+      files: num(value.files) ?? 0,
+      durationMs: num(value.durationMs),
+      endedAt: num(value.endedAt),
+      model: str(value.model, MODEL_MAX),
+      sessionId: str(value.sessionId, SESSION_MAX),
+    })
+  }
+  return records
+}
+
+// Adds record, replacing one with the same key, and keeps the newest max.
+export function mergeHistory(existing: HistoryRecord[], record: HistoryRecord, max = HISTORY_MAX): HistoryRecord[] {
+  return [...existing.filter(r => r.key !== record.key), record].slice(-max)
+}
+
+export const serializeHistory = (records: HistoryRecord[]): string =>
+  records.map(r => `${JSON.stringify(r)}\n`).join('')
+
+const ago = (ms: number): string => `${elapsed(ms)} ago`
+
+const recordLabel = (r: HistoryRecord): string => [r.plan, r.scope].filter(Boolean).join(' · ')
+
+// `/exec history`: newest first, at most `limit` rows.
+export function formatHistory(records: HistoryRecord[], now: number, limit = HISTORY_LIST): string {
+  if (records.length === 0) return 'No exec history yet.'
+  const shown = records.slice(-limit).reverse()
+  const rows = shown.map(r => {
+    const label = recordLabel(r)
+    const mark = r.ok ? '✓' : `✗ ${r.reason ?? 'failed'}`
+    const time = r.durationMs !== null ? ` · ${elapsed(r.durationMs)}` : ''
+    const when = r.endedAt !== null ? ` · ${ago(now - r.endedAt)}` : ''
+    return `#${r.n} [${r.backend}] ${mark}${label ? ` ${oneLine(label, 60)}` : ''} · ${r.tools} tools · ${r.files} files${time}${when}`
+  })
+  const more = records.length > shown.length ? `\n… ${records.length - shown.length} older (cap ${HISTORY_MAX})` : ''
+  return `${rows.join('\n')}${more}`
+}
+
 export type RunFileEntry = {
   name: string
   size?: number

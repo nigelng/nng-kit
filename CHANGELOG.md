@@ -4,6 +4,20 @@ Notable changes to the nng-kit plugins, newest first. Each sync commit on
 nigelng/nng-kit quotes the lines added here since the previous sync, so write
 for plugin users. This file is public: keep private names and paths out.
 
+## 2026-11-22
+
+- exec-observe 0.6.0: an old run no longer lingers in the status line. A
+  finished run shows there only if it ended after this session started and
+  less than 10 minutes ago; running and stalled runs always show. After
+  `/clear` or in a new session the line starts empty, while `/exec` still
+  opens the latest run's pane. New `/exec history` lists the last 10 finished
+  runs (newest first: backend, number, plan and step, result, tools, files,
+  duration, age). Each finished run is appended once to
+  `<repo>/.claude/exec-history.ndjson`, capped at the newest 50, so history
+  outlives the `.claude/tmp` files the skill clears. The file is local state:
+  if the repo does not already ignore it, the plugin adds it to
+  `.git/info/exclude` (never a tracked file).
+
 ## 2026-11-21
 
 - lifecycle 0.19.0, delegate 0.14.0: Antigravity (`agy`) now ships disabled

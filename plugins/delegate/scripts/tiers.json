@@ -86,8 +86,8 @@
           { "model": "fusion-claude-opus-5-5-medium-sidekick-swe-2-medium", "note": "provisional until the Fusion-vs-plain-Opus review test" }
         ],
         "top-critique": [
-          { "model": "gpt-6-1-sol-high" },
-          { "model": "gpt-6-1-terra-high" }
+          { "model": "gemini-4-neon-xhigh" },
+          { "model": "gpt-6-1-sol-high" }
         ],
         "execute": [
           { "model": "swe-2-high" },

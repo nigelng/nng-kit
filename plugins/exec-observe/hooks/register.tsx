@@ -14,11 +14,19 @@ import {
   emptyRun,
   endTimeOf,
   EXIT_MAX_BYTES,
+  formatHistory,
+  HISTORY_FILE_MAX_BYTES,
+  historyRecord,
+  isSafeHistoryTarget,
   isDevinSettled,
   isReadableSideFile,
   isSwitchedRun,
+  mergeHistory,
   paneTitle,
   parseBrief,
+  parseHistory,
+  serializeHistory,
+  shouldShowStatus,
   isAnimating,
   withSpark,
   shouldAnnounce,
@@ -35,6 +43,7 @@ import { renderPane } from './view'
 export { paneTitle, pickNewestRunFile, RUN_FILE, type PickedRunFile, type RunFileEntry }
 
 const PANE = 'exec-observe'
+const HISTORY_REL = '.claude/exec-history.ndjson'
 const POLL_MS = 2000
 // Side files are read only when they are regular files (stat first), so a FIFO
 // planted at their path is never opened. Reading a local file never takes this
@@ -63,6 +72,8 @@ const filterAtom = atom({ plugin: 'exec-observe', key: 'filter' } as const, 'all
 type Watch = {
   tmp: string
   cwd: string
+  // Absolute path of the history file under the repo root.
+  history: string
   // Byte offset into the current run's ndjson; only bytes past it are read.
   // For a Devin run, the `.out` size at the last tick, so a rewrite (the file
   // shrinks) starts the summary over.
@@ -74,6 +85,14 @@ type Watch = {
   current: Run | null
   isBusy: boolean
   announced: string
+  // When this session's watcher started: a settled run that ended earlier is
+  // left out of the status line.
+  startedAt: number
+  // Key of the run last written to the history file, so a settled run is
+  // written once, not on every tick.
+  recorded: string
+  // Whether the history file is known to be git-ignored (checked once).
+  isHistoryIgnored: boolean
   // Whether the spinner should advance: only while the run is actively running
   // (not stalled, orphaned or finished).
   isAnimating: boolean
@@ -274,6 +293,71 @@ const isRunningOrStalled = (run: Run | null, now: number): boolean => {
   return phase !== 'passed' && phase !== 'failed'
 }
 
+// The history file is local state, not for commit. When this repo does not
+// already ignore it, add it to `.git/info/exclude` (local, never tracked).
+// Best effort: a failure only means the file may show in `git status`.
+async function ensureHistoryIgnored($: EngineInterface, w: Watch): Promise<void> {
+  if (w.isHistoryIgnored) return
+  w.isHistoryIgnored = true
+  const ignored = await $.process
+    .run(['git', 'check-ignore', '-q', '--', w.history], { cwd: w.cwd, timeoutMs: PGREP_TIMEOUT_MS })
+    .catch(() => null)
+  if (!ignored || ignored.exitCode !== 1) return
+  const target = await $.process
+    .run(['git', 'rev-parse', '--git-path', 'info/exclude'], { cwd: w.cwd, timeoutMs: PGREP_TIMEOUT_MS })
+    .catch(() => null)
+  if (!target || target.exitCode !== 0 || target.stdout.trim() === '') return
+  // `--git-path` is relative to the cwd it ran in.
+  const printed = target.stdout.trim()
+  const path = printed.startsWith('/') ? printed : `${w.cwd}/${printed}`
+  const existing = (await $.fs.exists(path).catch(() => false)) ? await $.fs.read(path).catch(() => null) : ''
+  if (existing === null) return
+  const sep = existing === '' || existing.endsWith('\n') ? '' : '\n'
+  await $.fs.write(path, `${existing}${sep}/${HISTORY_REL}\n`).catch(() => undefined)
+}
+
+// Stats `.claude` and the history file, and says whether writing or reading
+// the file is safe (no symlinks).
+async function historyState($: EngineInterface, w: Watch) {
+  const dir = await $.fs.stat(w.history.slice(0, w.history.lastIndexOf('/'))).catch(() => null)
+  const file = await $.fs.stat(w.history).catch(() => null)
+  return { isSafe: isSafeHistoryTarget(dir, file), exists: file !== null }
+}
+
+// [] when the file is absent or unsafe; null when it exists but could not be
+// read (too large, read failure), so the caller never overwrites it.
+async function readHistory($: EngineInterface, w: Watch, state: Awaited<ReturnType<typeof historyState>>) {
+  if (!state.isSafe || !state.exists) return []
+  const text = await readCapped($, w, w.history, HISTORY_FILE_MAX_BYTES)
+  return text === null ? null : parseHistory(text)
+}
+
+// Appends a finished run once (deduped by backend, number and end time, so a
+// run found settled in a later session is not added twice). A failed write is
+// retried next tick.
+async function recordHistory($: EngineInterface, w: Watch, run: Run, now: number): Promise<void> {
+  const record = historyRecord(run, now)
+  if (record === null || w.recorded === record.key) return
+  try {
+    const state = await historyState($, w)
+    if (!state.isSafe) {
+      $.ui.log('exec-observe: history: unsafe target (symlink or not a regular file)', { to: 'debug' })
+      w.recorded = record.key
+      return
+    }
+    const existing = await readHistory($, w, state)
+    // Unreadable existing file: skip, retry next tick, never wipe it.
+    if (existing === null) return
+    if (!existing.some(r => r.key === record.key)) {
+      await $.fs.write(w.history, serializeHistory(mergeHistory(existing, record)))
+      await ensureHistoryIgnored($, w)
+    }
+    w.recorded = record.key
+  } catch (error) {
+    $.ui.log(`exec-observe: history: ${String(error)}`, { to: 'debug' })
+  }
+}
+
 async function tick($: EngineInterface, w: Watch): Promise<void> {
   if (w.isBusy || w.tmp === '') return
   w.isBusy = true
@@ -329,7 +413,8 @@ async function tick($: EngineInterface, w: Watch): Promise<void> {
     const wasOpen = isRunningOrStalled(w.current, now)
     w.current = run
     await update($, runAtom, () => run)
-    $.ui.status(statusLine(run, now))
+    $.ui.status(shouldShowStatus(run, now, w.startedAt) ? statusLine(run, now) : undefined)
+    await recordHistory($, w, run, now)
 
     const phase = phaseOf(run, now)
     w.isAnimating = isAnimating(run, now)
@@ -347,23 +432,29 @@ export const register: Register = on => {
   const w: Watch = {
     tmp: '',
     cwd: '',
+    history: '',
     offset: 0,
     errSize: 0,
     briefKey: null,
     current: null,
     isBusy: false,
     announced: '',
+    startedAt: 0,
+    recorded: '',
+    isHistoryIgnored: false,
     isAnimating: false,
   }
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     w.cwd = e.cwd
+    w.startedAt = await $.clock.now()
     const top = await $.process
       .run(['git', 'rev-parse', '--show-toplevel'], { cwd: e.cwd })
       .catch(() => null)
     const root = top && top.exitCode === 0 ? top.stdout.trim() : e.cwd
     w.tmp = `${root}/.claude/tmp`
+    w.history = `${root}/${HISTORY_REL}`
 
     await $.command.register({
       name: 'exec',
@@ -378,7 +469,12 @@ export const register: Register = on => {
     return started
   })
 
-  on('command.run', { command: 'exec' }, async $ => {
+  on('command.run', { command: 'exec' }, async ($, e) => {
+    const sub = e.args.trim().split(/\s+/)[0]?.toLowerCase() ?? ''
+    if (sub === 'history') {
+      const records = await readHistory($, w, await historyState($, w))
+      return { text: records === null ? 'History file unreadable.' : formatHistory(records, await $.clock.now()) }
+    }
     const run = await read($, runAtom)
     await $.ui.open({ id: PANE, title: paneTitle(run?.backend ?? 'cursor') })
 

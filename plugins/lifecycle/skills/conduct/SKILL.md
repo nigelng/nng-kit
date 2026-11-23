@@ -27,7 +27,7 @@ Work in the project root (`git rev-parse --show-toplevel`). The up-front `finish
 
 ## Step 0 - Router
 
-Parse and remove `finish=`, `plan=`, `confirm=`, and `runner=` before routing the remaining argument. Keep the runner policy for Stage 2. Resolve paths with `Read`/`Glob`; never guess a file. A `*.notes.md` file is not a plan. Missing, ambiguous, or unsupported artifact status: ask first.
+Parse and remove `finish=`, `plan=`, `confirm=` and `runner=` before routing the remaining argument. Keep the runner policy for Stage 2. Resolve paths with `Read`/`Glob`; never guess a file. A `*.notes.md` file is not a plan. Missing, ambiguous, or unsupported artifact status: ask first.
 
 | Argument / artifact | Start at |
 | --- | --- |

@@ -88,7 +88,7 @@ Reference only. The launch script passes the headless flags. Do not assemble arg
 
 | Flag / mode | Behavior | Headless? |
 | --- | --- | --- |
-| `--dangerously-skip-permissions` | Auto-approves edits and shell | **Yes** — required |
+| `--dangerously-skip-permissions` | Auto-approves edits and shell | **Yes**: required |
 | `--mode accept-edits` | Edits only; shell soft-denied, still exits `0` | **No** |
 | Neither (default) | Prompts; headless soft-denies tools, still exits `0` | **No** — `safe` / `no-force` only |
 | `-p "<prompt>"` | Headless prompt | Required |

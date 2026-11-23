@@ -89,7 +89,7 @@ bash <skill-dir>/../../scripts/delegate-verdict.sh cursor /absolute/repo/root <n
 
 Step 5 default: background `brief` (`run_in_background: true`; do not `sleep`).
 `safe` / `no-force`: `--interactive` only, then skip Steps 3 and 6. Step 6 is
-`delegate-verdict.sh` only — do not parse `.ndjson` here. Step 8: `fix:<n>`,
+`delegate-verdict.sh` only; do not parse `.ndjson` here. Step 8: `fix:<n>`,
 passing `session_id` when Step 6 returned one. Step 7 verification is core's
 verify script (`delegate-verify.sh`).
 

@@ -17,9 +17,9 @@ Read [execute-via-core.md](../../references/execute-via-core.md) first (arg pars
 
 Do not hand-build headless `devin` argv. `<skill-dir>` is this file's directory; paste that literal absolute path:
 
-- `bash <skill-dir>/../../scripts/plan-status.sh` — status writes
-- `bash <skill-dir>/../../scripts/delegate-launch.sh` — launch (keeps relative `--export=.claude/tmp/...`)
-- `bash <skill-dir>/../../scripts/delegate-verdict.sh` — classify the run
+- `bash <skill-dir>/../../scripts/plan-status.sh` - status writes
+- `bash <skill-dir>/../../scripts/delegate-launch.sh` - launch (keeps relative `--export=.claude/tmp/...`)
+- `bash <skill-dir>/../../scripts/delegate-verdict.sh` - classify the run
 
 ## Parameter bindings
 

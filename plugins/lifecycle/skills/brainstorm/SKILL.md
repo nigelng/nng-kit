@@ -37,7 +37,7 @@ Right after the idea is known (args or Step 1 answer), check whether brainstorm 
 - **Same, but no fleet handoff needed** → Cursor Plan mode (`SwitchMode` / `CreatePlan`) or Claude Code `/plan` (product-owned under `~/.cursor/plans` / `~/.claude/plans`). Recommended when `docs/plans/**` is not required.
 - **Open-ended: multiple approaches, feasibility unknown, need Goal brief + roadmap** → continue `/brainstorm`. Recommended when ideation is still needed.
 
-If the user picks a plan path, stop and hand them a one-line prompt they can paste — do **not** run Steps 1.5–7.
+If the user picks a plan path, stop and hand them a one-line prompt they can paste; do **not** run Steps 1.5–7.
 
 ## Step 1.5 — Establish the Goal brief
 

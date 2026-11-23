@@ -1,7 +1,7 @@
 ---
 name: kit-critique
 description: Read-only critic pinned to the Devin top-critique pin.
-model: gpt-6-1-sol-high
+model: gemini-4-neon-xhigh
 allowed-tools: [read, grep, find_file_by_name, get_output]
 ---
 

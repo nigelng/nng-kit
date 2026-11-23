@@ -31,7 +31,7 @@ Spawn Tasks per the host: `<skill-dir>/../execute-plan/hosts.md`.
 - **devin** (Devin; cli `devin`; delegate; default review runner `top@claude-headless`):
   - `top-plan` = `claude-opus-5-5-high` (plain Opus, no Fusion: planning exploration stays on the lead)
   - `top-review` = `fusion-claude-opus-5-5-medium-sidekick-swe-2-medium` (provisional until the Fusion-vs-plain-Opus review test)
-  - `top-critique` = `gpt-6-1-sol-high` → `gpt-6-1-terra-high`
+  - `top-critique` = `gemini-4-neon-xhigh` → `gpt-6-1-sol-high`
   - `execute` = `swe-2-high` → `swe-2-medium` → `gpt-6-1-terra-high`
   - `mid` = implement: `swe-2-high` → `swe-2-medium` → `gpt-6-1-terra-high`; review passes: `gpt-6-1-sol-high` → `claude-sonnet-5-5-high` → `kimi-k3-1-pro-high`
   - `low` = `swe-2-medium` → `claude-haiku-5-5-high`

@@ -41,7 +41,7 @@ If the working tree is clean, inform the user and stop.
 
 Analyze the diff to determine the change type and scope:
 
-- `feat:` — new feature or config
+- `feat:`: new feature or config
 - `fix:` — bug fix or correction
 - `chore:` — tooling, deps, CI, formatting
 - `refactor:` — code restructuring with no behavior change

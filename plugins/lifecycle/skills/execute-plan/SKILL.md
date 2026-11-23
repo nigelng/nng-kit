@@ -26,7 +26,7 @@ Execute a structured plan. Orchestrate: **wave-delegated implement** (parallel `
 
 Args: `[plan] [step-scope IDs…]`. The first argument is a path under `docs/plans/**` or a plan slug/timestamp. Any further arguments are step-scope IDs (`S1`, `I2`, …). Resolve slugs against `docs/plans/` only.
 
-**Recency.** When several files match, pick the most recent per [execution-status.md](execution-status.md) § Plan recency. `*.notes.md` is never a plan — ignore it in listings and matches. If the argument is a notes file, stop and point at the sibling plan. Do not sort raw filenames.
+**Recency.** When several files match, pick the most recent per [execution-status.md](execution-status.md) § Plan recency. `*.notes.md` is never a plan; ignore it in listings and matches. If the argument is a notes file, stop and point at the sibling plan. Do not sort raw filenames.
 
 If no plan argument, list `docs/plans/*.md` except `*.notes.md`, then ask the user to pick with the question tool (`AskQuestion`/`AskUserQuestion`/`ask_user_question`) when available.
 

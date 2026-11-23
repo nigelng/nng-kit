@@ -123,6 +123,30 @@ Times come from the run, not from when this session started watching it:
 - **Growth**: the `.ndjson` file's mtime, so a dead run found at session start
   reads as stalled at once instead of looking fresh for 90 s.
 
+### Status line
+
+The status line shows a run while it is running or stalled. A finished run
+stays only if it ended after this session started and less than 10 minutes
+ago, so `/clear`, a new session or an old run left in `.claude/tmp` starts with
+an empty line. `/exec` still opens the newest run's pane.
+
+### History: `/exec history`
+
+Each finished run is appended once to `<repo>/.claude/exec-history.ndjson` (one
+JSON line: backend, run number, plan and step, result, tools, files, duration,
+end time, model, session id), deduplicated by backend, number and end time,
+newest last, capped at 50. It outlives the `.claude/tmp` run files the skill
+clears. `/exec history` lists the last 10, newest first:
+
+```
+#3 [cursor] ✓ plan-x · step 1 · 109 tools · 6 files · 33m42s · 12m05s ago
+```
+
+Runs already finished when a session starts are recorded too (once). The file
+is local state: when the repo does not already ignore it, the plugin appends
+`/.claude/exec-history.ndjson` to `.git/info/exclude`. A missing or unreadable
+file reads as empty; unparseable lines are skipped.
+
 ## Fake stream / replay
 
 `scripts/generate.ts` is a pure seeded generator (no imports) that tests

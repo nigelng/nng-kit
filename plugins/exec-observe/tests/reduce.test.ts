@@ -23,14 +23,20 @@ import {
   endTimeOf,
   EXIT_MAX_BYTES,
   finishMessage,
+  formatHistory,
+  HISTORY_MAX,
+  historyRecord,
   isCopyableId,
+  isSafeHistoryTarget,
   isAnimating,
   isDevinSettled,
   isSwitchedRun,
+  mergeHistory,
   MSG_RAW_MAX,
   oneLine,
   paneTitle,
   parseBrief,
+  parseHistory,
   withSpark,
   phaseOf,
   pickNewestRunFile,
@@ -40,7 +46,10 @@ import {
   sanitize,
   shouldAnnounce,
   STALL_MS,
+  serializeHistory,
+  shouldShowStatus,
   statusLine,
+  STATUS_FRESH_MS,
   utf8Bytes,
 } from '../hooks/reduce'
 import { generate, generateLines } from '../scripts/generate.ts'
@@ -1466,4 +1475,148 @@ test('the brief key is kept only after a read went through', async () => {
   expect(changedFileKey(failed, stat)).toBe('120:1000')
   const read = briefKeyAfterRead(null, changedFileKey(null, stat)!, 'text')
   expect(changedFileKey(read, stat)).toBeNull()
+})
+
+const settledRun = (endedAt: number | null, over: Partial<ReturnType<typeof emptyRun>> = {}) => ({
+  ...emptyRun(3, 'cursor'),
+  startedAt: 1_000,
+  exitCode: 0,
+  result: { isOk: true, subtype: 'success', durationMs: 5_000 },
+  endedAt,
+  tools: 4,
+  files: ['a.ts', 'b.ts'],
+  task: { plan: 'plan-x', scope: 'step 1' },
+  ...over,
+})
+
+test('the status line keeps a running run, whatever its age', () => {
+  const running = { ...emptyRun(1), startedAt: 0, lastGrowthAt: 100_000 }
+  expect(shouldShowStatus(running, 101_000, 500_000)).toBe(true)
+})
+
+test('the status line hides a stalled run that last grew before the session started', () => {
+  // A killed run (no exit, no result) stays stalled forever.
+  const stalled = { ...emptyRun(1), startedAt: 0, lastGrowthAt: 0 }
+  expect(phaseOf(stalled, 200_000)).toBe('stalled')
+  expect(shouldShowStatus(stalled, 200_000, 500_000)).toBe(false)
+  expect(shouldShowStatus(stalled, 200_000, 1)).toBe(false)
+})
+
+test('the status line keeps a stalled run that grew at or after the session started', () => {
+  const stalled = { ...emptyRun(1), startedAt: 0, lastGrowthAt: 100_000 }
+  expect(phaseOf(stalled, 200_000)).toBe('stalled')
+  expect(shouldShowStatus(stalled, 200_000, 100_000)).toBe(true)
+  expect(shouldShowStatus(stalled, 200_000, 50_000)).toBe(true)
+  expect(shouldShowStatus(stalled, 200_000, 100_001)).toBe(false)
+})
+
+test('the status line hides a settled run that ended before the session started', () => {
+  const run = settledRun(10_000)
+  expect(shouldShowStatus(run, 20_000, 15_000)).toBe(false)
+  // Ended after the session started: shown.
+  expect(shouldShowStatus(run, 20_000, 10_000)).toBe(true)
+  expect(shouldShowStatus(run, 20_000, 5_000)).toBe(true)
+})
+
+test('the status line hides a settled run once it is 10 minutes old', () => {
+  const run = settledRun(100_000)
+  expect(shouldShowStatus(run, 100_000 + STATUS_FRESH_MS, 0)).toBe(true)
+  expect(shouldShowStatus(run, 100_000 + STATUS_FRESH_MS + 1, 0)).toBe(false)
+})
+
+test('the status line falls back to the last event or growth for a settled run without endedAt', () => {
+  expect(shouldShowStatus(settledRun(null, { lastEventAt: 50_000 }), 60_000, 0)).toBe(true)
+  expect(shouldShowStatus(settledRun(null, { lastGrowthAt: 50_000 }), 60_000, 0)).toBe(true)
+  // Nothing says when it ended: hidden.
+  expect(shouldShowStatus(settledRun(null), 60_000, 0)).toBe(false)
+})
+
+test('a run is recorded to history only once it has finished', () => {
+  expect(historyRecord({ ...emptyRun(1), lastGrowthAt: 0 }, 1_000)).toBeNull()
+  const ok = historyRecord(settledRun(9_000), 20_000)!
+  expect(ok).toMatchObject({
+    key: 'cursor-3-9000',
+    backend: 'cursor',
+    n: 3,
+    plan: 'plan-x',
+    scope: 'step 1',
+    ok: true,
+    reason: null,
+    tools: 4,
+    files: 2,
+    durationMs: 5_000,
+    endedAt: 9_000,
+  })
+  const failed = historyRecord(settledRun(9_000, { exitCode: 1 }), 20_000)!
+  expect(failed.ok).toBe(false)
+  expect(failed.reason).toBe('exit 1')
+})
+
+test('a run is not recorded until its exit code is read', () => {
+  // A `result` event settles the phase, but `.exit` later moves endedAt and the key.
+  expect(historyRecord(settledRun(9_000, { exitCode: null }), 20_000)).toBeNull()
+  expect(historyRecord(settledRun(9_000, { exitCode: 0 }), 20_000)).not.toBeNull()
+})
+
+test('history is written only through a real directory and a regular file', () => {
+  const dir = { kind: 'dir' }
+  const file = { kind: 'file' }
+  const table: [string, Parameters<typeof isSafeHistoryTarget>, boolean][] = [
+    ['real dir, absent file', [dir, null], true],
+    ['real dir, regular file', [dir, file], true],
+    ['missing dir', [null, null], true],
+    ['symlinked dir', [{ kind: 'dir', isLink: true }, null], false],
+    ['symlinked file', [dir, { kind: 'file', isLink: true }], false],
+    ['file that is a dir', [dir, { kind: 'dir' }], false],
+    ['file that is other', [dir, { kind: 'other' }], false],
+    ['dir that is a file', [file, null], false],
+  ]
+  for (const [name, [d, f], safe] of table) expect([name, isSafeHistoryTarget(d, f)]).toEqual([name, safe])
+})
+
+test('history parsing skips bad lines and unknown backends', () => {
+  const good = historyRecord(settledRun(9_000), 20_000)!
+  const text = [
+    JSON.stringify(good),
+    'not json',
+    '',
+    '[]',
+    JSON.stringify({ key: 'x', backend: 'nope', n: 1 }),
+    JSON.stringify({ backend: 'cursor', n: 1 }),
+  ].join('\n')
+  expect(parseHistory(text)).toEqual([good])
+})
+
+test('history round-trips through serialize and parse', () => {
+  const records = [historyRecord(settledRun(9_000), 20_000)!, historyRecord(settledRun(9_500, { n: 4 }), 20_000)!]
+  expect(parseHistory(serializeHistory(records))).toEqual(records)
+  expect(parseHistory('')).toEqual([])
+})
+
+test('merging history replaces the same key and caps at 50, newest last', () => {
+  const rec = (n: number, endedAt: number) => historyRecord(settledRun(endedAt, { n }), 1_000_000)!
+  let records: ReturnType<typeof parseHistory> = []
+  for (let n = 1; n <= HISTORY_MAX + 5; n++) records = mergeHistory(records, rec(n, n * 1_000))
+  expect(records).toHaveLength(HISTORY_MAX)
+  expect(records[0]!.n).toBe(6)
+  expect(records.at(-1)!.n).toBe(HISTORY_MAX + 5)
+  // The same run again replaces its row, not duplicates it.
+  const again = mergeHistory(records, { ...rec(HISTORY_MAX + 5, (HISTORY_MAX + 5) * 1_000), tools: 99 })
+  expect(again).toHaveLength(HISTORY_MAX)
+  expect(again.at(-1)!.tools).toBe(99)
+})
+
+test('/exec history lists newest first, at most 10, and says when empty', () => {
+  expect(formatHistory([], 0)).toBe('No exec history yet.')
+  const rec = (n: number, over: Parameters<typeof settledRun>[1] = {}) =>
+    historyRecord(settledRun(n * 60_000, { n, ...over }), 100 * 60_000)!
+  const one = formatHistory([rec(1)], 100 * 60_000)
+  expect(one).toBe('#1 [cursor] ✓ plan-x · step 1 · 4 tools · 2 files · 5s · 99m00s ago')
+  const many = Array.from({ length: 12 }, (_, i) => rec(i + 1))
+  const lines = formatHistory(many, 100 * 60_000).split('\n')
+  expect(lines).toHaveLength(11)
+  expect(lines[0]).toContain('#12 ')
+  expect(lines[9]).toContain('#3 ')
+  expect(lines[10]).toBe('… 2 older (cap 50)')
+  expect(formatHistory([rec(2, { exitCode: 2 })], 100 * 60_000)).toContain('✗ exit 2')
 })

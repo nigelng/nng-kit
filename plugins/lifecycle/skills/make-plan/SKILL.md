@@ -21,7 +21,7 @@ Warn once and recommend switching if below the host's **top-plan** pin (`tiers.s
 
 ## Built-in Plan vs this skill
 
-Prefer this skill's `docs/plans/**` artifact for `/execute-plan` / `/critique plan`. If a Cursor (`~/.cursor/plans/`) or Claude (`~/.claude/plans/`) plan already exists, **promote/copy** it into `docs/plans/` (fleet template) instead of rediscovering — never run `/execute-plan` on those raw paths. Suggest `/brainstorm` first if approaches are still open; `/make-plan` never implements.
+Prefer this skill's `docs/plans/**` artifact for `/execute-plan` / `/critique plan`. If a Cursor (`~/.cursor/plans/`) or Claude (`~/.claude/plans/`) plan already exists, **promote/copy** it into `docs/plans/` (fleet template) instead of rediscovering; never run `/execute-plan` on those raw paths. Suggest `/brainstorm` first if approaches are still open; `/make-plan` never implements.
 
 ## Step 1 — Determine intent: new plan vs. update
 

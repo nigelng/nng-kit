@@ -47,7 +47,7 @@ Fleet multi-mode critique (not Cursor `/review` / `/review-bugbot` / `/review-se
 
 - **`/critique plan`** after `/make-plan` (large blast radius, migrations,
   security-sensitive scope especially): top-tier review Task; session applies edits.
-  Tiny/mechanical plans still use top-tier — keep the review short.
+  Tiny/mechanical plans still use top-tier; keep the review short.
 - **`/critique change`** before commit when `/execute-plan` was **not** used, or
   for hand-written diffs (lean mid → final top closing Task when lean is clean).
 - **After a converged `/execute-plan` top-tier review, or a converged delegate PASS:** Change mode: see below.
