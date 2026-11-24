@@ -124,7 +124,9 @@ same plan audit metadata as `/execute-plan`.
                                        security-review when available); after a
                                        converged execute-plan review skip lean and
                                        skip the closing final pass by default; still
-                                       run security unless docs-only
+                                       run security unless docs-only; mid verify gate
+                                       confirms lean findings before fixes; project-
+                                       rules check; --depth quick|standard|deep
 
 /commit                            low-tier default; classifies the diff, drafts a
   → local commit(s)                   Conventional Commit, optionally bumps

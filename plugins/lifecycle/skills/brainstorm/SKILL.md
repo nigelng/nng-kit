@@ -107,6 +107,9 @@ Once the user is satisfied with the idea, produce a high-level roadmap. Structur
 ### Strategy
 1-2 sentences: the core approach and why it's the right one for this codebase.
 
+### Decisions
+Step 4 choices: option picked + one-line reason each.
+
 ### Architecture
 - How the idea fits into the existing codebase structure
 - New modules/files to create (with paths grounded in codebase exploration)
@@ -150,7 +153,7 @@ Format the prompt in a fenced code block so the user can copy-paste it cleanly:
 /make-plan <task description>. Goal: <one-sentence Goal from the Step 1.5 brief>. Scope: <in/out>. Constraints: <list>. Target Phase 1: <phase name and deliverable>. Brainstorm: docs/brainstorms/<YYYY-MM-DD>-<slug>.md
 ```
 
-If the prompt is too long for a single line, use a multi-line fenced block and instruct the user to paste it after `/make-plan`.
+If too long for one line, use a multi-line fenced block to paste after `/make-plan`.
 
 ## Step 6.5 — Persist the brainstorm
 
@@ -162,13 +165,13 @@ Derive a kebab-case slug from the idea title (lowercase, hyphen-separated; drop 
 
 On the **first** completion of Steps 5–6 for this brainstorm, set the date with `date +%Y-%m-%d` (e.g. `2026-11-08`) and the path to `<project-root>/docs/brainstorms/<YYYY-MM-DD>-<slug>.md`. If that path already exists, append `-2`, `-3`, and so on before `.md` until unused. Write a YAML frontmatter block at the top containing only `created_at: <ISO-8601Z>` (set once with `date -u +%Y-%m-%dT%H:%M:%SZ`). On **Refine** (Step 7 → back to Step 4), **overwrite that same path** and **preserve** the existing `created_at` — do not create a new dated file.
 
-Create `docs/brainstorms/` at the project root if missing, then write the brainstorm to the path above.
+Create `docs/brainstorms/` at the project root if missing, then write the brainstorm to the path above. `docs/brainstorms/` is usually gitignored: the file exists only in this checkout/worktree.
 
-The file must contain: frontmatter with `created_at`, the Step 1.5 Goal brief, the Step 3 feasibility assessment, the Step 5 roadmap (strategy, architecture, phases, can/can't/deferring lists), and the Step 6 make-plan prompt (verbatim).
+The file must contain: frontmatter with `created_at`, the Step 1.5 Goal brief, the Step 3 feasibility assessment, the Step 5 roadmap (strategy, architecture, phases, can/can't/deferring lists), **Decisions** (required; update on Refine, never drop), and the Step 6 make-plan prompt (verbatim).
 
 ## Step 7 — Offer next steps
 
-After presenting the roadmap and prompt, run Step 6.5, then confirm the brainstorm was saved to `docs/brainstorms/`. Offer the user these options:
+After presenting the roadmap and prompt, run Step 6.5, then confirm the brainstorm was saved to `docs/brainstorms/`. Tell the user to run `/make-plan` in this checkout, or copy the file into the other checkout first. Offer the user these options:
 - **Refine the idea** — go back to Step 4 and iterate further (Step 6.5 overwrites the same persisted path)
 - **Run /make-plan now** — the user pastes the prompt from Step 6 to produce the implementation plan
 - Mention the recommended chain after planning: `/make-plan` → `/critique plan` → `/execute-plan`

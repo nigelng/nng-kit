@@ -4,7 +4,8 @@ description: >-
   Independent review of a plan or code changes (policy A): top-tier for
   /critique plan and final /critique change; lean mid-tier change rounds
   (≤2) with ≤1 top-tier escalate; Cursor/Claude security-review pass when
-  available. Args: [plan <path> | change <ref|range|#PR> | <path-or-ref>].
+  available. Args: [plan <path> | change <ref|range|#PR> [--depth
+  quick|standard|deep] | <path-or-ref>].
   Use when the user asks to review a plan or change, or mentions /critique.
 disable-model-invocation: true
 ---
@@ -34,8 +35,10 @@ for each Task, and delete them once the run ends.
 | --- | --- | --- |
 | `/critique plan` | **top-critique** Task (`top-review` if absent or unpinnable); **top-plan** session | Separate read-only Task; session applies edits (warn once below `top-plan`, never block); 2-pass budget; Devin without profiles: in-session fallback (Plan mode) |
 | Lean review (change Phase A) | **mid** | Per [model-tiers.md](model-tiers.md); max **2** |
+| Verify gate | **mid** | One batched read-only Task per lean round, plus the closing-fix re-check |
+| Rules lens | **mid** | Round 1 |
 | Fix Task (change) | **mid** (**low** if mechanical) | Separate write agent; never the reviewer |
-| Escalate (≤1) | **top-review** Task | After round-1 **Rework**, or after **2 mid** with `blocking`/unresolved `important`; then **stop**; `critique escalate` |
+| Escalate (≤1) | **top-review** Task | After round-1 **Rework** backed by a `CONFIRMED`/security `blocking`, or after **2 mid** with `blocking`/unresolved `important`; then **stop**; `critique escalate` |
 | **Final `/critique change`** | **top-review** Task | Separate read-only Task (`critique closing pass`); ≠ escalate |
 | Security pass | Cursor `security-review` | Not a generic top-tier essay; Claude/inline trust-boundary fallback if absent |
 
@@ -49,7 +52,7 @@ Fleet multi-mode critique (not Cursor `/review` / `/review-bugbot` / `/review-se
   security-sensitive scope especially): top-tier review Task; session applies edits.
   Tiny/mechanical plans still use top-tier; keep the review short.
 - **`/critique change`** before commit when `/execute-plan` was **not** used, or
-  for hand-written diffs (lean mid → final top closing Task when lean is clean).
+  for hand-written diffs (lean mid → final top closing Task when lean is clean; `PLAUSIBLE` alone does not block it).
 - **After a converged `/execute-plan` top-tier review, or a converged delegate PASS:** Change mode: see below.
 
 ## Preconditions
@@ -61,7 +64,7 @@ writes: stop and tell the user to switch to Agent mode.
 
 Determine whether this is a **plan review** or a **change review**. First, one parallel batch: `git status`, `git diff`, `git log --oneline -10`, `Glob docs/plans/*.md`, and `bash <skill-dir>/../execute-plan/scripts/plan-status.sh recent docs/plans; echo "exit=$?"` (newest plan; `<skill-dir>` = this `SKILL.md`'s absolute directory). Drop `*.notes.md` hits; a notes file is never a plan. `recent` printed `exit=3` (`tie`) → ask which plan; `exit=2` → no plan; `exit=0` → its stdout is the newest plan.
 
-Parse the user's slash-command or message args.
+Parse the user's slash-command or message args. Change mode also takes `--depth quick|standard|deep` (default `standard`; see [change-review.md](change-review.md#depth)). Strip it before mode detection; plan mode ignores it with a one-line note.
 
 ### Explicit mode (args start with a mode keyword)
 
@@ -99,7 +102,7 @@ Review Tasks must:
 - No plan/code rewrites for style. Prefer Ship as-is when unsure.
 - Verdict: `"Ship as-is"` | `"Apply N suggested changes then ship"` / `"Address N findings then ship"` | `"Rework — fundamental issues"`. Count matches actionable items.
 
-Each finding: **Severity**, **Location**, **Description**, **Suggested fix**.
+Plan mode, each finding: **Severity**, **Location**, **Description**, **Suggested fix**. Change mode: the finding contract and Do-not-flag list in [change-review.md](change-review.md) (lean, rules, escalate, closing Tasks).
 
 If none: “No high-confidence issues found.”
 
@@ -109,21 +112,23 @@ If none: “No high-confidence issues found.”
 
 Plan mode has no lean loop (one top-tier Task per pass; budget in Plan mode).
 
-### Phase A — lean mid-tier (change mode only), max 2
+### Phase A — lean mid-tier (change mode only), max 2 lean **rounds**
 
-1. Spawn an independent **read-only** lean review Task (`generalPurpose`, mid-tier). Round 1: launch the Security pass Task in the same message when it runs as a Task.
-2. Parse findings (round 1: lean + security, merged); auto-apply only `blocking` / `important` in one fix batch.
-3. Stop lean loop if Ship as-is / only nits / no high-confidence issues (round 1: lean + security merged, so an applied security fix means round 2 runs).
-4. If blockers remain with clear fixes: apply, then **at most one more** lean
-   review (max **2** mid-tier reviews total).
+1. Spawn an independent **read-only** lean review Task (`generalPurpose`, mid-tier; `deep`: two parallel lean Tasks, merged before the gate, [depth](change-review.md#depth)). Round 1: launch the rules Task (not on `quick`; [rules lens](change-review.md#rules-lens)) and the Security pass Task in the same message (Security when it runs as a Task).
+2. Parse findings (round 1: lean + rules + security, merged) → [verify gate](change-review.md#verify-gate-phase-a-lean-rounds-only) → one fix batch of `CONFIRMED` lean/rules `blocking` / `important` findings plus security findings per Merge security findings (ungated). `PLAUSIBLE` is not applied; it flows to the closing pass. Recompute the round verdict after the gate from `CONFIRMED` lean/rules plus security findings.
+3. Stop lean loop if Ship as-is / only nits / no `CONFIRMED` lean/rules or security findings (round 1: merged, so an applied security fix means round 2 runs).
+4. After a fix batch, run **at most one more** lean
+   round (max **2** total; `quick`: one round only; a backed round-1 Rework goes to Phase B instead).
 
 ### Phase B — top-tier escalate (≤1; only if still dirty)
 
 Run **exactly one** top-tier escalate review (reason `critique escalate`) when:
 
-- round-1 verdict is “Rework” → escalate immediately (**skip** a second lean
+- round-1 verdict is “Rework” backed by a `CONFIRMED` (or security) `blocking` finding → escalate immediately (**skip** a second lean
   round), or
-- after **2 mid-tier** rounds any `blocking` or unresolved `important` remains.
+- after **2 mid-tier** rounds any `CONFIRMED` lean/rules `blocking` or unresolved `important` remains (security `blocking` / `important` counts too).
+
+The escalate Task uses the change-review.md finding contract and Do-not-flag list, and gets the open `PLAUSIBLE` list to adjudicate like the closing pass.
 
 Apply clear blocking/important fixes; optional quick lint/tests verify. **No
 further automatic escalate rounds.** If issues remain: **stop**, present the
@@ -131,15 +136,15 @@ remaining list, offer refine / re-run `/critique` later / accept deferred.
 
 ### Final `/critique change` — top-tier closing pass
 
-When Phase A is clean/ship-ready **and** escalate was not required — or after
+When Phase A is clean/ship-ready (open `PLAUSIBLE` items alone do not block it; they go to this pass) **and** escalate was not required — or after
 escalate fixes leave the change ship-ready — run **one** read-only **top-tier**
 Task (`reason: critique closing pass`); never in-session (avoids
-self-review). Distinct from Phase B escalate. **Skip** when After execute-plan
-or a converged delegate PASS applies, the user opts out, or that Task already
+self-review). It gets the open `PLAUSIBLE` list and the same contract. Distinct from Phase B escalate. **Skip** when After execute-plan
+or a converged delegate PASS applies, the user opts out, `quick` ([depth](change-review.md#depth): its lean fixes get the closing-fix re-check instead), or that Task already
 ran this turn (in-session self-review does **not** count).
 
 If the closing pass finds `blocking` / `important`: apply clear fixes via a
-fix batch (**no re-review**), list those fixes as **unverified**, and **stop**.
+fix batch, run the closing-fix re-check ([change-review.md](change-review.md#closing-fix-re-check)), then **stop**.
 
 ---
 
@@ -218,7 +223,7 @@ Using the ref from Step 1 (or auto-detected):
 - **PR number** → `gh pr diff` / `gh pr view` when `gh` is available.
 - **No ref:** dirty tree → `git diff HEAD`; clean → `git show HEAD`.
 
-Resolve the base ref and changed-file list. Pass each review Task that base ref and the criteria only. The Task runs `git diff <base>` itself (and lists untracked files when the review includes them). Do not paste the diff. If the diff is huge, the Task may start from `git diff --stat` and `Read` the hottest files — still require evidence before findings. On Devin the session runs these commands and the Task reads the files hosts.md has the session write.
+Resolve the base ref and changed-file list. Collect the intent inputs per [change-review.md](change-review.md#intent-inputs). Pass each review Task that base ref, the intent inputs and the criteria only. The Task runs `git diff <base>` itself (and lists untracked files when the review includes them). Do not paste the diff. If the diff is huge, the Task may start from `git diff --stat` and `Read` the hottest files — still require evidence before findings. On Devin the session runs these commands and the Task reads the files hosts.md has the session write.
 
 **Working tree vs commit:** Fixes always land in the working tree (never rewrite history). Tell the user when the reviewed ref was a commit but fixes are uncommitted.
 
@@ -304,7 +309,8 @@ defer. No multi-round security loop.
 ## Final output (both modes)
 
 - **Mode** and what was reviewed; **round table** (plan: top Task; change:
-  lean mid rows, escalate/final top if used).
+  lean mid rows with `C/P/R` (confirmed/plausible/rejected) counts, a Rules
+  row, a Re-check row, escalate/final top if used).
 - **Security** (change): tool (`security-review` / Claude / inline / skipped +
   reason) + findings count or “no issues”.
 - **Change:** `git diff --stat` after fixes; deferred/disputed/remaining by

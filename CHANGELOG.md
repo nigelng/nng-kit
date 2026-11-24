@@ -4,6 +4,20 @@ Notable changes to the nng-kit plugins, newest first. Each sync commit on
 nigelng/nng-kit quotes the lines added here since the previous sync, so write
 for plugin users. This file is public: keep private names and paths out.
 
+## Unreleased
+
+- lifecycle: `/brainstorm` persists a required **Decisions** section (option
+  picked + reason), and `/make-plan` lists those decisions under the plan's
+  Assumptions as settled choices. `/brainstorm` notes that
+  `docs/brainstorms/` is usually gitignored (run `/make-plan` in the same
+  checkout or copy the file); when the `Brainstorm:` file is missing,
+  `/make-plan` continues from the prompt's inline markers.
+- lifecycle: `/critique change` now has a mid-tier verifier confirm each
+  blocking/important lean finding before it is auto-applied (unconfirmed
+  PLAUSIBLE ones go to the closing pass), requires a failure scenario per
+  finding, adds a project-rules check and `--depth quick|standard|deep`, and
+  re-checks closing-pass fixes.
+
 ## 2026-11-22
 
 - exec-observe 0.6.0: an old run no longer lingers in the status line. A
