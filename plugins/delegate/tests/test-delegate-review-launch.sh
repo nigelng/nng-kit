@@ -15,9 +15,6 @@ export GIT_CONFIG_KEY_0=core.excludesFile
 export GIT_CONFIG_VALUE_0=$empty_ignore
 export XDG_CONFIG_HOME="$work/xdg-config"
 unset NNG_KIT_TIERS
-# agy ships disabled; re-enable it here so its review runner stays covered.
-mkdir -p "$XDG_CONFIG_HOME/nng-kit"
-printf '{"tools":{"agy":{"enabled":true,"delegate":true}}}\n' >"$XDG_CONFIG_HOME/nng-kit/tiers.json"
 
 cleanup() { rm -rf "$work"; }
 trap cleanup EXIT
@@ -766,8 +763,7 @@ fi
 # --- clean environment: allowlist, DELEGATE_ENV_ALLOW, names-only --print ---
 
 clean_print() {
-  run_cmd env -i HOME=/h PATH="$PATH" NNG_KIT_TIERS="$XDG_CONFIG_HOME/nng-kit/tiers.json" \
-    SECRET_TOKEN=sekrit-value CURSOR_API_KEY=key-value "$@"
+  run_cmd env -i HOME=/h PATH="$PATH" SECRET_TOKEN=sekrit-value CURSOR_API_KEY=key-value "$@"
 }
 
 clean_print bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$agy_model"
@@ -826,14 +822,14 @@ for bad_allow in 'bad.name' 'A B' 'GOOD,' '1ABC' 'A-B' 'A;B'; do
   assert_rc "bad DELEGATE_ENV_ALLOW '$bad_allow' exits 2" 2
 done
 
-printf '{"tools":{"agy":{"enabled":true,"authEnv":["AGY_TOKEN"]}}}\n' >"$work/tiers-auth.json"
+printf '{"tools":{"agy":{"authEnv":["AGY_TOKEN"]}}}\n' >"$work/tiers-auth.json"
 clean_print env NNG_KIT_TIERS="$work/tiers-auth.json" AGY_TOKEN=t bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$agy_model"
 if grep -qx 'AGY_TOKEN=<set>' <<<"$LAST_OUT"; then
   pass "override authEnv is honoured"
 else
   fail "override authEnv is honoured"
 fi
-printf '{"tools":{"agy":{"enabled":true,"authEnv":["bad name"]}}}\n' >"$work/tiers-auth-bad.json"
+printf '{"tools":{"agy":{"authEnv":["bad name"]}}}\n' >"$work/tiers-auth-bad.json"
 clean_print env NNG_KIT_TIERS="$work/tiers-auth-bad.json" bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$agy_model"
 assert_rc "bad authEnv name exits 2" 2
 
@@ -856,7 +852,7 @@ globdir="$work/globdir"
 mkdir -p "$globdir"
 : >"$globdir/ZZTOP"
 for bad_auth in 'FOO BAR' 'Z*'; do
-  printf '{"tools":{"agy":{"enabled":true,"authEnv":["%s"]}}}\n' "$bad_auth" >"$work/tiers-auth-split.json"
+  printf '{"tools":{"agy":{"authEnv":["%s"]}}}\n' "$bad_auth" >"$work/tiers-auth-split.json"
   pushd "$globdir" >/dev/null
   clean_print env NNG_KIT_TIERS="$work/tiers-auth-split.json" bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$agy_model"
   popd >/dev/null

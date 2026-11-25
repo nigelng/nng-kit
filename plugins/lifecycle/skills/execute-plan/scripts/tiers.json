@@ -110,9 +110,9 @@
     },
     "agy": {
       "label": "Antigravity",
-      "enabled": false,
+      "enabled": true,
       "cli": "agy",
-      "delegate": false,
+      "delegate": true,
       "authEnv": [],
       "defaultReviewRunner": "claude-headless",
       "reviewRunners": {

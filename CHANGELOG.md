@@ -4,6 +4,15 @@ Notable changes to the nng-kit plugins, newest first. Each sync commit on
 nigelng/nng-kit quotes the lines added here since the previous sync, so write
 for plugin users. This file is public: keep private names and paths out.
 
+## 2026-11-26
+
+- lifecycle 0.21.0, delegate 0.16.0: Antigravity (`agy`) is enabled again
+  (`enabled: true`, `delegate: true` in `tiers.json`). Tier resolution,
+  `/delegate:execute-via-agy`, and the `top@agy-plan` review runner work
+  again; `top@agy-plan` is listed in the generated Review runners, its
+  summary block returns, and the grunt-work and review-family rules list agy
+  Gemini again.
+
 ## 2026-11-24
 
 - lifecycle 0.20.0: `/brainstorm` persists a required **Decisions** section (option

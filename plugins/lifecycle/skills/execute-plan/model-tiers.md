@@ -35,7 +35,7 @@ Spawn Tasks per the host: `<skill-dir>/../execute-plan/hosts.md`.
   - `execute` = `swe-2-high` → `swe-2-medium` → `gpt-6-1-terra-high`
   - `mid` = implement: `swe-2-high` → `swe-2-medium` → `gpt-6-1-terra-high`; review passes: `gpt-6-1-sol-high` → `claude-sonnet-5-5-high` → `kimi-k3-1-pro-high`
   - `low` = `swe-2-medium` → `claude-haiku-5-5-high`
-- **agy** (Antigravity; cli `agy`; disabled; default review runner `top@claude-headless`):
+- **agy** (Antigravity; cli `agy`; delegate; default review runner `top@claude-headless`):
   - `top-plan` = `claude-opus-5-5-high` → `gemini-4-neon-xhigh` → `gemini-4-argon-high`
   - `top-review` = `claude-opus-5-5-medium` (--mode plan) → `gemini-4-neon-high` (--mode plan) → `gemini-4-argon-medium` (--mode plan)
   - `top-critique` = `gemini-4-neon-xhigh` → `gemini-4-argon-high`
@@ -48,7 +48,7 @@ Spawn Tasks per the host: `<skill-dir>/../execute-plan/hosts.md`.
 - **claude-code:** Always set `model:` explicitly on spawns.
 - **devin:** never `adaptive` or `fusion-*` for `execute`/`mid`/`low`; Fusion only for `top-review`; Devin CLI strips the `cognition-` prefix on `swe-2-*`.
   - **Standalone Devin tasks** (guidance, not a resolver row): Fusion lead `gpt-6-1-sol-high` with sidekick `swe-2-medium` (`fusion-gpt-6-1-sol-high-sidekick-swe-2-medium`), then `gpt-6-1-terra-high` (`fusion-gpt-6-1-sol-high-sidekick-gpt-6-1-terra-high`); Adaptive (`adaptive`) only for ad-hoc interactive use.
-- **agy:** disabled; pins kept for re-enable. Pools: Generic (largest; Neon + Hydrogen) `top-critique`, `execute`, `mid` implement, `low`, `top-plan`/`top-review`/`mid` review fallback; Argon `mid` review, overflow; Claude + GPT only `top-plan`/`top-review`.
+- **agy:** pools: Generic (largest; Neon + Hydrogen) `top-critique`, `execute`, `mid` implement, `low`, `top-plan`/`top-review`/`mid` review fallback; Argon `mid` review, overflow; Claude + GPT only `top-plan`/`top-review`.
 <!-- tiers:tool-notes:end -->
 
 ## Review runners
@@ -59,6 +59,7 @@ Spawn Tasks per the host: `<skill-dir>/../execute-plan/hosts.md`.
 - `top@claude-headless` = Claude Code `top-review` pin, mode `headless`
 - `top@cursor-ask` = Cursor `top-review` pin, mode `ask`
 - `top@devin-fusion` = Devin `top-review` pin, mode `auto`
+- `top@agy-plan` = Antigravity `top-review` pin, mode `plan`
 <!-- tiers:generated:review-runners:end -->
 
 External runners (every runner except `top@session` and `top@claude-task`) run through the delegate plugin's review launcher. They read the host's verify-script summary and never run Verification themselves, and they run under a git guard that reverts any reviewer edit. A reviewer failure (launch error, quota, timeout, guard trip, missing or inconsistent verdict) → stop and ask: retry, the host's `defaultReviewRunner`, or abort.
