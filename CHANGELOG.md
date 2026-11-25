@@ -4,19 +4,23 @@ Notable changes to the nng-kit plugins, newest first. Each sync commit on
 nigelng/nng-kit quotes the lines added here since the previous sync, so write
 for plugin users. This file is public: keep private names and paths out.
 
-## Unreleased
+## 2026-11-24
 
-- lifecycle: `/brainstorm` persists a required **Decisions** section (option
+- lifecycle 0.20.0: `/brainstorm` persists a required **Decisions** section (option
   picked + reason), and `/make-plan` lists those decisions under the plan's
   Assumptions as settled choices. `/brainstorm` notes that
   `docs/brainstorms/` is usually gitignored (run `/make-plan` in the same
   checkout or copy the file); when the `Brainstorm:` file is missing,
   `/make-plan` continues from the prompt's inline markers.
-- lifecycle: `/critique change` now has a mid-tier verifier confirm each
+- lifecycle 0.20.0: `/critique change` now has a mid-tier verifier confirm each
   blocking/important lean finding before it is auto-applied (unconfirmed
   PLAUSIBLE ones go to the closing pass), requires a failure scenario per
   finding, adds a project-rules check and `--depth quick|standard|deep`, and
   re-checks closing-pass fixes.
+- lifecycle 0.20.0, delegate 0.15.0: Devin `top-critique` (the
+  `/critique plan` review Task and the `kit-critique` profile) is now
+  `gemini-4-neon-xhigh`, falling back to `gpt-6-1-sol-high`. Reinstall the
+  Devin `kit-*` profiles to pick up the new pin.
 
 ## 2026-11-22
 

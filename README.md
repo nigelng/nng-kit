@@ -57,8 +57,10 @@ Plugin skills are namespaced: `/lifecycle:make-plan`, `/relay:save`,
 ### Prerequisites for `delegate`
 
 `delegate` needs only the CLI for the backend you use. Each is optional — if
-you do not install Cursor, Antigravity, or Devin on a host, turn it off in
-[Enable or disable a tool](#enable-or-disable-a-tool).
+you do not install Cursor or Devin on a host, turn it off in
+[Enable or disable a tool](#enable-or-disable-a-tool). Antigravity (`agy`)
+ships disabled; turn it on there before using `/delegate:execute-via-agy` or
+the `top@agy-plan` review runner.
 
 - **Cursor** (`/delegate:execute-via-cursor`): the Cursor CLI `agent`,
   installed and signed in.
@@ -176,8 +178,8 @@ Invoke as `/<name>`.
 
 | Plugin | Version | What it is |
 | --- | --- | --- |
-| `lifecycle` | 0.18.0 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
-| `delegate` | 0.13.0 | Hands plan implementation to the Cursor (`agent`), Antigravity (`agy`), or Devin (`devin`) CLI while Claude Code gates and reviews. See [README](plugins/delegate/README.md). |
+| `lifecycle` | 0.20.0 | Idea → shipped skill chain. See [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md). |
+| `delegate` | 0.15.0 | Hands plan implementation to the Cursor (`agent`), Devin (`devin`), or Antigravity (`agy`, ships disabled) CLI while Claude Code gates and reviews. See [README](plugins/delegate/README.md). |
 | `exec-observe` | 0.6.0 | Pane + status line for `/exec` runs of `delegate` (Cursor, Antigravity and Devin badges). Replaces the retired observe plugin. See [README](plugins/exec-observe/README.md). |
 | `relay` | 0.6.0 | Cross-surface handoff (save / pickup / check / discard + SessionStart). See [README](plugins/relay/README.md). |
 
@@ -186,9 +188,9 @@ Invoke as `/<name>`.
 | Skill | Does | Writes to | Commits/pushes? |
 | --- | --- | --- | --- |
 | `conduct` | Runs brainstorm, make-plan, critique plan, execute-plan and full critique change with two human gates, then finishes per up-front mode. After Gate B, a fresh session starts at execute-plan only when `gate_b_sha` still matches the plan | Brainstorms, plans, working tree; git branch/commit/push/PR per finish mode | Per up-front finish mode (`push`, `pr`, `none`); never to default branch |
-| `brainstorm` | Goal brief, explore feasibility, roadmap + `/make-plan` handoff | `docs/brainstorms/**` | Never |
-| `make-plan` | Structured plan with an Execution map | `docs/plans/**` | Never |
-| `critique` | Lean independent review of a plan or a change, plus a security pass | Plan file or working tree | Never |
+| `brainstorm` | Goal brief, explore feasibility, roadmap, recorded **Decisions** (option + reason) + `/make-plan` handoff | `docs/brainstorms/**` | Never |
+| `make-plan` | Structured plan with an Execution map; brainstorm decisions become settled Assumptions | `docs/plans/**` | Never |
+| `critique` | Lean independent review of a plan or a change plus a security pass. On a change (`--depth quick\|standard\|deep`), a mid-tier verifier confirms each blocking/important finding before it is auto-applied | Plan file or working tree | Never |
 | `execute-plan` | Runs the plan's waves through subagents, mid-tier review passes plus a top-tier final pass. Lock, map rows, and status writes go through `plan-status.sh`; Verification through `delegate-verify.sh` | Working tree + plan audit metadata | Never |
 | `commit` | Conventional Commit (optional version/CHANGELOG bump) after approval | Local git history | Commits only |
 | `retro` | One-line lessons from a completed plan's runs | `docs/lessons.md` | Never |
@@ -219,6 +221,8 @@ Skills pick models by role, not by name:
 - `top-plan`: `/brainstorm`, `/make-plan`, `/critique plan` sessions.
 - `top-review`: map tier `top`, final and escalate reviews, `/critique`
   closing pass.
+- `top-critique`: the `/critique plan` review Task (a second model family where
+  the tool has one; falls back to `top-review`).
 - `execute` / `mid` / `low`: implementation rows and intermediate reviews.
 
 Each tool's pins for each role are in
@@ -241,8 +245,7 @@ in `settings.json`; in Cursor, install the Advisor plugin and run
 
 Set `.tools.<id>.enabled` to `false` in `~/.config/nng-kit/tiers.json`
 (respects `$XDG_CONFIG_HOME`, or override the path with `$NNG_KIT_TIERS`) for
-any tool you do not use (`cursor`, `devin`, or `agy`; keep `claude-code`
-enabled):
+any tool you do not use (`cursor` or `devin`; keep `claude-code` enabled):
 
 ```bash
 mkdir -p ~/.config/nng-kit
@@ -250,10 +253,11 @@ mkdir -p ~/.config/nng-kit
 jq '.tools.<id>.enabled = false' ~/.config/nng-kit/tiers.json >~/.config/nng-kit/tiers.json.tmp && mv ~/.config/nng-kit/tiers.json.tmp ~/.config/nng-kit/tiers.json
 ```
 
-Replace `<id>` with `cursor`, `devin`, or `agy` — this merges
+Replace `<id>` with `cursor` or `devin` — this merges
 `{ "tools": { "<id>": { "enabled": false } } }` over the shipped registry. To
 re-enable a tool, remove `.tools.<id>.enabled` (`jq 'del(.tools.<id>.enabled)'`)
-or set it back to `true`.
+or set it back to `true`. To turn on `agy`, which ships with both flags off,
+merge `{"tools":{"agy":{"enabled":true,"delegate":true}}}`.
 
 Verify live enablement and pins with `tiers.sh` (under
 `plugins/delegate/scripts/tiers.sh`, or
