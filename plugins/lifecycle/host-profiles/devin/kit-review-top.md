@@ -1,7 +1,7 @@
 ---
 name: kit-review-top
 description: Read-only reviewer pinned to the Devin top-review pin.
-model: fusion-claude-opus-5-5-medium-sidekick-swe-2-medium
+model: gemini-4-neon-xhigh
 allowed-tools: [read, grep, find_file_by_name, get_output]
 ---
 

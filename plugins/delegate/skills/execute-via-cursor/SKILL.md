@@ -55,12 +55,12 @@ The pin is the Cursor chain for `launch_tier` (strongest selected tier), not
 always `execute`. `bash <skill-dir>/../../scripts/tiers.sh resolve cursor
 <launch_tier>` prints the first unexpired pin; the chains live only in the
 **cursor** block of [model-tiers.md](../../references/model-tiers.md). Pass the
-dotted CLI slug exactly as printed, not a hyphenated summary spelling. Pin
-absent from `agent models` → `--model auto`, `fallback: pin missing`.
+dotted slug exactly as printed. Pin absent from `agent models` →
+`--model auto`, `fallback: pin missing`.
 
-**Cursor model rule:** `execute` / `mid` / `low` use Grok, Composer 2.5, or
-Auto only. Claude only for `top-plan` / `top-review`, or a manual `model=`
-override. Never GPT.
+**Cursor model rule:** `execute`/`low`: Grok, `composer-2.5` (never `-fast`)
+or Auto; `mid` adds Sonnet before Auto. Others only on review/`top-*` rows or
+`model=`. Never GPT.
 
 **`router: true`** and no `model=`: pass `--model auto`. Record
 `model_requested: auto`, `model_resolved: auto(router)`, `effort: unknown`,
@@ -69,8 +69,8 @@ override. Never GPT.
 `model=<slug>` overrides the pin and must be listed by `agent models` (`auto`
 is allowed); otherwise stop and show that list. `model=auto` is
 `fallback: model=auto`. A listed pin that then fails usage or quota is core
-Step 6: one `auto` relaunch, and only for `execute`, `mid` and `low`. Do not
-relaunch a run that already used `auto`.
+Step 6: relaunch on the chain's next pin, only for `execute`, `mid`, `low`
+(`mid`: Sonnet, then `auto`). Never relaunch a run that already used `auto`.
 
 ## Script calls
 

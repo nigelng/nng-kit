@@ -492,16 +492,11 @@ cmd_run() {
   require_enabled_runner_tool "$runner"
   tool=$RUNNER_TOOL
   [[ "$model" =~ ^[A-Za-z0-9._-]+$ && "$model" != -* ]] || die_usage
-  case "$runner" in
-    devin-fusion)
-      [[ "$model" == fusion-* ]] || die_usage
-      ;;
-    *)
-      if [[ "$model" == fusion-* ]]; then
-        die_usage
-      fi
-      ;;
-  esac
+  # Fusion runs only on the Devin runner; that runner takes any Devin
+  # top-review pin (Neon first, then Fusion).
+  if [[ "$runner" != devin-fusion && "$model" == fusion-* ]]; then
+    die_usage
+  fi
   validate_rid "$rid"
   validate_root "$root"
   if [[ -n "${DELEGATE_REVIEW_TIMEOUT+x}" ]]; then

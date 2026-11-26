@@ -1,7 +1,7 @@
 ---
 name: kit-review-mid
 description: Read-only reviewer pinned to the Devin mid review pin.
-model: gpt-6-1-sol-high
+model: gemini-4-neon-high
 allowed-tools: [read, grep, find_file_by_name, get_output]
 ---
 

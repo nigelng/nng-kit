@@ -220,8 +220,9 @@ Verification itself (the host verify script does). Reviewers:
 - `top@claude-headless` — Claude Code in print mode (`claude -p` with
   `--permission-mode plan`, read-only tools and `--strict-mcp-config`);
   same git guard and verdict contract as the other external runners.
-- `top@devin-fusion` — Devin Fusion, `devin --model <fusion pin>
-  --permission-mode auto --respect-workspace-trust=false --print=…`.
+- `top@devin-fusion` — Devin `top-review` pin (Neon, then Fusion),
+  `devin --model <pin> --permission-mode auto
+  --respect-workspace-trust=false --print=…`. Fusion runs only here.
 - `top@cursor-ask` — Cursor `agent -p --mode=ask`.
 - `top@agy-plan` — Antigravity `agy --mode plan`.
 - `mid` — a read-only `Task(model: "sonnet")`.

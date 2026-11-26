@@ -6,6 +6,23 @@ for plugin users. This file is public: keep private names and paths out.
 
 ## 2026-11-26
 
+- lifecycle 0.22.0, delegate 0.17.0: tier pins rebalanced in `tiers.json`.
+  Review, `top-plan` and `top-critique` rows on Cursor, Devin and agy lead
+  with `gemini-4-neon-xhigh` (mid review `gemini-4-neon-high`), then Sonnet
+  (mid review), Opus (`top-plan`/`top-review`) or `gemini-4-carbon-high` →
+  Fable (`top-critique`; agy has no Fable, so Opus). Devin moves to SWE-2.1
+  (`swe-2-1-*`), drops `swe-2-medium` from `mid` implement, and its
+  `top-review` is Neon then `fusion-claude-opus-5-5-high-sidekick-swe-2-1-medium`;
+  standalone Fusion guidance uses GPT-6.2 Sol with a SWE-2.1 sidekick. agy
+  drops every Argon row; its `mid` review is `claude-sonnet-5-5-high` first
+  (cross-family to its Gemini implementer), then Neon. Cursor `mid` implement falls back to
+  `claude-sonnet-5-5-high` before `auto`; `low` stays `composer-2.5`
+  (Standard, never `-fast`). Claude Code `top-plan` adds `claude-fable-5-2`
+  (medium) after Opus. `delegate-review-launch.sh`: the `devin-fusion`
+  runner now accepts any Devin `top-review` pin, not only `fusion-*`;
+  Fusion is still refused on every other runner.
+  `/delegate:execute-via-cursor`: on a usage or quota error, a `mid` run
+  relaunches once on `claude-sonnet-5-5-high` before the `auto` relaunch.
 - lifecycle 0.21.0, delegate 0.16.0: Antigravity (`agy`) is enabled again
   (`enabled: true`, `delegate: true` in `tiers.json`). Tier resolution,
   `/delegate:execute-via-agy`, and the `top@agy-plan` review runner work

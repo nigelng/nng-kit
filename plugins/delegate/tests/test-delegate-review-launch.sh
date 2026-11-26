@@ -501,8 +501,13 @@ else
   fail "DELEGATE_MCP=0 keeps --strict-mcp-config"
 fi
 
-run_cmd bash "$SCRIPT" run --print devin-fusion "$run_repo" devin-3 "$cursor_model"
-assert_rc "devin without fusion- prefix exits 2" 2
+run_cmd bash "$SCRIPT" run --print devin-fusion "$run_repo" devin-3 gemini-4-neon-xhigh
+assert_rc "devin accepts a non-fusion top-review pin" 0
+if [[ "$LAST_OUT" == *"gemini-4-neon-xhigh"* ]]; then
+  pass "devin non-fusion pin reaches --model"
+else
+  fail "devin non-fusion pin reaches --model"
+fi
 run_cmd bash "$SCRIPT" run --print cursor-ask "$run_repo" cursor-1 "$devin_model"
 assert_rc "cursor refuses fusion- prefix" 2
 run_cmd bash "$SCRIPT" run --print agy-plan "$run_repo" agy-2 "$devin_model"
@@ -548,16 +553,14 @@ else
   fail "missing brief writes no snap"
 fi
 write_brief "$run_repo" devin-1
-run_cmd bash "$SCRIPT" run devin-fusion "$run_repo" devin-1 "$cursor_model"
-assert_rc "run rejects devin model without fusion- prefix" 2
-if [[ ! -e "$run_repo/.claude/tmp/exec-review-devin-1.snap" ]]; then
+write_brief "$run_repo" cursor-1
+run_cmd bash "$SCRIPT" run cursor-ask "$run_repo" cursor-1 "$devin_model"
+assert_rc "run rejects cursor fusion- model" 2
+if [[ ! -e "$run_repo/.claude/tmp/exec-review-cursor-1.snap" ]]; then
   pass "fusion rejection writes no snap"
 else
   fail "fusion rejection writes no snap"
 fi
-write_brief "$run_repo" cursor-1
-run_cmd bash "$SCRIPT" run cursor-ask "$run_repo" cursor-1 "$devin_model"
-assert_rc "run rejects cursor fusion- model" 2
 
 # --- NNG_KIT_TIERS override: malformed and extended registries ---
 
