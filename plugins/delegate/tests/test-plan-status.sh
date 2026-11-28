@@ -163,9 +163,10 @@ execution:
 No hash here.
 EOF
 run_cmd "$BASH" "$SCRIPT" lock "$work/legacy.md"
-assert_rc "lock legacy exits 0" 0
-assert_stdout "lock legacy prints legacy" "legacy"
-assert_stderr_has "lock legacy warning" "WARN: legacy plan (no plan_sha)"
+assert_rc "lock unstamped exits 3" 3
+assert_stdout_empty "lock unstamped has no stdout"
+assert_stderr_has "lock unstamped refusal" \
+  "REFUSE: unstamped plan (no plan_sha); stamp it with /make-plan update $work/legacy.md"
 
 # --- shared v2 header helpers ---
 
@@ -361,7 +362,7 @@ run_cmd "$BASH" "$SCRIPT" rows "$work/pipe.md" cursor
 assert_rc "escaped pipe exits 0" 0
 assert_jq "escaped pipe acceptance" '.selected[0].acceptance == "echo a | b"'
 
-# legacy map: prose above the table, Notes column, top skipped
+# legacy map (no Runner column): prose above the table, Notes column
 write_v2 "$work/legacy-map.md" <<'EOF'
 ## Execution map
 Runners are advisory until Phase 2 makes delegates read them.
@@ -373,13 +374,36 @@ Runners are advisory until Phase 2 makes delegates read them.
 | S3 | parked | — | — | — | not a scheduled row |
 EOF
 run_cmd "$BASH" "$SCRIPT" rows "$work/legacy-map.md" agy
-assert_rc "legacy map exits 0" 0
-assert_jq "legacy map kind" '.map == "legacy"'
-assert_jq "legacy selects non-top" '[.selected[].id] == ["S2"]'
-assert_jq "legacy tier normalized" '.selected[0].tier == "low"'
-assert_jq "legacy top skipped with note" '.skipped[] | select(.id=="S1") | .note == "out of step-scope (top row: run in session)"'
-assert_jq "legacy dash tier not scheduled" '.skipped[] | select(.id=="S3") | .note == "not scheduled"'
-assert_jq "legacy review default" '.selected[0].review == "mid"'
+assert_rc "legacy map exits 3" 3
+assert_stdout_empty "legacy map no stdout"
+assert_stderr_has "legacy map refusal" \
+  "REFUSE: legacy map; convert with /make-plan update $work/legacy-map.md"
+
+# v2 map with legacy tier aliases: each alias refused with the exact text
+write_v2 "$work/alias.md" <<'EOF'
+## Execution map
+
+| ID | Tier | Runner | Wave | Depends on | Files | Acceptance | Review |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| S1 | opus | session | 1 | — | `a.sh` | `true` | mid |
+| S2 | Sonnet | delegate:cursor | 1 | — | `b.sh` | `true` | mid |
+| S3 | auto | delegate:cursor | 1 | — | `c.sh` | `true` | mid |
+| S4 | haiku | delegate:cursor | 1 | — | `d.sh` | `true` | mid |
+EOF
+assert_alias_refusals() {
+  local label=$1 row
+  assert_stdout_empty "$label no stdout"
+  for row in "S1:opus" "S2:Sonnet" "S3:auto" "S4:haiku"; do
+    assert_stderr_has "$label ${row#*:} refusal text" \
+      "REFUSE: ${row%%:*}: tier '${row#*:}' is a legacy alias; use top|execute|mid|low via /make-plan update $work/alias.md"
+  done
+}
+run_cmd "$BASH" "$SCRIPT" rows "$work/alias.md" cursor
+assert_rc "alias tiers rows exit 3" 3
+assert_alias_refusals "alias tiers rows"
+run_cmd "$BASH" "$SCRIPT" rows --lint "$work/alias.md"
+assert_rc "alias tiers lint exit 3" 3
+assert_alias_refusals "alias tiers lint"
 
 # extra Phase column ignored
 write_v2 "$work/phase.md" <<'EOF'
@@ -408,7 +432,7 @@ assert_rc "malformed row exits 3" 3
 assert_stdout_empty "malformed row no stdout"
 assert_stderr_has "malformed row reason" "REFUSE: S9: malformed row (cell count)"
 
-# no map → I1..In
+# no map → refuse (no fallback to numbered steps)
 write_v2 "$work/nomap.md" <<'EOF'
 ## Implementation steps
 1. First step does a thing
@@ -417,11 +441,10 @@ write_v2 "$work/nomap.md" <<'EOF'
    1. nested item is not its own step
 EOF
 run_cmd "$BASH" "$SCRIPT" rows "$work/nomap.md" devin
-assert_rc "no map exits 0" 0
-assert_jq "no map kind" '.map == "none"'
-assert_jq "no map ids" '[.selected[].id] == ["I1","I2"]'
-assert_jq "no map tier" '.selected[0].tier == "execute"'
-assert_jq "no map launch_tier" '.launch_tier == "execute"'
+assert_rc "no map exits 3" 3
+assert_stdout_empty "no map no stdout"
+assert_stderr_has "no map refusal" \
+  "REFUSE: no Execution map; add one with /make-plan update $work/nomap.md"
 
 # unknown ID
 run_cmd "$BASH" "$SCRIPT" rows "$work/own.md" cursor S99
@@ -1285,7 +1308,7 @@ assert_rc "subsequent write exits 0" 0
 assert_lock_ok "lock ok after subsequent write" "$work/evil.md"
 assert_file_has "subsequent write note present" "$work/evil.md" "- Notes: clean subsequent note"
 
-# no Execution map: log goes after Implementation steps
+# Writers refuse map-less and legacy-map plans (exit 3) before any write.
 write_stamped "$work/nomap-write.md" <<'EOF'
 ---
 created_at: "2026-01-01T00:00:00Z"
@@ -1304,18 +1327,61 @@ custom_key: "nomap-keep"
 
 FILEMARKER nomap
 EOF
-cp "$work/nomap-write.md" "$work/nomap-write.before"
-run_cmd "$BASH" "$SCRIPT" rows "$work/nomap-write.md" devin
-assert_rc "nomap write rows exits 0" 0
-printf '%s\n' "$LAST_OUT" >"$work/nomap-rows.json"
-run_cmd "$BASH" "$SCRIPT" start "$work/nomap-write.md" execute-via-devin "$work/nomap-rows.json" --now 2026-04-01T00:00:00Z
-assert_rc "nomap start exits 0" 0
-assert_fm_same "nomap keeps non-execution keys" "$work/nomap-write.before" "$work/nomap-write.md"
-assert_lock_ok "lock ok after nomap start" "$work/nomap-write.md"
-assert_headings "nomap log after implementation steps" "$work/nomap-write.md" \
-  $'## Implementation steps\n## Execution log\n## Files to modify/create'
-assert_file_has "nomap I1 pending" "$work/nomap-write.md" "| I1 | pending | |"
-assert_file_has "nomap I2 pending" "$work/nomap-write.md" "| I2 | pending | |"
+write_stamped "$work/legacymap-write.md" <<'EOF'
+---
+created_at: "2026-01-01T00:00:00Z"
+plan_sha: "placeholder"
+approved_at: "2026-01-02T00:00:00Z"
+execution:
+  status: not-started
+---
+
+## Execution map
+
+| ID | Step summary | Tier | Wave | Depends on | Notes (runner · acceptance) |
+| --- | --- | --- | --- | --- | --- |
+| S1 | edit | haiku | 1 | — | delegate:cursor · `true` |
+
+## Files to modify/create
+
+FILEMARKER legacymap
+EOF
+printf '%s\n' '{"selected":[{"id":"S1"}],"skipped":[]}' >"$work/refuse-rows.json"
+refuse_review_now=2026-04-01T00:00:00Z
+for kind in nomap legacymap; do
+  plan="$work/${kind}-write.md"
+  case "$kind" in
+    nomap) want="REFUSE: no Execution map; add one with /make-plan update $plan" ;;
+    *) want="REFUSE: legacy map; convert with /make-plan update $plan" ;;
+  esac
+  cp "$plan" "$work/${kind}-write.before"
+  run_cmd "$BASH" "$SCRIPT" rows "$plan" devin
+  assert_rc "$kind rows exits 3" 3
+  assert_stderr_has "$kind rows refusal" "$want"
+  run_cmd "$BASH" "$SCRIPT" start "$plan" execute-via-cursor "$work/refuse-rows.json" --now "$refuse_review_now"
+  assert_rc "$kind start exits 3" 3
+  assert_stdout_empty "$kind start no stdout"
+  assert_stderr_has "$kind start refusal" "$want"
+  run_cmd "$BASH" "$SCRIPT" batch "$plan" execute-plan --done S1 --now "$refuse_review_now"
+  assert_rc "$kind batch exits 3" 3
+  assert_stderr_has "$kind batch refusal" "$want"
+  run_cmd "$BASH" "$SCRIPT" terminal "$plan" execute-via-cursor "$work/refuse-rows.json" \
+    --outcome pass --backend cursor --model-requested grok-4.7-high \
+    --model-resolved "auto(router)" --effort high \
+    --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 --fallback null \
+    --now "$refuse_review_now"
+  assert_rc "$kind terminal exits 3" 3
+  assert_stderr_has "$kind terminal refusal" "$want"
+  run_cmd "$BASH" "$SCRIPT" review "$plan" S1 \
+    --outcome pass --runner top@session --findings 0 --now "$refuse_review_now"
+  assert_rc "$kind review exits 3" 3
+  assert_stderr_has "$kind review refusal" "$want"
+  if cmp -s "$work/${kind}-write.before" "$plan"; then
+    pass "$kind writers leave the plan byte-identical"
+  else
+    fail "$kind writers leave the plan byte-identical"
+  fi
+done
 
 # Permission bits survive the temp+mv write (mktemp is 0600).
 file_mode() {
@@ -1756,7 +1822,10 @@ cat >"$work/lint-empty.md" <<'EOF'
 # no map
 EOF
 run_cmd "$BASH" "$SCRIPT" rows --lint "$work/lint-empty.md"
-assert_rc "lint of a plan with no rows exits 0" 0
+assert_rc "lint of a plan with no map exits 3" 3
+assert_stdout_empty "lint no map no stdout"
+assert_stderr_has "lint no map refusal" \
+  "REFUSE: no Execution map; add one with /make-plan update $work/lint-empty.md"
 
 cat >"$work/lint-legacy.md" <<'EOF'
 ## Execution map
@@ -1767,8 +1836,10 @@ cat >"$work/lint-legacy.md" <<'EOF'
 | S2 | edit | haiku | 1 | — | delegate:cursor · `true` |
 EOF
 run_cmd "$BASH" "$SCRIPT" rows --lint "$work/lint-legacy.md"
-assert_rc "lint accepts a legacy map without an Acceptance column" 0
-assert_stdout "lint legacy prints ok" "ok"
+assert_rc "lint refuses a legacy map" 3
+assert_stdout_empty "lint legacy map no stdout"
+assert_stderr_has "lint legacy map refusal" \
+  "REFUSE: legacy map; convert with /make-plan update $work/lint-legacy.md"
 
 write_stamped "$work/skip-batch.md" <<EOF
 ---
@@ -1997,6 +2068,82 @@ run_cmd "$BASH" "$SCRIPT" terminal "$work/tcc-chain-fail.md" execute-plan "$work
 assert_file_has "fail terminal marks the unblocked row failed" "$work/tcc-chain-fail.md" "| S3 | failed |"
 assert_file_has "fail terminal leaves the blocked S2 pending" "$work/tcc-chain-fail.md" "| S2 | pending |"
 assert_file_has "fail terminal leaves the indirect S4 pending" "$work/tcc-chain-fail.md" "| S4 | pending |"
+
+# mixed-runner resume loop: claude-code defers a delegate row, cursor runs it, claude-code resumes the blocked rows
+write_stamped "$work/mixed.md" <<EOF2
+---
+created_at: "2026-01-01T00:00:00Z"
+plan_sha: "placeholder"
+approved_at: "2026-01-02T00:00:00Z"
+execution:
+  status: not-started
+---
+
+## Execution map
+
+| ID | Step summary | Tier | Runner | Wave | Depends on | Files | Acceptance | Review |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S1 | first local step | mid | subagent | 1 | - | \`a.sh\` | \`true\` | mid |
+| S2 | delegated step | mid | delegate:cursor | 1 | - | \`b.sh\` | \`true\` | mid |
+| S3 | local step after delegate | mid | subagent | 2 | S2 | \`c.sh\` | \`true\` | mid |
+| S4 | session closer | top | session | 3 | S1,S2,S3 | — | — | top@claude-task |
+
+## Execution log
+EOF2
+
+# pass 1: claude-code skips the delegate row; S3 and S4 are blocked on S2
+run_cmd "$BASH" "$SCRIPT" rows "$work/mixed.md" claude-code
+assert_rc "mixed pass 1 rows exits 0" 0
+assert_jq "mixed pass 1 selects S1, S3, S4" '[.selected[].id] == ["S1","S3","S4"]'
+assert_jq "mixed pass 1 blocks S3 and S4 on S2" '.blocked == [{"id":"S3","on":"S2"},{"id":"S4","on":"S2"}]'
+printf '%s\n' "$LAST_OUT" >"$work/mixed-rows1.json"
+run_cmd "$BASH" "$SCRIPT" start "$work/mixed.md" execute-plan "$work/mixed-rows1.json" --now 2026-04-01T00:00:00Z
+assert_rc "mixed pass 1 start exits 0" 0
+run_cmd "$BASH" "$SCRIPT" batch "$work/mixed.md" execute-plan --done S1 --now 2026-04-01T01:00:00Z
+assert_rc "mixed pass 1 batch --done exits 0" 0
+run_cmd "$BASH" "$SCRIPT" terminal "$work/mixed.md" execute-plan "$work/mixed-rows1.json" \
+  --outcome pass --backend claude-code \
+  --model-requested grok-4-7-high --model-resolved grok-4-7-high \
+  --effort high --started 2026-04-01T00:00:00Z --findings 0 --fix-loops 0 \
+  --fallback null --deferred-review --done S1 --now 2026-04-01T02:00:00Z
+assert_rc "mixed pass 1 deferred terminal exits 0" 0
+assert_file_has "mixed pass 1 status partial" "$work/mixed.md" "  status: partial"
+assert_lock_ok "lock ok after mixed pass 1" "$work/mixed.md"
+
+# pass 2: cursor takes the delegate row
+run_cmd "$BASH" "$SCRIPT" rows "$work/mixed.md" cursor
+assert_rc "mixed pass 2 rows exits 0" 0
+assert_jq "mixed pass 2 selects only S2" '[.selected[].id] == ["S2"]'
+printf '%s\n' "$LAST_OUT" >"$work/mixed-rows2.json"
+run_cmd "$BASH" "$SCRIPT" start "$work/mixed.md" execute-via-cursor "$work/mixed-rows2.json" --now 2026-04-02T00:00:00Z
+assert_rc "mixed pass 2 start exits 0" 0
+run_cmd "$BASH" "$SCRIPT" terminal "$work/mixed.md" execute-via-cursor "$work/mixed-rows2.json" \
+  --outcome pass --backend cursor --model-requested composer-2.5 \
+  --model-resolved "Composer 2.5" --effort default --findings 0 --fix-loops 0 \
+  --fallback null --started 2026-04-02T00:00:00Z --done S2 --now 2026-04-02T01:00:00Z
+assert_rc "mixed pass 2 cursor terminal exits 0" 0
+assert_file_has "mixed pass 2 status partial" "$work/mixed.md" "  status: partial"
+assert_file_has "mixed pass 2 marks S2 done" "$work/mixed.md" "| S2 | done |"
+assert_lock_ok "lock ok after mixed pass 2" "$work/mixed.md"
+
+# pass 3: claude-code resumes; nothing blocked, start is not refused, plan completes
+run_cmd "$BASH" "$SCRIPT" rows "$work/mixed.md" claude-code
+assert_rc "mixed pass 3 rows exits 0" 0
+assert_jq "mixed pass 3 selects S3 and S4" '[.selected[].id] == ["S3","S4"]'
+assert_jq "mixed pass 3 has nothing blocked" '.blocked == []'
+printf '%s\n' "$LAST_OUT" >"$work/mixed-rows3.json"
+run_cmd "$BASH" "$SCRIPT" start "$work/mixed.md" execute-plan "$work/mixed-rows3.json" --now 2026-04-03T00:00:00Z
+assert_rc "mixed pass 3 start exits 0 (not refused)" 0
+run_cmd "$BASH" "$SCRIPT" batch "$work/mixed.md" execute-plan --done S3 S4 --now 2026-04-03T01:00:00Z
+assert_rc "mixed pass 3 batch --done exits 0" 0
+run_cmd "$BASH" "$SCRIPT" terminal "$work/mixed.md" execute-plan "$work/mixed-rows3.json" \
+  --outcome pass --backend claude-code \
+  --model-requested grok-4-7-high --model-resolved grok-4-7-high \
+  --effort high --started 2026-04-03T00:00:00Z --findings 0 --fix-loops 0 \
+  --fallback null --now 2026-04-03T02:00:00Z
+assert_rc "mixed pass 3 terminal exits 0" 0
+assert_file_has "mixed pass 3 status completed" "$work/mixed.md" "  status: completed"
+assert_lock_ok "lock ok after mixed pass 3" "$work/mixed.md"
 
 write_stamped "$work/stamp.md" <<'EOF'
 ---
@@ -2276,9 +2423,9 @@ run_cmd env NNG_KIT_TIERS="$work/tiers-bad.json" "$BASH" "$SCRIPT" rows --lint "
 assert_rc "malformed override rows exits 2" 2
 assert_stderr_has "malformed override rows message" "tier registry unavailable"
 if [[ "$LAST_ERR" != *REFUSE:* ]]; then pass "malformed override rows has no REFUSE line"; else fail "malformed override rows has no REFUSE line"; fi
-run_cmd env NNG_KIT_TIERS="$work/tiers-bad.json" "$BASH" "$SCRIPT" lock "$work/noreg.md"
+run_cmd env NNG_KIT_TIERS="$work/tiers-bad.json" "$BASH" "$SCRIPT" lock "$work/lock-ok.md"
 assert_rc "malformed override lock exits 0" 0
-assert_stdout "malformed override lock returns legacy" "legacy"
+assert_stdout "malformed override lock returns ok" "ok"
 
 # --- disabled tools (S1) ---
 

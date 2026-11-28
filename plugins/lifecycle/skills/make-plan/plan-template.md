@@ -1,6 +1,6 @@
 # Plan file template
 
-Write new/updated plans in this structure. Every multi-step plan needs an **Execution map**; a single trivial step may use one `low` (or `mid`) wave with one row. Every map ID must match a numbered Implementation step (or a clear sub-bullet). The v2 header is `ID | Step summary | Tier | Runner | Wave | Depends on | Files | Acceptance | Review`, with an optional `Model` column immediately before `Review`. An optional `**Notes:** <plan-file>.notes.md` line (same basename with `.notes.md` in place of `.md`) may sit under Purpose. Both legacy 6-column maps and v2 are valid.
+Write new/updated plans in this structure. Every multi-step plan needs an **Execution map**; a single trivial step may use one `low` (or `mid`) wave with one row. Every map ID must match a numbered Implementation step (or a clear sub-bullet). The v2 header is `ID | Step summary | Tier | Runner | Wave | Depends on | Files | Acceptance | Review`, with an optional `Model` column immediately before `Review`. An optional `**Notes:** <plan-file>.notes.md` line (same basename with `.notes.md` in place of `.md`) may sit under Purpose. Only v2 maps are accepted.
 
 ```markdown
 ---

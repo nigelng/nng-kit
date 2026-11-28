@@ -17,6 +17,13 @@ verdict loop.
 top-tier review through its Review runner. It is read-only — it never
 implements, fixes, or commits.
 
+## Relationship to /conduct
+
+Under `/conduct delegate=run`, the conductor runs these skills in-session.
+Its checkpoint commits keep the tree clean, which satisfies each skill's
+clean-tree gate before a launch. The skills themselves still never commit.
+A delegate FAIL rollback resets to the latest checkpoint.
+
 ## Prerequisites
 
 Install and sign in to the CLI for the backend you use. Each skill needs only
@@ -55,6 +62,10 @@ still list them from the Claude Code plugin set, so each skill runs a host gate
 (`$CLAUDECODE` must be `1`) as its first preflight step and refuses outside
 Claude Code.
 
+Under `/conduct delegate=run` the conductor follows these skills in-session,
+on Claude Code only. Their `allowed-tools` frontmatter does not apply there,
+so expect permission prompts.
+
 The review base resolves `git symbolic-ref --short refs/remotes/origin/HEAD`,
 else `origin/main`, `main`, `origin/master`, `master`; the branch-divert check
 resolves `origin/HEAD` stripped of `origin/`, else `main`, `master`.
@@ -65,7 +76,7 @@ Committed under `plugins/delegate/scripts/` (mode `100644`, run with `bash`):
 
 | Script | Role |
 | --- | --- |
-| `plan-status.sh` | Plan lock (`lock`, `lock --gate`), Execution-map selection (`rows`, `rows --lint`), status writes (`start`, `batch` including `--skipped`, `terminal` including `--deferred-review`, `review`), plus `stamp`, `recent`, and `approve` |
+| `plan-status.sh` | Plan lock (`lock`, `lock --gate`), Execution-map selection (`rows`, `rows --lint`, `rows --runners`), status writes (`start`, `batch` including `--skipped`, `terminal` including `--deferred-review`, `review`), plus `stamp`, `recent`, `approve`, and `handoff` |
 | `delegate-launch.sh` | Build and run the backend CLI (headless background, or `--interactive` / `--print`) |
 | `delegate-verdict.sh` | Classify one run's logs (`ok`, model, session id) |
 | `delegate-review-launch.sh` | Review git guard (`snapshot`/`check`), `scope` check, external read-only reviewer `run`, and `verdict` (review trailer → JSON) |
@@ -93,10 +104,11 @@ before writing `.claude/tmp` files or guard snapshots; see
 (`snapshot`, `check`, `scope`, and `verdict` keep running for in-flight
 reviews.)
 
-**Row routing (`plan-status.sh rows`):** On a v2 Execution map, only rows whose
-`Runner` is `delegate:<backend>` for the active skill (`delegate:cursor`,
-`delegate:agy`, or `delegate:devin`) are selected; legacy plans without a map
-fall back to Implementation-step selection. **Refuse:** a **top** row on
+**Row routing (`plan-status.sh rows`):** Only rows whose `Runner` is
+`delegate:<backend>` for the active skill (`delegate:cursor`, `delegate:agy`, or
+`delegate:devin`) are selected. **Refuse:** a plan with no Execution map, or a
+map with no Runner column; an alias tier (`opus`, `sonnet`, `auto`, `haiku`);
+a **top** row on
 `delegate:*`, or a top ID you named in step-scope (`top rows never run on a
 delegate`), a disabled `<backend>`, or a selected row whose external `Review`
 runner belongs to a disabled tool (exit 3; see
@@ -127,8 +139,13 @@ ID --note TEXT` records a skip. `terminal --deferred-review` forces status
 ignoring `*.notes.md` (exit 3 on a tie). `approve` writes `gate_b_sha` and
 `gate_b_at` after a passing lock; only `/conduct` calls it, at Gate B.
 `lock --gate` prints `gate_b_at` only when that stamp still equals both the
-frontmatter and the computed `plan_sha`. A mismatch, a missing stamp, or a
-legacy plan (no `plan_sha`) exits 3, and `/conduct` still requires Gate B.
+frontmatter and the computed `plan_sha`. A mismatch, a missing stamp, or an
+unstamped plan (no `plan_sha`) exits 3, and `/conduct` still requires Gate B.
+`rows --runners <plan>` prints `ID<TAB>runner` for each map row.
+`handoff <plan> <run_id>` stamps top-level `handoff_run` (outside `plan_sha`)
+after a passing `lock --gate`, blocking `lock`, `lock --gate`, and `approve`
+(exit 3) while set; `handoff --clear <plan> [<run_id>]` clears it (with
+`<run_id>`, only when it matches).
 
 ## Tool registry
 
@@ -147,6 +164,13 @@ resolved by `scripts/tiers.sh`:
   line; `runner-tool <runner>` — the tool whose `reviewRunners` lists the
   runner (first in planning order when several do; exit 3 when none does).
 - `tiers.sh validate` — schema check.
+- `tiers.sh policy` — emit JSON for `.conduct.defaults` and `.conduct.relax`
+  read exclusively from the user override file (in-repo overrides are ignored as
+  `ignored:in-repo`; exits 2 on invalid `.conduct` schema).
+- `tiers.sh headless` — emit JSON for `.conduct.headless` (`timeoutMinutes`,
+  `permissionMode`, optional `notify`) read exclusively from the user override
+  file (in-repo overrides are ignored as `ignored:in-repo`; exits 2 on invalid
+  `.conduct` schema).
 
 Model pins come only from `tiers.sh resolve` and the generated
 `model-tiers.md`. The skills and review runners do not hardcode model slugs.

@@ -1,6 +1,6 @@
 # Model tiers
 
-Canonical ordered preference lists (`provider-model-version-effort`, left-to-right). Map tiers: `top|execute|mid|low`. Legacy aliases: `opus`→`top`, `auto`/`sonnet`→`mid`, `haiku`→`low`. Per-tool rows are generated from `nng-kit/plugins/delegate/scripts/tiers.json`; rows may carry `until: YYYY-MM-DD`; a disabled tool is shown as `disabled` and gets no summary block. A tool-level `until` (shown in the tool's header) applies to every row of that tool.
+Canonical ordered preference lists (`provider-model-version-effort`, left-to-right). Map tiers: `top|execute|mid|low`. Aliases (`opus`, `auto`, `sonnet`, `haiku`) are refused. Per-tool rows are generated from `nng-kit/plugins/delegate/scripts/tiers.json`; rows may carry `until: YYYY-MM-DD`; a disabled tool is shown as `disabled` and gets no summary block. A tool-level `until` (shown in the tool's header) applies to every row of that tool.
 
 **Roles:** `top-plan` = `/brainstorm`, `/make-plan` and `/critique plan` sessions (Claude Code: a `/make-plan` the user declares small may run at `mid` + advisor; see the Claude overlay). `top-review` = map tier `top`, the batch/final reviews, and `/critique` escalate + closing pass. The `/execute-plan` orchestrator is `mid` on a v2 map (`plan-status.sh rows --lint` exits 0), else `top-review`. `top-critique` (optional) = the `/critique plan` review Task (second family); absent or unpinnable → `top-review`. `execute` is a map tier: it resolves to the host's `execute` pin, else `mid`. Delegates default to it.
 

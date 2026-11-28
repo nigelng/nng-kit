@@ -4,8 +4,94 @@ Notable changes to the nng-kit plugins, newest first. Each sync commit on
 nigelng/nng-kit quotes the lines added here since the previous sync, so write
 for plugin users. This file is public: keep private names and paths out.
 
+## 2026-11-28
+
+- lifecycle 0.28.0: smaller implementer cycles and optional PR branch
+  compaction — `execute-plan/implementer.md` now enforces small one-behavior
+  test-and-implement → lint → verify cycles, targeted edits instead of
+  rewrites, tools before hand edits, and `git diff --numstat` reporting;
+  new `gh-create-pr/scripts/pr-compact.sh` (`signals`, `apply` via git
+  plumbing with `refs/backups/pr-compact/*` backup ref; message files must
+  live under `<git-dir>/pr-compact`); `/gh-create-pr`
+  adds step `4b` compaction (`compact.md`) with a separate
+  `--force-with-lease` approval pinned to the recorded remote tip SHA;
+  `conduct/finish.md` skips step `4b`; updated `LIFECYCLE.md` and `README.md`.
+- README refactored and refreshed: updated plugin versions (`lifecycle 0.27.0`,
+  `delegate 0.22.0`), fixed Antigravity (`agy`) default-enabled status and
+  install docs, documented `.conduct` guardrail policy and standalone
+  `relax.executePlanCommit`, added a Mermaid diagram of the lifecycle and
+  `/conduct` flow, and extracted per-surface setup details into
+  `plugins/lifecycle/INSTALL.md`. `LIFECYCLE.md` now lists `/gh-address-review`,
+  `pr-feedback.sh`, and `plan-status.sh` `rows --runners` / `handoff`.
+
+## 2026-11-27
+
+- lifecycle 0.27.0: unattended `/conduct` hardening — new
+  `conduct/scripts/status.sh` (validated status writes, `.started` marker,
+  detached argv `notify`); `launch.sh` eligibility gate (exit 4), timeout and
+  process-group cleanup, pid file with `lstart`, and config permission mode;
+  `worktree.sh` `.meta.json` tracking, `handoff_run` double-run block, and
+  `list`/`remove` subcommands; `/conduct` prose consolidation within budget;
+  updated `tiers.example.json` and `LIFECYCLE.md`.
+- delegate 0.22.0: `tiers.sh` `defaults.continue` and `.conduct.headless`
+  validation plus `tiers.sh headless` subcommand; `plan-status.sh`
+  `handoff`/`--clear` (`handoff_run` lock/approve refusals) and
+  `rows --runners`; updated `delegate/README.md`.
+- lifecycle 0.26.0: `/conduct` guardrail policy wiring (`Step 0.5`
+  `defaults`/`skipChoicePrompt` + `policy:` disclosure, `Step 0.6.3`
+  `reuseAheadBranch`, Gate B & worker `unattendedFinish` with
+  `committed`/`pushed` + `branch`/`commits` status schema and `launch.sh`
+  exit-watcher parity, unrelaxable `Safety (never)` rules); standalone
+  `/execute-plan` Step 6 `executePlanCommit` auto-commit with strict safety
+  gates; updated `tiers.example.json` and `LIFECYCLE.md`; synced `tiers.sh`.
+- delegate 0.21.0: `tiers.sh policy` subcommand reading `.conduct.defaults` and
+  `.conduct.relax` from `$OVERRIDE` only with strict defaults, schema
+  validation rejecting unknown keys, and a Bash 3.2 iterative symlink/git repo
+  guard returning `ignored:in-repo`.
+
 ## 2026-11-26
 
+- lifecycle 0.25.0, delegate 0.20.0: `/conduct` gains unattended worker
+  launches (`unattended=yes|no`, `launcher=<name>`). At Gate B, **Continue
+  unattended** creates a detached sibling worktree (`../<repo>-conduct-<run-id>`)
+  via `conduct/scripts/worktree.sh`, resolves `.conduct.launcher` (default
+  `print`) via `tiers.sh launcher`, and starts or prints a `mid`-model
+  `/conduct … unattended=yes` session via `conduct/scripts/launch.sh`
+  (refusing plans with `delegate:*` rows). `headless` requires a matching probe
+  marker from `launch.sh probe headless --model <id>` and falls back to `print`
+  on exit 3; an exit watcher writes `status: "failed"` if the worker exits
+  without writing `<worktree>/.claude/tmp/conduct-<run-id>.json`. Unattended
+  workers never prompt, stop with `finish=none` (`status: "stopped"`) on
+  foreign paths, ahead branches, unavailable `advisor`, or any downgrade, and
+  otherwise create a feature branch at Stage 4 and open a draft PR
+  (`status: "pr-opened"`). The exit watcher runs in its own session (`perl`
+  `setsid` when available), so a process-group kill of the launching session
+  does not reach it; `handle=pid:<n>` is the watcher's PID. `git-preflight.sh fingerprint`
+  and the Stage 5 review inputs now also exclude `.claude/tmp/**`.
+- lifecycle 0.24.0, delegate 0.19.0 (breaking): plans must have an Execution
+  map v2 and a `plan_sha` stamp. `plan-status.sh rows` and `rows --lint` now
+  refuse (exit 3) a plan with no Execution map, a legacy map without a Runner
+  column, and the tier aliases `opus`, `sonnet`, `auto` and `haiku`; `start`,
+  `batch`, `terminal` and `review` refuse a plan with no map or a legacy map
+  before writing.
+  `lock` refuses an unstamped plan (no `plan_sha`) with exit 3 instead of
+  warning. `/execute-plan` no longer drafts a missing map into the plan. Each
+  refusal names the fix: run `/make-plan update <path>` to convert, then
+  re-stamp.
+- lifecycle 0.23.0, delegate 0.18.0: `/conduct` gains `delegate=run|print` and
+  `finish=commit`. With `delegate=run` (Claude Code only, explicit consent,
+  `finish` other than `none`), the conductor runs `/execute-plan`, makes
+  checkpoint commits on the feature branch, follows `/delegate:execute-via-*`
+  and the external `/delegate:review` final review in-session, and re-enters
+  until the plan is `completed`; any delegate FAIL, reviewer failure, unanswered
+  questions file, rejected or declined checkpoint, or leftover excluded path
+  stops the run and reports the checkpoint commits already made.
+  `delegate=print` (default) keeps printing Dispatch lines. `finish=commit`
+  creates the branch and local commits without push or PR, and Push/PR now ship
+  checkpoint commits (squash-merge suggested). New
+  `conduct/scripts/delegate-skill.sh` locates the installed delegate skill (else
+  the kit source tree) and refuses disabled backends. The delegate README
+  documents the relationship to `/conduct` and in-session permission prompts.
 - lifecycle 0.22.0, delegate 0.17.0: tier pins rebalanced in `tiers.json`.
   Review, `top-plan` and `top-critique` rows on Cursor, Devin and agy lead
   with `gemini-4-neon-xhigh` (mid review `gemini-4-neon-high`), then Sonnet

@@ -221,7 +221,7 @@ cmd_bump() {
 
 path_excluded() {
   case "$1" in
-    docs/plans | docs/plans/* | docs/brainstorms | docs/brainstorms/*) return 0 ;;
+    docs/plans | docs/plans/* | docs/brainstorms | docs/brainstorms/* | .claude/tmp | .claude/tmp/*) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -231,7 +231,7 @@ cmd_fingerprint() {
   tmp=$(mktemp "${TMPDIR:-/tmp}/git-preflight.XXXXXX")
   {
     printf 'diff\n'
-    git diff HEAD -- . ':(exclude)docs/plans' ':(exclude)docs/brainstorms'
+    git diff HEAD -- . ':(exclude)docs/plans' ':(exclude)docs/brainstorms' ':(exclude).claude/tmp'
     printf 'untracked\n'
     while IFS= read -r -d '' f; do
       [[ -n "$f" ]] || continue

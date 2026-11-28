@@ -35,7 +35,7 @@ On **update**, if the change alters system shape or Scope, re-run the scan and a
 
 Columns and generation rules for the Execution map. Do not restate per-tool pins; resolution stays in [model-tiers.md](model-tiers.md). `tiers.sh` is `bash <skill-dir>/../execute-plan/scripts/tiers.sh`.
 
-**Tier:** `top` | `execute` | `mid` | `low`. Never write `sonnet`. Legacy labels map over: `opus` → `top`, `auto` / `sonnet` → `mid`, `haiku` → `low`.
+**Tier:** `top` | `execute` | `mid` | `low`. Aliases (`opus`, `sonnet`, `auto`, `haiku`) are refused.
 
 **Detail by tier:**
 

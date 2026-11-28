@@ -185,7 +185,7 @@ items — no third automatic plan critique.
 2. **Failure modes & unsafe half-done states**
 3. **Sequencing / blast radius / irreversibility** gaps
 4. **Verification gaps** — missing commands, coverage claim without tooling, Success criteria vs Verification mismatch
-5. **Map v2 rule violations** — only on a v2 map (columns in [Map v2 rules](../make-plan/drafting-rules.md); a legacy map with no Files column is not a hit). Run `rows --lint` (Devin Task: read the lint output file you were given) and cite each `REFUSE:` line. Exit 0 is not a hit. Exit 2 → stop and show stderr.
+5. **Map v2 rule violations** — columns in [Map v2 rules](../make-plan/drafting-rules.md). Run `rows --lint` (Devin Task: read the lint output file you were given) and cite each `REFUSE:` line. Exit 0 is not a hit. Exit 2 → stop and show stderr.
 
 ```bash
 bash <skill-dir>/../execute-plan/scripts/plan-status.sh rows --lint <plan>

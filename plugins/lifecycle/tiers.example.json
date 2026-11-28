@@ -1,7 +1,27 @@
 {
   "host": "claude-code",
   "planningOrder": ["claude-code"],
-  "note": "fill in your pins",
+  "note": "fill in your pins; optional conduct sets default launcher, skill defaults, headless settings (optional notify argv array not shown), and strict-by-default relax guardrails",
+  "conduct": {
+    "launcher": "print",
+    "defaults": {
+      "finish": "push",
+      "delegate": "print",
+      "plan": "keep",
+      "confirm": "no",
+      "continue": "fresh"
+    },
+    "headless": {
+      "timeoutMinutes": 120,
+      "permissionMode": "auto"
+    },
+    "relax": {
+      "skipChoicePrompt": false,
+      "reuseAheadBranch": false,
+      "executePlanCommit": false,
+      "unattendedFinish": ["pr"]
+    }
+  },
   "tools": {
     "claude-code": {
       "label": "Claude Code",

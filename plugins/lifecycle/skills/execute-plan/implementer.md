@@ -1,37 +1,33 @@
 # Implementer quality bar and Task prompt
 
-Each map-row Task must meet the quality bar below before reporting success. Give each implementation Task:
+Give each implementation Task (must meet the quality bar below before reporting success):
 
-- The **plan sections** it needs (Purpose, Scope, Assumptions, its Implementation step text, related Files to modify/create, Verification relevant to its files, Success criteria, Risks).
-- Its **map row** (ID, tier, Runner, wave, depends-on), its **Files**, and its **Acceptance**. Implement **only that step**.
-- **Files:** edit only those paths. `—` means edit nothing. A legacy row with no Files column uses the paths named in its Implementation step.
-- **Acceptance:** when the row has a command, it must pass, and the report includes the command and its output. `—` means there is no acceptance command. A legacy row with no Acceptance column has none.
-- The **project root** path.
-- The Step 3 **Quality toolkit** (test / lint / type-check / coverage commands and coverage target when available).
-- The following instructions:
+- Needed **plan sections** (Purpose, Scope, Assumptions, step text, related Files, relevant Verification, Success criteria, Risks).
+- Its **map row** (ID, tier, Runner, wave, depends-on), **Files** (`—` = edit nothing), and **Acceptance** (`—` = none). Implement **only that step**.
+- **Project root** path and Step 3 **Quality toolkit** (test/lint/type-check/coverage commands and target, when available).
+- The instructions below:
 
 > Implement only your assigned step. Meet the **per-step quality bar** before reporting success:
 >
-> 1. **Test & implement → lint → verify** for behavior-changing work:
->    - Write the scoped test assertions (against the plan's expected behavior, not your implementation quirks) and implement the step's files together; do not run an intentionally incomplete stub test first.
->    - Prefer small, readable functions and methods. Keep cyclomatic complexity around **6 or lower**.
->    - Avoid god methods.
->    - Prefer readable code over clever code.
->    - Follow existing project conventions, naming, and patterns.
->    - Do not invent file paths — verify with `Glob` or `Read` before writing.
->    - Edit only the row's **Files**. Do not edit any other path. If a change outside those files is required, report and stop.
->    - **Acceptance:** when the command is not `—`, run it after lint and tests. It must pass. A failing Acceptance command fails the step. `—`, or a legacy row with no Acceptance column, means there is no acceptance command.
->    - **Lint first:** when the Quality toolkit lists lint, format-check, or type-check, run them on files you touched (path-scoped when possible) before the test suite. Treat lint/type errors as step failures and fix them, including complexity findings. If the toolkit has none, skip to verify and report "not available in toolkit". Do not disable lint rules unless the plan allows it.
->    - **Verify second:** run scoped tests on the lint-clean code (or chain `lint && test` in one command). If a fix changes code, re-run lint and tests so the final bytes on disk pass both static checks and runtime assertions.
-> 2. **Justified skip** — pure docs, comment-only, formatting-only, or config/skill wording with no runtime behavior: skip unit tests, state why in the report, and run validate/portable/nix (or plan Verification) checks instead. Also allowed when the step only prepares fixtures or scaffolding that a later mapped test step explicitly covers (cite that map ID).
+> 1. **Small cycles: test & implement → lint → verify** for behavior-changing work:
+>    - **One behavior per cycle:** add/change one test assertion (per plan behavior, not implementation quirks) and the smallest code that satisfies it together (never run an intentionally incomplete stub test first); run path-scoped lint then the scoped test, then start the next cycle.
+>    - **Edit, don't rewrite:** change only the lines the behavior needs; never regenerate a whole file or reorder untouched code; a rewrite the plan does not ask for → report and stop.
+>    - **Tools before hand edits:** formatter for formatting, lint autofix for lint, a rename/codemod tool for mechanical changes, the project's sync or generator script for vendored and generated files.
+>    - Keep functions small and readable (cyclomatic complexity **6 or lower**, no god methods, readable over clever); follow existing project conventions, naming, and patterns.
+>    - Verify paths with `Glob` or `Read` before writing; do not invent file paths.
+>    - Edit only the row's **Files** (no other paths). If an outside change is required, report and stop.
+>    - **Acceptance:** when not `—`, run after lint and tests; it must pass (failing fails the step). `—` = none.
+>    - **Lint first:** run toolkit lint/format-check/type-check on touched files (path-scoped when possible) before tests. Fix all lint/type/complexity errors; do not disable lint rules unless allowed by the plan. If toolkit has none, skip to verify and report "not available in toolkit".
+>    - **Verify second:** run scoped tests on lint-clean code (or chain `lint && test`). Any fix must re-run lint and tests so final bytes on disk pass both.
+> 2. **Justified skip** — pure docs, comment-only, formatting-only, or config/skill wording with no runtime behavior: skip unit tests, state why in the report, and run validate/portable/nix (or plan Verification) checks instead. Also allowed when preparing fixtures/scaffolding explicitly covered by a later mapped test step (cite that map ID).
 > 3. **Do not commit or push.**
 >
 > Report back with:
 > - Map step ID and tier.
-> - Files changed (created, modified, deleted).
+> - Files changed (created, modified, deleted), plus `git diff --numstat -- <Files>` and `wc -l` for each created file (untracked files do not appear in `git diff`).
 > - **Lint / type-check:** command(s) run, pass/fail — or "not available in toolkit".
 > - **Tests:** paths added/updated, command(s) run, pass/fail — or justified skip (+ validate/portable/nix if used).
-> - **Acceptance:** the command and its output, pass/fail — or `—` / no Acceptance column.
+> - **Acceptance:** command and output, pass/fail — or `—` / no Acceptance column.
 > - Issues you could not resolve.
 
 ## Full verification (after all waves)

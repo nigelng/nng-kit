@@ -1,6 +1,6 @@
 # Stage overrides for /conduct
 
-These overrides apply only when a stage runs under `/conduct`; see [SKILL.md](SKILL.md) for the conductor's stages, gates and downgrade rule. Step 0.6 ("Preflight + baseline") in SKILL.md defines conductor-owned vs foreign paths. Read the sibling skill and follow it with only the overrides listed here; standalone behaviour is unchanged.
+Applies only under `/conduct`; see [SKILL.md](SKILL.md) for stages, gates, Step 0.6 path ownership, and the downgrade rule, and [unattended.md](unattended.md#worker-contract) for `unattended=yes` workers. Follow each sibling skill with only these overrides; standalone behaviour is unchanged.
 
 ## Brainstorm
 
@@ -35,7 +35,7 @@ Read [execute-plan/SKILL.md](../execute-plan/SKILL.md).
 - In **Step 3 ("Pre-flight checks"), item 3**, auto-proceed through the dirty-tree check only when every dirty path is conductor-owned or is a foreign path the user already accepted at conductor Step 0.6 ("Preflight + baseline"). Otherwise ask proceed / stash / abort. An accepted foreign path remains foreign and excluded from staging; accepting it at Step 0.6 already requires `finish=none`.
 - Skip **Step 3 ("Pre-flight checks"), item 6** (the optional critique-plan offer): Stage 3 and Gate B already handle it.
 - Keep all other execution checks, quality gates, independent review and status audit writes. In **Step 6 ("Final summary")**, retain the summary and terminal status write, but replace the `/critique change` / `/commit` / `/gh-create-pr` offers with the transition to conductor **Stage 5**.
-- If the map contains `delegate:*` rows, or terminal `execution.status` is `partial` after `terminal --deferred-review` (a Step 5/6 deferral with a printed `/delegate:review` line), print the matching **Dispatch** lines (or the fallback commands it specifies). Do not implement delegate rows or silently substitute an in-host review. Apply the conductor's downgrade rule: `finish=none`, stop before commit and report the outstanding dispatch/review work. No `deferred` label.
+- Delegate rows and deferred reviews: follow [delegate-loop.md](delegate-loop.md) by `delegate=` mode (`print` default, `run`).
 
 ## Critique change
 

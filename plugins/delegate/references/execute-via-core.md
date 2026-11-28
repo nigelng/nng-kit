@@ -152,17 +152,16 @@ Stop and report on any failure. **Never stash for the user.**
    bash <skill-dir>/../../scripts/plan-status.sh lock <plan>
    ```
 
-   Exit 0 `ok`/`legacy` (stderr `WARN: legacy plan (no plan_sha)`) → continue. Exit 3 → stop
-   (stderr `plan body changed since approval; re-approve with /make-plan update <plan>`); no brief
-   or launch. Exit 2 → stop, show stderr.
+   Exit 0 `ok` → continue. Exit 3 → stop (stderr: body changed since approval, or
+   `REFUSE: unstamped plan (no plan_sha); …`); no brief or launch. Exit 2 → stop, show stderr.
 
 ## Step 2 — Validate plan and select rows
 
 Require readable sections (or clear equivalents): Purpose (or Goal); Ordered Implementation steps;
 Files to modify/create (or a clear file list inside steps, or Files cells on a v2 Execution map);
 Success criteria; Verification (include test/lint commands when present). A missing Execution map
-is valid — `rows` uses the Implementation-step fallback (`map: none`). Do not re-select rows in
-prose. Missing → list gaps and **stop**.
+is not valid: `rows` refuses it (exit 3). Do not re-select rows in prose. Missing → list gaps and
+**stop**.
 
 Hard stop (not a clarifying question) on explicit unresolved **"Blocked on"** note (or clear
 equivalent): list blocker and **stop** — no brief, no CLI. Next: resolve or
@@ -310,11 +309,9 @@ Write `.claude/tmp/exec-<backend>-brief.md` from [brief-template.md](brief-templ
 fill placeholders per the template — `{{STEP_SCOPE}}` = ID list or `all rows routed to <backend>`
 (no IDs), `{{QUESTIONS_PATH}}` = `.claude/tmp/exec-<backend>-questions.md`. **Rows** = `selected[]`
 only (omit `skipped`); join `files`/`depends` with `, ` (`—` when empty). Under the table paste each
-selected row's Implementation-step text verbatim; step choice by `map` in `<rows-json>`:
+selected row's Implementation-step text verbatim; step choice:
 
-- `map: none` — id `In` = nth top-level numbered step in order (`I1` = first `1.` line); synthetic,
-  not in text — do not search for `I3`. No nth step → stop and ask.
-- Map ids (`v2`/`legacy`) — the step whose own `N.` opening heading is that id (e.g. `(S8)`); an id
+- Map ids — the step whose own `N.` opening heading is that id (e.g. `(S8)`); an id
   only inside a body or another step does not count (`S1..S4` cited ≠ the `S1` step). No
   opening-line match or two → stop and ask.
 

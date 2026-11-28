@@ -75,7 +75,7 @@ plan_sha() {
 ```
 <!-- plan-sha:end -->
 
-- No `plan_sha` → stderr `WARN: legacy plan (no plan_sha)`, stdout `legacy`; continue.
+- No `plan_sha` → stderr `REFUSE: unstamped plan (no plan_sha); stamp it with /make-plan update <path>`, exit 3.
 - Mismatch → exit 3; stderr `plan body changed since approval; re-approve with /make-plan update <path>`.
 - `stamp` prints body bytes and warns when over 15000.
 
@@ -139,9 +139,9 @@ Out-of-scope rows (not in current `step-scope` / execute-plan subset) → **`ski
 | `/delegate:execute-via-cursor`, `/delegate:execute-via-agy`, `/delegate:execute-via-devin` | **Claude** via `scripts/plan-status.sh` (`start` / `batch` / `terminal`) after each meaningful phase (post-implement before/after review as needed; always on terminal verdict). **Never** the implementer tool (`agent` / `agy` / `devin`). |
 | `/delegate:review` | **Claude** via `scripts/plan-status.sh review` (marks the final `top` review row `done`/`failed`, appends a `### Run … (review)` stanza; no `runs:` entry). **Never** the reviewer CLI. |
 
-## Fallback when no Execution map
+## No Execution map
 
-Treat numbered **Implementation steps** as the row set for progress. Use IDs `I1`…`In` or the plan’s existing step numbers. Same row statuses and out-of-scope rule.
+`plan-status.sh` refuses a plan with no Execution map, or a map without a Runner column (exit 3). Add or convert the map with `/make-plan update <path>`.
 
 ## Idempotency / re-execute
 

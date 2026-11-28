@@ -8,6 +8,7 @@ usage() {
   echo "usage: plan-status.sh lock [--gate] <plan>" >&2
   echo "       plan-status.sh rows [--reexecute] <plan> <backend> [ID...]" >&2
   echo "       plan-status.sh rows --lint <plan>" >&2
+  echo "       plan-status.sh rows --runners <plan>" >&2
   echo "       plan-status.sh start <plan> <last_skill> <rows-json> [--now TS] [--reexecute]" >&2
   echo "       plan-status.sh batch <plan> <last_skill> (--done ID... | --failed ID... | --skipped ID --note TEXT)... [--now TS]" >&2
   echo "       plan-status.sh terminal <plan> <last_skill> <rows-json> --outcome pass|fail|abort --backend B --model-requested S --model-resolved S --effort E --started TS --findings N --fix-loops N --fallback R|null [--usage <json>] [--done ID...] [--notes TEXT] [--now TS] [--deferred-review]" >&2
@@ -15,6 +16,8 @@ usage() {
   echo "       plan-status.sh stamp <plan> [--now TS]" >&2
   echo "       plan-status.sh recent <dir>" >&2
   echo "       plan-status.sh approve <plan> [--now TS]" >&2
+  echo "       plan-status.sh handoff <plan> <run_id>" >&2
+  echo "       plan-status.sh handoff --clear <plan> [<run_id>]" >&2
 }
 
 is_blank_dash() {
@@ -135,9 +138,6 @@ norm_tier() {
   case "$t" in
     "-" | "—" | "–") printf 'UNSCHED' ;;
     "") printf 'INVALID' ;;
-    opus) printf 'top' ;;
-    auto | sonnet) printf 'mid' ;;
-    haiku) printf 'low' ;;
     top | execute | mid | low) printf '%s' "$t" ;;
     *) printf 'INVALID' ;;
   esac
@@ -371,6 +371,7 @@ add_parsed_row() {
   tier_raw=$(cell_at "$COL_TIER")
   tier=$(norm_tier "$tier_raw")
   ROW_ID[$ROW_N]=$id
+  ROW_TIER_RAW[$ROW_N]=$tier_raw
   ROW_BAD[$ROW_N]=0
   files_cell=$(cell_at "$COL_FILES")
   ROW_FILES_RAW[$ROW_N]=$(trim_ws "$files_cell")
@@ -422,7 +423,7 @@ add_parsed_row() {
 
 parse_map() {
   local file=$1 line title in=0 intable=0 saw=0 bad_id
-  MAP_KIND=none
+  MAP_BAD=0
   in=0
   intable=0
   saw=0
@@ -464,7 +465,6 @@ parse_map() {
         refuse "?: malformed map (no ID column)"
         saw=1
         intable=1
-        MAP_KIND=legacy
         continue
       fi
       saw=1
@@ -494,55 +494,22 @@ parse_map() {
     add_parsed_row
   done < "$file"
   if [[ $saw -eq 0 ]]; then
-    MAP_KIND=none
+    MAP_BAD=1
+    refuse "no Execution map; add one with /make-plan update $file"
   elif [[ $COL_RUNNER -lt 0 ]]; then
-    MAP_KIND=legacy
-  else
-    MAP_KIND=v2
+    MAP_BAD=1
+    refuse "legacy map; convert with /make-plan update $file"
   fi
 }
 
-parse_steps() {
-  local file=$1 line title in=0 n=0
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    line=${line%$'\r'}
-    if [[ $in -eq 0 ]]; then
-      if is_h2 "$line"; then
-        title=$(h2_title "$line")
-        if [[ "$title" == "Implementation steps" ]]; then
-          in=1
-        fi
-      fi
-      continue
-    fi
-    if is_h2 "$line"; then
-      break
-    fi
-    case "$line" in
-      [0-9]*) ;;
-      *) continue ;;
-    esac
-    case "$line" in
-      [0-9]*.\ *) ;;
-      [0-9][0-9]*.\ *) ;;
-      *) continue ;;
-    esac
-    # Only a top-level numbered step (no leading whitespace — already true).
-    n=$((n + 1))
-    ROW_ID[$ROW_N]="I${n}"
-    ROW_UNSCHED[$ROW_N]=0
-    ROW_BAD[$ROW_N]=0
-    ROW_TIER[$ROW_N]=execute
-    ROW_RUNNER[$ROW_N]=subagent
-    ROW_WAVE[$ROW_N]=1
-    ROW_DEP[$ROW_N]=""
-    ROW_FILES[$ROW_N]=""
-    ROW_FILES_RAW[$ROW_N]=""
-    ROW_ACC[$ROW_N]=""
-    ROW_MODEL[$ROW_N]=""
-    ROW_REVIEW[$ROW_N]=mid
-    ROW_N=$((ROW_N + 1))
-  done < "$file"
+# Parse the map; a map-less plan or one without a Runner column exits 3 before any caller writes.
+load_map() {
+  PLAN_PATH=$1
+  parse_map "$1"
+  if [[ $MAP_BAD -eq 1 ]]; then
+    print_refuses
+    exit 3
+  fi
 }
 
 execution_status_of() {
@@ -688,6 +655,15 @@ load_lock_fns() {
   eval "$snippet"
 }
 
+check_not_handed_off() {
+  local plan=$1 hid
+  hid=$(frontmatter_top_key "$plan" handoff_run)
+  if [[ -n "$hid" ]]; then
+    printf 'REFUSE: plan handed off to unattended run %s; release with plan-status.sh handoff --clear %s\n' "$hid" "$plan" >&2
+    exit 3
+  fi
+}
+
 cmd_lock() {
   local gate=0
   if [[ "${1:-}" == "--gate" ]]; then
@@ -699,6 +675,7 @@ cmd_lock() {
     usage
     exit 2
   fi
+  check_not_handed_off "$plan"
   load_lock_fns
   local key have want gsha gat
   key=$(frontmatter_plan_sha "$plan")
@@ -720,9 +697,8 @@ cmd_lock() {
     exit 3
   fi
   if [[ -z "$key" ]]; then
-    printf '%s\n' "WARN: legacy plan (no plan_sha)" >&2
-    printf '%s\n' legacy
-    exit 0
+    printf '%s\n' "REFUSE: unstamped plan (no plan_sha); stamp it with /make-plan update $plan" >&2
+    exit 3
   fi
   have=$(plan_sha "$plan")
   have=$(lower_ascii "$have")
@@ -772,6 +748,22 @@ check_review_batches() {
   done
 }
 
+is_tier_alias() {
+  case "$(lower_ascii "$1")" in
+    opus | auto | sonnet | haiku) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+refuse_tier() {
+  local id=$1 raw=$2
+  if is_tier_alias "$raw"; then
+    refuse "$id: tier '$raw' is a legacy alias; use top|execute|mid|low via /make-plan update $PLAN_PATH"
+  else
+    refuse "$id: invalid Tier"
+  fi
+}
+
 validate_rows() {
   local i tier runner model review acc id
   for ((i = 0; i < ROW_N; i++)); do
@@ -783,7 +775,7 @@ validate_rows() {
     review=${ROW_REVIEW[$i]}
     acc=${ROW_ACC[$i]}
     if [[ "$tier" == INVALID ]]; then
-      refuse "$id: invalid Tier"
+      refuse_tier "$id" "${ROW_TIER_RAW[$i]}"
       ROW_BAD[$i]=1
       continue
     fi
@@ -874,15 +866,13 @@ consider_row() {
     fi
     return
   fi
-  if [[ "$MAP_KIND" == v2 ]]; then
-    if [[ "$runner" != "delegate:$BACKEND" ]]; then
-      if [[ $requested -eq 1 ]]; then
-        refuse "$id: routed to $runner"
-      else
-        skip_row "$id" "out of step-scope"
-      fi
-      return
+  if [[ "$runner" != "delegate:$BACKEND" ]]; then
+    if [[ $requested -eq 1 ]]; then
+      refuse "$id: routed to $runner"
+    else
+      skip_row "$id" "out of step-scope"
     fi
+    return
   fi
   SEL+=("$i")
 }
@@ -1083,7 +1073,7 @@ emit_json() {
     router_json=false
   fi
   jq -n \
-    --arg map "$MAP_KIND" \
+    --arg map v2 \
     --arg launch_tier "$launch" \
     --argjson router "$router_json" \
     --argjson selected "$SELECTED_JSON" \
@@ -1106,6 +1096,7 @@ reset_row_state() {
   ROW_N=0
   ROW_ID=()
   ROW_TIER=()
+  ROW_TIER_RAW=()
   ROW_RUNNER=()
   ROW_WAVE=()
   ROW_DEP=()
@@ -1161,15 +1152,10 @@ cmd_rows_lint() {
     exit 2
   fi
   reset_row_state
-  parse_map "$plan"
-  if [[ "$MAP_KIND" == none ]]; then
-    parse_steps "$plan"
-  fi
+  load_map "$plan"
   parse_done "$plan"
   validate_rows
-  if [[ "$MAP_KIND" == v2 ]]; then
-    check_acceptance_lint
-  fi
+  check_acceptance_lint
   check_overlap_all
   check_disabled_lint
   if [[ ${#REFUSES[@]} -gt 0 ]]; then
@@ -1179,21 +1165,58 @@ cmd_rows_lint() {
   printf '%s\n' ok
 }
 
+cmd_rows_runners() {
+  local plan=$1 i
+  if [[ ! -f "$plan" ]]; then
+    usage
+    exit 2
+  fi
+  reset_row_state
+  load_map "$plan"
+  for ((i = 0; i < ROW_N; i++)); do
+    [[ ${ROW_UNSCHED[$i]} -eq 1 ]] && continue
+    if [[ "${ROW_TIER[$i]}" == INVALID ]]; then
+      refuse_tier "${ROW_ID[$i]}" "${ROW_TIER_RAW[$i]}"
+      ROW_BAD[$i]=1
+    elif [[ "${ROW_RUNNER[$i]}" == INVALID ]]; then
+      refuse "${ROW_ID[$i]}: invalid Runner"
+      ROW_BAD[$i]=1
+    fi
+  done
+  if [[ ${#REFUSES[@]} -gt 0 ]]; then
+    print_refuses
+    exit 3
+  fi
+  for ((i = 0; i < ROW_N; i++)); do
+    [[ ${ROW_UNSCHED[$i]} -eq 1 ]] && continue
+    printf '%s\t%s\n' "${ROW_ID[$i]}" "${ROW_RUNNER[$i]}"
+  done
+}
+
 cmd_rows() {
-  local reexecute=0 lint=0 plan backend status
+  local reexecute=0 lint=0 runners=0 plan backend status
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --reexecute) reexecute=1; shift ;;
       --lint) lint=1; shift ;;
+      --runners) runners=1; shift ;;
       *) break ;;
     esac
   done
   if [[ $lint -eq 1 ]]; then
-    if [[ $reexecute -eq 1 || $# -ne 1 ]]; then
+    if [[ $reexecute -eq 1 || $runners -eq 1 || $# -ne 1 ]]; then
       usage
       exit 2
     fi
     cmd_rows_lint "$1"
+    return
+  fi
+  if [[ $runners -eq 1 ]]; then
+    if [[ $reexecute -eq 1 || $# -ne 1 ]]; then
+      usage
+      exit 2
+    fi
+    cmd_rows_runners "$1"
     return
   fi
   if [[ $# -lt 2 ]]; then
@@ -1218,10 +1241,7 @@ cmd_rows() {
   BACKEND=$backend
   REQ=("$@")
   reset_row_state
-  parse_map "$plan"
-  if [[ "$MAP_KIND" == none ]]; then
-    parse_steps "$plan"
-  fi
+  load_map "$plan"
   parse_done "$plan"
   status=$(execution_status_of "$plan")
   if [[ $reexecute -eq 1 || "$status" == completed ]]; then
@@ -1546,6 +1566,7 @@ load_map_ids() {
   ROW_N=0
   ROW_ID=()
   ROW_TIER=()
+  ROW_TIER_RAW=()
   ROW_RUNNER=()
   ROW_WAVE=()
   ROW_DEP=()
@@ -1557,10 +1578,7 @@ load_map_ids() {
   ROW_UNSCHED=()
   ROW_BAD=()
   MAP_IDS=()
-  parse_map "$plan"
-  if [[ "$MAP_KIND" == none ]]; then
-    parse_steps "$plan"
-  fi
+  load_map "$plan"
   for ((i = 0; i < ROW_N; i++)); do
     MAP_IDS+=("${ROW_ID[$i]}")
   done
@@ -2670,6 +2688,70 @@ upsert_top_keys() {
   mv "$tmp" "$plan"
 }
 
+delete_top_key() {
+  local plan=$1 key=$2
+  remove_out_tmp
+  OUT_TMP=$(mktemp "$(dirname "$plan")/.plan-status.XXXXXX")
+  awk -v key="$key" '
+    FNR == 1 && $0 !~ /^---[[:space:]]*$/ { fm = 0; print; next }
+    FNR == 1 { fm = 1; print; next }
+    fm == 1 && $0 ~ /^---[[:space:]]*$/ { fm = 2; print; next }
+    fm == 1 && index($0, key ":") == 1 { next }
+    { print }
+  ' "$plan" >"$OUT_TMP"
+  apply_source_mode "$plan" "$OUT_TMP"
+  mv "$OUT_TMP" "$plan"
+  OUT_TMP=""
+}
+
+valid_run_id() {
+  local id=$1
+  [[ -n "$id" && "$id" != "null" && "$id" != "~" && "$id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+}
+
+cmd_handoff() {
+  local clear=0 plan run_id="" cur
+  if [[ "${1:-}" == "--clear" ]]; then
+    clear=1
+    shift
+  elif [[ "${1:-}" == -* ]]; then
+    die_usage
+  fi
+  if [[ $clear -eq 1 ]]; then
+    [[ $# -ge 1 && $# -le 2 ]] || die_usage
+    plan=$1
+    require_plan_file "$plan"
+    if [[ $# -eq 2 ]]; then
+      run_id=$2
+      valid_run_id "$run_id" || die_usage
+    fi
+    cur=$(frontmatter_top_key "$plan" handoff_run)
+    if [[ -z "$cur" ]]; then
+      exit 0
+    fi
+    if [[ -n "$run_id" && "$cur" != "$run_id" ]]; then
+      printf 'REFUSE: plan handed off to unattended run %s (expected %s)\n' "$cur" "$run_id" >&2
+      exit 3
+    fi
+    delete_top_key "$plan" handoff_run
+    exit 0
+  fi
+  [[ $# -eq 2 ]] || die_usage
+  plan=$1
+  run_id=$2
+  require_plan_file "$plan"
+  valid_run_id "$run_id" || die_usage
+  cur=$(frontmatter_top_key "$plan" handoff_run)
+  if [[ -n "$cur" ]]; then
+    if [[ "$cur" == "$run_id" ]]; then
+      exit 0
+    fi
+    printf 'REFUSE: plan already handed off to unattended run %s\n' "$cur" >&2
+    exit 3
+  fi
+  upsert_top_keys "$plan" handoff_run "$run_id"
+}
+
 take_now() {
   local now=""
   while [[ $# -gt 0 ]]; do
@@ -2780,6 +2862,7 @@ cmd_approve() {
   shift
   require_plan_file "$plan"
   now=$(take_now "$@")
+  check_not_handed_off "$plan"
   load_lock_fns
   key=$(frontmatter_plan_sha "$plan")
   if [[ -z "$key" ]]; then
@@ -2886,7 +2969,7 @@ main() {
     rows | start | batch | terminal | review)
       load_registry
       ;;
-    lock | stamp | recent | approve) ;;
+    lock | stamp | recent | approve | handoff) ;;
     *)
       usage
       exit 2
@@ -2902,6 +2985,7 @@ main() {
     stamp) cmd_stamp "$@" ;;
     recent) cmd_recent "$@" ;;
     approve) cmd_approve "$@" ;;
+    handoff) cmd_handoff "$@" ;;
   esac
 }
 
