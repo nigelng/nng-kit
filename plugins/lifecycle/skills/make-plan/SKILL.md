@@ -95,5 +95,5 @@ Offer: **Refine** · **Review** (`/critique plan`) · **Proceed** (`/execute-pla
 ## Constraints
 
 - Never implement — only write `docs/plans/**`; no commit/push. Ask rather than guess; keep plans minimal.
-- Plans are committable; `/gh-create-pr` asks Keep/Drop for each plan on the branch (via `/commit` when the repo tracks `docs/plans/**`).
+- Plans are committable; `/gh-create-pr` asks Distil & Drop / Drop / Keep per plan; dropped plans are archived to `refs/plan-archive/*` (via `/commit` when the repo tracks `docs/plans/**`).
 - On update, keep the filename and `created_at`; stamp after the body is final.

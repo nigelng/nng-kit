@@ -3,8 +3,9 @@ name: gh-create-pr
 description: >-
   Create a feature branch if on the default branch, push commits, open a PR via
   gh CLI, and watch CI. Ask the user to run /commit first if the tree is dirty.
-  Gate plan and relay files on the branch (Keep or Drop) and stop without
-  deleting or committing when any are dropped. Args: none required. Use when
+  Gate plan and relay files on the branch (Distil & Drop, Drop or Keep) and
+  stop without deleting or committing when any are dropped. Args: none
+  required. Use when
   the user asks to create a PR, open a pull request, push and PR, or mentions
   /gh-create-pr.
 disable-model-invocation: true
@@ -12,7 +13,7 @@ disable-model-invocation: true
 
 # gh-create-pr
 
-Create a pull request for the current changes: ensure a feature branch, optionally compact noisy history, push, open the PR, then watch CI. Does not commit or delete plan or relay files (step 4b compaction, when approved, rewrites commits). Ask the user to run `/commit` first if the tree is dirty. If they Drop a plan or Discard a relay file, print the commands, ask them to commit, and stop.
+Create a pull request for the current changes: ensure a feature branch, optionally compact noisy history, push, open the PR, then watch CI. Does not commit or delete plan or relay files (step 4b compaction, when approved, rewrites commits). Archives dropped plans to local `refs/plan-archive/*` refs and pushes them only after a separate approval (step 4c). Ask the user to run `/commit` first if the tree is dirty. If they Distil & Drop or Drop a plan, or Discard a relay file, print the commands, ask them to commit, and stop.
 
 ## Preconditions
 
@@ -50,45 +51,7 @@ If `clean=no`, ask the user to run `/commit` to handle uncommitted changes first
 
 ### 3. Planning-artifacts gate
 
-After step 2, before creating a branch. Do not commit, do not run `git rm`, and do not run `/relay:discard`. Uncommitted artifact files are outside this PR. Call the script once:
-
-```bash
-bash <skill-dir>/scripts/pr-artifacts.sh <default>
-```
-
-Read that JSON: `plans` (`path`, `execution_status`), `notes` (`path`, `sibling`, `sibling_in_gate`), `relay` (`path`, `current_branch`, `mirror`), `dropped` (`path`, `sha`), `skipped` (unusual name). Show each skipped path as "skipped: unusual name" and do not print a `git rm` or permalink for it.
-
-If `plans`, `notes`, and `relay` are all empty, skip the questions and continue to step 4. Do not announce an empty gate. Still pass dropped-plan permalinks to step 5.
-
-**Plans.** One **Keep** / **Drop** question per `plans` entry. The prompt shows the path and `execution_status`. When that status is not `completed`, include "execution not finished" and the actual status. The user still decides.
-
-**Notes.** `sibling_in_gate` true follows that plan's Keep or Drop — do not ask. `sibling_in_gate` false gets its own Keep / Drop question (path only; `*.notes.md` is not a plan).
-
-**Relay.** One question per file. `current_branch` true: **Keep** or **Discard via `/relay:discard`** (do not `git rm`; `/relay:discard` takes the `discarded` lock when a twin exists). `current_branch` false and `mirror` false: **Keep** or **Drop**. `current_branch` false and `mirror` true: **Keep** or **Discard later from its own branch** (no Drop — removing it here would orphan the twin). **Discard later** counts as Keep: nothing is printed, the gate does not stop, tell the user to run `/relay:discard` on that branch later, and list the path as `(kept)` in step 5.
-
-Up to four questions per call of the question tool (`AskQuestion`/`AskUserQuestion`/`ask_user_question`); wait before the next four (otherwise ask conversationally).
-
-**Any Drop, or Discard via `/relay:discard`.** Stop. Do not continue to step 4, push, or open a PR.
-
-1. When any plan is Dropped, run `git rev-parse HEAD` before printing `git rm`. Print that full SHA and each dropped plan path. The re-run uses this SHA for those permalinks when `git cat-file -e "<sha>:<path>"` succeeds; otherwise use the JSON `sha`. Name each dropped plan and its sibling note when `notes` lists that plan as `sibling`.
-
-2. When any plan is Dropped, print this and do not run it. Paths are each dropped plan plus each `notes` path whose `sibling` is that plan:
-
-```bash
-git rm -- docs/plans/<file> docs/plans/<slug>.notes.md …
-```
-
-2b. When a note with `sibling_in_gate` false is Dropped, print `git rm -- <path> …` for those notes paths only and do not run it. No dropped-plan permalink.
-
-3. When any relay file is Discarded or Dropped:
-   - `current_branch` true: print: Run `/relay:discard`. It takes the `discarded` lock when a twin exists, then removes this branch’s handoff (`docs/relay/<slug>.md` or legacy `docs/handoffs/<slug>.md`). Do not `git rm` `docs/relay/**` or `docs/handoffs/**`.
-   - `current_branch` false and `mirror` false: print `git rm -- <path> …` and do not run it. Mirrored other-branch files are never Dropped here.
-
-4. Ask the user to run `/commit` for removals already made (plan `git rm`, other-branch relay `git rm`, plus relay files removed by `/relay:discard`). When a plan is dropped, suggest `chore: drop plan <slug>` (`<slug>` is the basename without `.md`; several slugs, space-separated, in one subject). When only current-branch relay files are discarded, suggest `chore: discard relay <slug>`; for other-branch relay drops use `chore: drop relay <slug>`. When plans and relay files are mixed, name both. Then stop. Kept answers are not stored: the re-run asks again. After those paths are gone and committed, re-running `/gh-create-pr` passes the gate.
-
-**All Keep (including Discard later).** Continue to step 4. Step 5 lists every kept path under `## Planning artifacts`, including a kept plan's sibling note when `notes` lists it, and each note kept via its own question.
-
-Permalink for each `dropped` entry: `https://github.com/<owner>/<repo>/blob/<sha>/<path>` (`gh repo view --json nameWithOwner -q .nameWithOwner`; `<path>` has no leading slash).
+After step 2, before creating a branch. Read and follow `<skill-dir>/artifacts.md`: it runs `scripts/pr-artifacts.sh <default>`, asks **Distil & Drop (Recommended)** / **Drop** / **Keep** per plan (and the note and relay questions), archives dropped plans to local `refs/plan-archive/*` refs, and stops for `/commit` on any Distil & Drop, Drop, or Discard. Do not commit, `git rm`, or run `/relay:discard` here. If it does not stop, continue to step 4 and carry its dropped-plan results (`archive_sha`, `sha`) to steps 4c and 5.
 
 ### 4. Ensure feature branch
 
@@ -107,7 +70,11 @@ Inspect commit noise on the branch:
 bash <skill-dir>/scripts/pr-compact.sh signals <default>
 ```
 
-When `offer` is `true`, read and follow `<skill-dir>/compact.md`. When `offer` is `false`, continue to step 5 silently. On non-zero exit, report briefly and continue to step 5. If compaction runs, re-read `git log --oneline origin/<default>...HEAD` for step 5.
+When `offer` is `true`, read and follow `<skill-dir>/compact.md`. When `offer` is `false`, continue to step 4c silently. On non-zero exit, report briefly and continue to step 4c. If compaction runs, re-read `git log --oneline origin/<default>...HEAD` for step 5.
+
+### 4c. Archive push approval
+
+After step 4b, before step 5. When step 3 produced dropped plans with an `archive_ref`, follow the Archive push section of `<skill-dir>/artifacts.md`. Push only on that separate approval; declined or rejected still continues to step 5.
 
 ### 5. Draft PR title and body
 
@@ -116,7 +83,12 @@ When `offer` is `true`, read and follow `<skill-dir>/compact.md`. When `offer` i
   - Multiple commits → primary commit's type+summary, or a combined summary of the main change.
 - **Body:**
   - Start with a `## Summary` bullet list derived from the commit messages (what changed and why).
-  - If step 3 kept any files or recovered any dropped-plan permalinks, add `## Planning artifacts` after the summary and before the test plan. One bullet per kept path (`<path> (kept)`), plans and relay files included; for each kept plan, also bullet the sibling path `notes` lists for it (`(kept)`). One bullet per dropped plan: the blob permalink from step 3, labelled `(dropped)` — or `<path> (dropped, history compacted)` with no permalink if step 4b compacted (notes siblings are removed via `git rm` with the plan, not separate permalinks). Include only rows that exist. Omit the heading when both lists are empty.
+  - If step 3 kept any files or recovered any dropped-plan permalinks, add `## Planning artifacts` after the summary and before the test plan. One bullet per kept path (`<path> (kept)`), plans and relay files included; for each kept plan, also bullet the sibling path `notes` lists for it (`(kept)`). One bullet per dropped plan (notes siblings are removed via `git rm` with the plan, not separate permalinks), by its step 4c result, with `<url>` = `https://github.com/<owner>/<repo>/blob/<sha>/<path>` (`gh repo view --json nameWithOwner -q .nameWithOwner`; `<path>` has no leading slash):
+    - Archive pushed (or found on the remote): `<url with the archive SHA (the remote SHA when it differs)> (dropped)`.
+    - Not pushed (declined, rejected, or never archived), step 4b did not compact: `<url with the dropped sha> (dropped, archive not pushed)`.
+    - Not pushed, step 4b compacted: `<path> (dropped, history compacted)`, no permalink.
+
+    Include only rows that exist. Omit the heading when both lists are empty.
   - Include a short `## Test plan` checklist.
   - Check for a repo PR template (`.github/PULL_REQUEST_TEMPLATE.md` or any `.md` under `.github/PULL_REQUEST_TEMPLATE/`). If found, append its content below the generated summary, separated by a blank line.
 
@@ -149,7 +121,7 @@ Use `-u` when the branch has no upstream. If rejected on a diverged branch with 
 
 ### 8. Create PR (sequential)
 
-If step 1 already found an existing PR for this branch, report that URL and skip create (do not call `gh pr create`). If step 3 produced planning-artifact lines, show them in that report. Do not edit the existing PR body unless the user asks.
+If step 1 already found an existing PR for this branch, report that URL and skip create (do not call `gh pr create`). If step 3 or 4c produced planning-artifact lines, show them in that report, including each dropped plan's archive permalink. Do not edit the existing PR body unless the user asks.
 
 Otherwise:
 
@@ -162,7 +134,7 @@ gh pr create --base <default> --title "<conventional-commit title>" --body "$(ca
 ## Planning artifacts
 - docs/plans/<file>.md (kept)
 - docs/plans/<slug>.notes.md (kept)
-- https://github.com/<owner>/<repo>/blob/<sha>/docs/plans/<file>.md (dropped)
+- https://github.com/<owner>/<repo>/blob/<archive_sha>/docs/plans/<file>.md (dropped)
 
 ## Test plan
 - [ ] <checklist item>
@@ -188,6 +160,8 @@ After the PR is open (and CI is green or the user accepted skipped checks):
 - After merge on `<default>`: suggest `/gh-tag-release` to tag and trigger the publish workflow, **or** `/gh-draft-release` to create a draft GitHub Release with notes (no tag/publish).
 
 ## Safety (never)
+
+- Push `refs/plan-archive/*` before the step 4c approval, or force-push or delete one (print `git update-ref -d <ref>` for the user instead). Creating them locally via `pr-artifacts.sh archive` is allowed
 
 - Commit secret/credential files (`.env`, tokens, keys), update `git config`, or skip hooks (`--no-verify`) unless the user explicitly asks
 - Commit, `git rm`, or `/relay:discard` from this skill (approved compaction in step 4b via `pr-compact.sh` is the only case that rewrites commits). On Drop or Discard, print the commands and ask the user to run `/commit`. Never `git rm` a relay file for the current branch (use `/relay:discard`) or any relay file with `mirror:`; for an unmirrored other-branch relay file, only print the `git rm`, never run it

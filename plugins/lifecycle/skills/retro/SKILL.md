@@ -2,7 +2,8 @@
 name: retro
 description: >-
   Record lessons learned from a plan: write one approved entry to
-  docs/lessons.md from that plan's runs, then stop. Never commits.
+  docs/lessons.md from that plan's runs, plus an approved decision
+  record at docs/decisions/<slug>.md, then stop. Never commits.
   Args: [plan]. Use when the user asks to retro, asks for lessons
   learned from a plan, or mentions /retro.
 disable-model-invocation: true
@@ -10,7 +11,7 @@ disable-model-invocation: true
 
 # retro
 
-Write one approved lessons entry for a completed plan. `scripts/lessons.sh` enforces the caps. Never commit. Never edit the plan.
+Write one approved lessons entry and one approved decision record (ADR) for a completed plan. `scripts/lessons.sh` enforces the lessons caps. Never commit. Never edit the plan.
 
 **User prompts:** use the question tool (`AskQuestion`/`AskUserQuestion`/`ask_user_question`) when available; otherwise ask conversationally.
 
@@ -42,7 +43,7 @@ bash <skill-dir>/scripts/lessons.sh summary <plan>
 bash <skill-dir>/scripts/lessons.sh has docs/lessons.md <slug>
 ```
 
-Non-zero `summary`: report the error and stop. `has` exit 0: tell the user this run replaces that slug's entry. Exit 1: no entry yet. Exit 2: stop.
+The lessons entry and the ADR are independent. Non-zero `summary`, or `has` exit 2: report the error, skip steps 4-6 (lessons only), and go to step 7. `has` exit 0: tell the user this run replaces that slug's entry. Exit 1: no entry yet.
 
 ### 4. Draft lessons
 
@@ -58,7 +59,7 @@ Show the stats line and the lessons. Ask with the question tool: Approve / Edit 
 
 - Approve: go to step 6.
 - Edit: take the user's replacement lessons (still 1–3 one-liners, still within the size budget), show them again, and ask again.
-- Cancel: stop. Do not write.
+- Cancel: skip the lessons write (do not write `docs/lessons.md`) and go to step 7.
 
 ### 6. Write
 
@@ -68,18 +69,35 @@ From the repository root:
 bash <skill-dir>/scripts/lessons.sh add docs/lessons.md <slug> "<stats>" "<lesson>" …
 ```
 
-Pass the stats line and each lesson as its own argument. The script writes `docs/lessons.md` only: same slug replaces, newest first, at most 3 lessons, 500 bytes per entry, 8 entries, 4096 bytes. Exit 3: shorten the lessons, show them, ask again, and retry this step once. A second exit 3: stop. Do not hand-edit the file to bypass a cap.
+Pass the stats line and each lesson as its own argument. The script writes `docs/lessons.md` only: same slug replaces, newest first, at most 3 lessons, 500 bytes per entry, 8 entries, 4096 bytes. Exit 3: shorten the lessons, show them, ask again, and retry this step once. A second exit 3: skip the lessons write and go to step 7. Do not hand-edit the file to bypass a cap.
 
-### 7. Show the result
+### 7. Draft the decision record
+
+Read `<skill-dir>/decision.md` and follow it. Draft the ADR from the plan. Get the ref SHA with `git rev-parse --verify -q refs/plan-archive/<plan basename without .md>`.
+
+### 8. Approve the ADR
+
+Show the full ADR and the target path `docs/decisions/<slug>.md` (the lessons slug). If that file exists, say this run replaces it. Ask with the question tool: Approve / Edit / Skip. Otherwise ask conversationally.
+
+- Approve: go to step 9.
+- Edit: take the user's replacement text (still following `decision.md`), show it again, and ask again.
+- Skip: do not write the ADR; go to step 10.
+
+### 9. Write the ADR
+
+`mkdir -p docs/decisions`, then write the approved text to `docs/decisions/<slug>.md` (replace when it exists; the user already confirmed in step 8). Write only that path.
+
+### 10. Show the result
 
 ```bash
-git diff -- docs/lessons.md
+git diff -- docs/lessons.md docs/decisions/<slug>.md
 ```
 
-If the file is untracked, show the new entry (`bash <skill-dir>/scripts/lessons.sh read docs/lessons.md`). Suggest `/commit`. Do not commit. Do not stage. Do not edit the plan.
+If a file is untracked, print the new entry (`bash <skill-dir>/scripts/lessons.sh read docs/lessons.md`) or the new ADR (`cat docs/decisions/<slug>.md`). Suggest `/commit`. Do not commit. Do not stage. Do not edit the plan.
 
 ## Rules
 
 - Never commit, push, or edit the plan.
+- Write only `docs/lessons.md` and `docs/decisions/<lessons-slug>.md`.
 - Never write `docs/lessons.md` except through `scripts/lessons.sh`.
 - Never pass a `docs/plans/` path to `add`.

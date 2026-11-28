@@ -63,13 +63,13 @@ flowchart TB
   subgraph PostShip["Standalone Commit, PR, Review & Release"]
     direction LR
     Commit["/commit<br/>Conventional Commit"]
-    Retro["/retro<br/>docs/lessons.md"]
-    PR["/gh-create-pr<br/>Keep/Drop gate · CI"]
+    Retro["/retro<br/>lessons · decisions"]
+    PR["/gh-create-pr<br/>Distil & Drop gate · CI"]
     Addr["/gh-address-review<br/>triage · fix · reply · CI"]
     Rel["/gh-draft-release<br/>or /gh-tag-release"]
 
     Commit --> PR --> Addr --> Rel
-    Commit -. "before dropping plan" .-> Retro
+    Commit -. "Distil & Drop" .-> Retro
   end
 
   FinishNone -. "manual finish" .-> Commit
@@ -96,7 +96,7 @@ Full stage contracts, overrides, unattended worker rules, guardrail policy, and 
 
 | Plugin | Version | What it is | Docs |
 | --- | --- | --- | --- |
-| `lifecycle` | 0.28.0 | Idea → shipped skill chain (`conduct` + 10 composable skills) | [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md) |
+| `lifecycle` | 0.29.0 | Idea → shipped skill chain (`conduct` + 10 composable skills) | [LIFECYCLE.md](plugins/lifecycle/LIFECYCLE.md) |
 | `delegate` | 0.22.0 | Hands plan waves to Cursor (`agent`), Antigravity (`agy`), or Devin (`devin`) CLIs while Claude Code gates and reviews | [delegate/README.md](plugins/delegate/README.md) |
 | `exec-observe` | 0.6.0 | Live `/exec` pane, status line, and `/exec history` for `delegate` runs (never in model context) | [exec-observe/README.md](plugins/exec-observe/README.md) |
 | `relay` | 0.6.0 | Cross-surface handoff (`save` / `pickup` / `check` / `discard` + `SessionStart` hook) | [relay/README.md](plugins/relay/README.md) |
@@ -111,8 +111,8 @@ Full stage contracts, overrides, unattended worker rules, guardrail policy, and 
 | `critique` | Independent review of a plan (`top-critique`) or change (`--depth quick\|standard\|deep`, mid verifier gate + closing top + security pass) | Plan file or working tree | Never |
 | `execute-plan` | Runs v2 map waves through subagents, mid + top independent review, `plan-status.sh` audit, `delegate-verify.sh` Verification | Working tree + plan audit metadata | Never by default (standalone local auto-commit only with opt-in `relax.executePlanCommit`) |
 | `commit` | Conventional Commit (optional version / `CHANGELOG.md` bump) after approval | Local git history | Commits only |
-| `retro` | 1–3 one-line lessons from a plan's runs via `lessons.sh` (capped) | `docs/lessons.md` | Never |
-| `gh-create-pr` | Planning-artifacts gate (Keep/Drop plans & relay files), branch, optional commit compaction, push, PR via `gh`, CI watch | Remote branch + PR | After approval (approved compaction + separate `--force-with-lease` approval on a pushed branch) |
+| `retro` | 1–3 one-line lessons from a plan's runs via `lessons.sh` (capped), plus a decision record (ADR) naming the plan's `refs/plan-archive/<slug>` | `docs/lessons.md`, `docs/decisions/<slug>.md` | Never |
+| `gh-create-pr` | Planning-artifacts gate (Distil & Drop / Drop / Keep plans, Keep/Drop relay files; dropped plans archived to `refs/plan-archive/<slug>`), branch, optional commit compaction, push, PR via `gh`, CI watch | Remote branch + PR | After approval (separate approvals for pushing archive refs, compaction, and `--force-with-lease` on a pushed branch) |
 | `gh-address-review` | Triage PR feedback & failing CI, fix, commit, push, batch-approved replies, opt-in thread resolve, CI re-watch | Working tree, remote branch + PR replies | After approval |
 | `gh-draft-release` | Draft GitHub Release with generated notes (no tag/publish) | Draft release | After approval |
 | `gh-tag-release` | Date `CHANGELOG.md` and push a release tag to trigger publish CI | Tag + publish CI | After approval |
@@ -148,22 +148,91 @@ Full step-by-step instructions (including Devin profiles, Cursor Cloud Agents & 
 
 ## Configuration
 
-### Model tiers & overrides
+User-level configuration lives outside the repository in two optional files:
 
-Skills resolve models by role (`top-plan`, `top-review`, `top-critique`, `execute`, `mid`, `low`) from the shipped registry `plugins/delegate/scripts/tiers.json` (rendered in [model-tiers.md](plugins/lifecycle/model-tiers.md)).
+- **`~/.config/nng-kit/tiers.json`** (respects `$XDG_CONFIG_HOME`, or override via `$NNG_KIT_TIERS`) — partial JSON deep-merged over the shipped registry `plugins/delegate/scripts/tiers.json` (`objects` merge, `arrays` replace). Set only what you change. `.conduct` settings require a **regular file outside any git repository or worktree** (paths resolving inside a repo, including symlinks, are ignored as `ignored:in-repo`).
+- **`~/.config/relay/env`** (or `env` in host `settings.json`) — optional `RELAY_BACKEND` / `RELAY_ROOT` remote mirror config for `relay`.
 
-Create `~/.config/nng-kit/tiers.json` (respects `$XDG_CONFIG_HOME`, or override via `$NNG_KIT_TIERS`) to deep-merge overrides over the shipped registry without forking — objects merge, arrays replace (for example, `{"host": "cursor"}` switches the default host). See [tiers.example.json](plugins/lifecycle/tiers.example.json) and [delegate/README.md#tool-registry](plugins/delegate/README.md#tool-registry).
+### Model tiers & registry overrides
+
+Skills resolve models by role rather than hardcoding model slugs. Shipped pins live in `plugins/delegate/scripts/tiers.json` and are rendered in [model-tiers.md](plugins/lifecycle/model-tiers.md); full schema and resolution details are in [tiers.example.json](plugins/lifecycle/tiers.example.json) and [delegate/README.md#tool-registry](plugins/delegate/README.md#tool-registry).
+
+| Tier | Used for | Fallback |
+| --- | --- | --- |
+| `top-plan` | `/brainstorm`, `/make-plan`, `/critique plan` sessions | Next tool in `planningOrder` via `/relay:save` + `/relay:pickup` |
+| `top-review` | `top` map rows, batch/final reviews, `/critique` closing pass | `top@devin-fusion` when Devin is enabled and not host; else stop and ask |
+| `top-critique` | Optional cross-family `/critique plan` review subagent | Falls back to `top-review` |
+| `execute` | `execute` map rows and default `delegate:*` launches | Falls back to `mid` (`role: "implement"`) |
+| `mid` | `/execute-plan` orchestrator (v2 maps), `mid` implement and review passes (`role`: `"implement"` \| `"review"`) | None (exits `3` if exhausted) |
+| `low` | `low` map rows | Falls back to `mid` (same `role`) |
+
+Key override keys in `~/.config/nng-kit/tiers.json`:
+
+- `host` — default host tool (`"claude-code"` shipped; `"cursor"`, `"devin"`, or `"agy"`).
+- `planningOrder` — fallback order across tools when `top-plan` is exhausted (`["claude-code", "cursor", "devin", "agy"]`).
+- `tools.<id>.enabled` — enable or disable a tool (`true` / `false`).
+- `tools.<id>.until` and row `until` (`YYYY-MM-DD`) — expiry date; expired entries are skipped and logged.
+- `tools.<id>.tiers.<tier>` — ordered pin array of `{model, role?, until?, note?}` (`role` is `"implement"` or `"review"`).
+- `tools.<id>.defaultReviewRunner` / `reviewRunners` — default and available `top@<name>` review runners.
+- `tools.<id>.authEnv` — extra env var names passed through the delegate clean-env allowlist.
+
+Example partial `~/.config/nng-kit/tiers.json` (omit `host` and `tools` to keep shipped pins live; omit `notify` when unused — do **not** set `"notify": null`):
+
+```json
+{
+  "conduct": {
+    "launcher": "headless",
+    "defaults": {
+      "finish": "push",
+      "delegate": "print",
+      "plan": "keep",
+      "confirm": "no",
+      "continue": "fresh"
+    },
+    "headless": {
+      "timeoutMinutes": 120,
+      "permissionMode": "auto"
+    },
+    "relax": {
+      "skipChoicePrompt": false,
+      "reuseAheadBranch": false,
+      "executePlanCommit": false,
+      "unattendedFinish": ["pr"]
+    }
+  }
+}
+```
+
+Verify merged settings and resolved pins (lifecycle-only installs use `plugins/lifecycle/skills/execute-plan/scripts/tiers.sh`):
+
+```bash
+bash plugins/delegate/scripts/tiers.sh validate
+bash plugins/delegate/scripts/tiers.sh resolve <tool> <tier> [--role implement|review]
+bash plugins/delegate/scripts/tiers.sh policy
+bash plugins/delegate/scripts/tiers.sh headless
+```
 
 Advisor: not configured by the kit. In Claude Code set `advisorModel` in `settings.json`; in Cursor install the Advisor plugin and run `/advisor <slug>` per project.
 
 ### Guardrail policy (`.conduct`)
 
-User-only `/conduct` and standalone `/execute-plan` policy lives under `.conduct` in `~/.config/nng-kit/tiers.json` (`tiers.sh policy` / `tiers.sh headless` ignore any override inside a git repo as `ignored:in-repo` and fall back to strict defaults on invalid schema):
+User-only `/conduct` and standalone `/execute-plan` policy lives under `.conduct` in `~/.config/nng-kit/tiers.json` (`CLI args > .conduct.defaults > skill default`; invalid schemas exit `2` and callers fall back to strict defaults):
 
-- `.conduct.launcher` — default unattended launcher (`"print"` or `"headless"`).
-- `.conduct.defaults` — pre-fill `finish`, `delegate`, `plan`, `confirm`, `continue` (`CLI args > defaults > skill default`).
-- `.conduct.headless` — `timeoutMinutes` (`1`–`1440`, default `120`), `permissionMode` (`auto|acceptEdits|default`, default `auto`), optional `notify` argv array.
-- `.conduct.relax` — opt-in relaxations (`skipChoicePrompt`, `reuseAheadBranch`, `executePlanCommit`, `unattendedFinish` defaulting to `["pr"]`).
+| Key | Allowed values | Default | Effect |
+| --- | --- | --- | --- |
+| `conduct.launcher` | `"print"` \| `"headless"` | `"print"` | Unattended worker launcher; `"headless"` requires a matching probe marker (`launch.sh probe headless --model <mid-model>` → `~/.local/state/nng-kit/headless-probe.json`) |
+| `conduct.defaults.finish` | `"push"` \| `"pr"` \| `"commit"` \| `"none"` | `"push"` | Default Stage 6 finish mode |
+| `conduct.defaults.delegate` | `"print"` \| `"run"` | `"print"` | Default `delegate:*` handling on Claude Code |
+| `conduct.defaults.plan` | `"keep"` \| `"drop"` | `"keep"` | Default Stage 6 plan handling |
+| `conduct.defaults.confirm` | `"no"` \| `"yes"` | `"no"` | Ask before Stage 6 commit/PR |
+| `conduct.defaults.continue` | `"fresh"` \| `"here"` \| `"unattended"` | `"fresh"` | Default Gate B continuation mode |
+| `conduct.headless.timeoutMinutes` | integer `1`–`1440` | `120` | Headless worker timeout before TERM/KILL |
+| `conduct.headless.permissionMode` | `"auto"` \| `"acceptEdits"` \| `"default"` | `"auto"` | Claude permission mode for headless workers |
+| `conduct.headless.notify` | non-empty argv array (`notify[0]` absolute executable path) | omitted | Detached hook invoked when a worker records status (status JSON path appended as final arg) |
+| `conduct.relax.skipChoicePrompt` | `false` \| `true` | `false` | Skip `/conduct` Step 0.5 prompts already covered by `defaults` |
+| `conduct.relax.reuseAheadBranch` | `false` \| `true` | `false` | Reuse an ahead feature branch in Step 0.6 without prompting (not applied to unattended workers) |
+| `conduct.relax.executePlanCommit` | `false` \| `true` | `false` | Auto-commit locally on a non-default branch after a clean standalone `/execute-plan` (never pushes) |
+| `conduct.relax.unattendedFinish` | non-empty subset of `["pr", "push", "commit"]` | `["pr"]` | Finish modes allowed for unattended workers |
 
 Hard safety rules (no commits/pushes to default branch, no force-push/`--no-verify`/amend, no secrets/brainstorms/foreign paths, no Gate B/review/verification bypass) cannot be relaxed. Details: [LIFECYCLE.md#guardrail-policy](plugins/lifecycle/LIFECYCLE.md#guardrail-policy).
 
@@ -188,6 +257,21 @@ bash plugins/delegate/scripts/tiers.sh resolve <id> execute
 Lifecycle-only installs have no `delegate` plugin: use `plugins/lifecycle/skills/execute-plan/scripts/tiers.sh` instead.
 
 Disabled tools exit `3` (`REFUSE:` on stderr) across `tiers.sh resolve`, `plan-status.sh rows` / `rows --lint` (non-`done` rows), `delegate-launch.sh`, and `delegate-review-launch.sh run`. Status writers (`start`, `batch`, `terminal`, `review`), `tiers.sh delegates`, and review guard/verdict helpers remain open so in-flight runs can finish.
+
+### Environment variables
+
+| Variable | Values / default | Effect |
+| --- | --- | --- |
+| `NNG_KIT_TIERS` | path (default `${XDG_CONFIG_HOME:-~/.config}/nng-kit/tiers.json`) | Override the `tiers.json` override file path |
+| `NNG_KIT_HEADLESS_PERMISSION_MODE` | `auto` \| `acceptEdits` \| `default` | Override `.conduct.headless.permissionMode` for headless workers |
+| `NNG_KIT_HEADLESS_TIMEOUT_SECONDS` | positive integer | Override `.conduct.headless.timeoutMinutes` in seconds |
+| `DELEGATE_SANDBOX` | `on` (default) \| `off` | `off` restores Cursor `--force` without `--sandbox` when tasks need network or outside-workspace writes (`cursor` only) |
+| `DELEGATE_ENV_ALLOW` | comma-separated var names | Add variables (e.g. `ANTHROPIC_API_KEY`) to the delegate clean-env allowlist |
+| `DELEGATE_MCP` | `1` (default unset) | Re-enable configured MCP servers on `top@claude-headless` only |
+| `DELEGATE_TIMEOUT` / `DELEGATE_REVIEW_TIMEOUT` | `<n>[smh]` (defaults `90m` / `30m`) | Timeout ceilings for delegate execute and external review runs |
+| `DELEGATE_VERIFY_TIMEOUT` | integer seconds (default `900`) | Timeout ceiling for `delegate-verify.sh` commands |
+| `AGY_CLI_DISABLE_AUTO_UPDATE` | `true` | Keep Homebrew as the sole updater for `agy` (passed through delegate clean env) |
+| `RELAY_BACKEND` / `RELAY_ROOT` | `dropbox` / path (unset = repo-only) | Enable remote handoff mirroring (process env or `~/.config/relay/env`) |
 
 ### Subagent hosts
 

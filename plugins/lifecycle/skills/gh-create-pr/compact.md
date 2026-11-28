@@ -4,7 +4,7 @@ Follow this guide only when step 4b's `pr-compact.sh signals <default>` returned
 
 ## 1. Check skip conditions
 
-Skip the compaction offer silently and continue to `SKILL.md` step 5 if any of the following hold:
+Skip the compaction offer silently and continue to `SKILL.md` step 4c if any of the following hold:
 
 - `clean=no` (from step 1 `git-preflight.sh state`).
 - `refs/remotes/origin/<branch>` exists (`git rev-parse --verify --quiet refs/remotes/origin/<branch>`) and `git rev-list --count HEAD..refs/remotes/origin/<branch>` is greater than 0.
@@ -29,7 +29,7 @@ Show the proposed groups (which commits fold into each group and each group's re
 Ask for approval via the question tool (`AskQuestion`/`AskUserQuestion`/`ask_user_question`) when available; otherwise ask conversationally.
 
 - When step 1 found an existing PR for this branch, **default the answer to No** (keep commits as-is).
-- If the user declines, continue to `SKILL.md` step 5 without compacting.
+- If the user declines, continue to `SKILL.md` step 4c without compacting.
 
 ## 4. Record remote tip and write spec
 
@@ -56,13 +56,13 @@ Spec format — one group per line, no blank lines, strictly one tab per line:
 bash <skill-dir>/scripts/pr-compact.sh apply <default> <spec-file>
 ```
 
-- **Exit 0:** stdout prints `old=<sha> new=<sha> backup=<ref> commits=<n>`. Show that output and the backup ref (recovery: `git reset --hard <backup>`) to the user, then continue to `SKILL.md` step 5.
+- **Exit 0:** stdout prints `old=<sha> new=<sha> backup=<ref> commits=<n>`. Show that output and the backup ref (recovery: `git reset --hard <backup>`) to the user, then continue to `SKILL.md` step 4c.
 - **Exit 3 (empty group — tree equal to parent's tree):** re-propose once with that group folded into an adjacent group, present for approval, and retry `apply`.
-- **Any other exit 3:** report the `REFUSE:` message and continue to `SKILL.md` step 5 without compaction.
+- **Any other exit 3:** report the `REFUSE:` message and continue to `SKILL.md` step 4c without compaction.
 - **Exit 1, 2, or any other non-zero exit:** stop and report the error. Do not push or open the PR.
 
 ## 6. After compaction
 
 - Re-read `git log --oneline origin/<default>...HEAD` before drafting the PR title and summary in `SKILL.md` step 5.
-- Dropped plans noted in step 3 before compaction are no longer at their old SHAs in the compacted history; list each under `## Planning artifacts` by path as `<path> (dropped, history compacted)` with no permalink.
+- Dropped plans noted in step 3 before compaction are no longer at their old SHAs in the compacted history. A plan whose archive is pushed (step 4c) keeps its archive permalink (`blob/<archive_sha>/<path> (dropped)`); only plans without a pushed archive are listed under `## Planning artifacts` by path as `<path> (dropped, history compacted)` with no permalink.
 - Carry `<remote-old>` (when `refs/remotes/origin/<branch>` existed) and `<backup>` into step 7.

@@ -38,7 +38,7 @@ Build the staging set from every changed path, tracked or untracked, in `git sta
 - Never stage `docs/brainstorms/**` or likely secrets (`.env`, credentials, tokens), per the commit skill's **Preconditions**.
 - Never stage `.claude/tmp/**` (`/execute-plan` run files), tracked or untracked.
 - Include `docs/plans/**` only for `plan=keep`, only when the file belongs to this change, and only when `git check-ignore -q <path>` returns 1 (not ignored). Apply the same choice and ignore check to the plan's sibling `.notes.md` file (replace `.md` with `.notes.md`).
-- For `plan=drop`, leave the plan and its notes uncommitted; do not delete them or create a removal commit.
+- For `plan=drop`, leave the plan and its notes uncommitted; do not delete or archive them, or create a removal commit.
 
 Use path-specific adds from the repo root, not `git add -A` or `git add .`. Check the staged-path list before commit so excluded content cannot ride along in the index. If excluded paths are already staged, downgrade and report rather than committing or silently unstaging someone else's work. If no eligible changes remain, do not create an empty commit. Continue to **Push** only when Step 0.6 approved reusing a branch with commits ahead of `origin/<default>`, or conductor checkpoint commits exist (`git rev-list --count <Step 0.6 HEAD>..HEAD` > 0); `finish=commit` stops here and reports. Otherwise report nothing to commit and stop.
 

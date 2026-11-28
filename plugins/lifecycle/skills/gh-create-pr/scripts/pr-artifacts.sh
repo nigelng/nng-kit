@@ -2,17 +2,42 @@
 # pr-artifacts.sh <default-branch> — read-only planning-artifact inventory.
 # Prints JSON for added/modified plans (with execution.status), sibling notes
 # at HEAD, relay files (current_branch and mirror), dropped plans (resolved
-# SHA), and paths skipped for an unusual name. Never runs git rm.
+# SHA), and paths skipped for an unusual name. Each plans and dropped entry
+# also carries archive_ref / archive_sha (null until archived). Never runs
+# git rm.
+#
+# pr-artifacts.sh archive <default-branch> <plan> — local only, never pushes.
+# Builds a parentless commit (temp index, plumbing only) holding the plan and
+# its sibling .notes.md at their repo paths, and points
+# refs/plan-archive/<plan basename without .md> at it. A plan absent at HEAD is
+# read from its last A/M commit in <base>..HEAD (the dropped.sha rule) and its
+# notes from the notes' own last A/M commit there (else the plan's commit); if
+# the ref already exists then, the existing SHA is printed. Prints
+# "ref=<ref> sha=<sha>". Re-running with an identical tree is a no-op. Exit 3
+# (REFUSE) on an unsafe path, a bad slug, a plan that cannot be found, or an
+# existing ref with a different tree; exit 2 on usage.
 # Bash 3.2. Run from the git repo that holds the branch.
 set -euo pipefail
 
 usage() {
-  echo "usage: pr-artifacts.sh <default-branch>" >&2
+  echo "usage: pr-artifacts.sh <default-branch> | pr-artifacts.sh archive <default-branch> <plan>" >&2
   exit 2
 }
 
-[[ $# -eq 1 ]] || usage
-default=$1
+refuse() {
+  echo "REFUSE: $*" >&2
+  exit 3
+}
+
+plan=""
+if [[ $# -eq 3 && "$1" == archive ]]; then
+  default=$2
+  plan=$3
+  [[ -n "$plan" ]] || usage
+else
+  [[ $# -eq 1 ]] || usage
+  default=$1
+fi
 [[ -n "$default" ]] || usage
 
 cd "$(git rev-parse --show-toplevel)"
@@ -91,6 +116,118 @@ at_head() {
   git cat-file -e "HEAD:$1" 2>/dev/null
 }
 
+archive_ref_of() {
+  printf 'refs/plan-archive/%s' "$(basename "$1" .md)"
+}
+
+# Prints the commit SHA of a plan's archive ref, or nothing when absent.
+archive_sha_of() {
+  git rev-parse --verify -q "$(archive_ref_of "$1")^{commit}" 2>/dev/null || true
+}
+
+# archive_source <path>: prints the commit to read <path> from: HEAD, else its
+# last A/M commit in <base>..HEAD.
+archive_source() {
+  if at_head "$1"; then
+    printf 'HEAD'
+    return
+  fi
+  git log -1 --diff-filter=AM --format=%H "$base..HEAD" -- "$1" || true
+}
+
+# archive_notes_source <plan> <plan-src>: notes follow the plan at HEAD; else
+# the notes' own last A/M commit, falling back to the plan's commit.
+archive_notes_source() {
+  local src
+  if at_head "$1"; then
+    printf 'HEAD'
+    return
+  fi
+  src=$(archive_source "${1%.md}.notes.md")
+  printf '%s' "${src:-$2}"
+}
+
+# archive_add <commit> <path> <index-file>: stages <path> from <commit> when
+# present there; refuses anything that is not a regular file.
+archive_add() {
+  local src=$1 path=$2 idx=$3 mode type blob
+  git cat-file -e "$src:$path" 2>/dev/null || return 0
+  read -r mode type blob _ < <(git ls-tree "$src" -- "$path")
+  [[ "$type" == blob && "$mode" != 120000 ]] || refuse "$path is not a regular file"
+  GIT_INDEX_FILE=$idx git update-index --add --cacheinfo "100644,$blob,$path"
+}
+
+# archive_tree <plan-src> <notes-src> <plan> <index-file>: writes a tree
+# holding only the plan and its sibling notes (when present in their commits)
+# and prints its id.
+archive_tree() {
+  archive_add "$1" "$3" "$4"
+  archive_add "$2" "${3%.md}.notes.md" "$4"
+  GIT_INDEX_FILE=$4 git write-tree
+}
+
+# archive_commit <tree> <slug>: parentless commit; falls back to a generic
+# identity when none is configured.
+archive_commit() {
+  local ident=()
+  if ! git var GIT_AUTHOR_IDENT >/dev/null 2>&1 || ! git var GIT_COMMITTER_IDENT >/dev/null 2>&1; then
+    ident=(GIT_AUTHOR_NAME=pr-artifacts GIT_AUTHOR_EMAIL=pr-artifacts@localhost
+      GIT_COMMITTER_NAME=pr-artifacts GIT_COMMITTER_EMAIL=pr-artifacts@localhost)
+  fi
+  env ${ident[@]+"${ident[@]}"} git commit-tree "$1" -m "chore(plans): archive $2"
+}
+
+# archive_write <ref> <slug> <tree> <existing-sha>: create the ref, or no-op
+# when it already holds the same tree.
+archive_write() {
+  local ref=$1 slug=$2 tree=$3 existing=$4 sha
+  if [[ -n "$existing" ]]; then
+    [[ "$(git rev-parse "$existing^{tree}")" == "$tree" ]] ||
+      refuse "$ref exists with a different tree; remove it with: git update-ref -d $ref"
+    echo "ref=$ref sha=$existing"
+    return
+  fi
+  sha=$(archive_commit "$tree" "$slug")
+  git update-ref "$ref" "$sha" ""
+  echo "ref=$ref sha=$sha"
+}
+
+archive_plan() {
+  local plan=$1 slug ref existing src nsrc tree
+  is_safe_plan "$plan" || refuse "unsafe plan path: $plan"
+  slug=$(basename "$plan" .md)
+  ref=$(archive_ref_of "$plan")
+  git check-ref-format "$ref" || refuse "invalid archive ref: $ref"
+  existing=$(archive_sha_of "$plan")
+  if [[ -n "$existing" ]] && ! at_head "$plan"; then
+    echo "ref=$ref sha=$existing"
+    return
+  fi
+  src=$(archive_source "$plan")
+  [[ -n "$src" ]] || refuse "plan not found at HEAD or in $base..HEAD: $plan"
+  nsrc=$(archive_notes_source "$plan" "$src")
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/pr-artifacts.XXXXXX")
+  trap 'rm -rf "$tmp"' EXIT
+  tree=$(archive_tree "$src" "$nsrc" "$plan" "$tmp/index")
+  archive_write "$ref" "$slug" "$tree" "$existing"
+}
+
+# Sets aref/asha for a plan path: the archive ref and SHA, or empty strings.
+archive_fields() {
+  aref=""
+  asha=$(archive_sha_of "$1")
+  if [[ -n "$asha" ]]; then
+    aref=$(archive_ref_of "$1")
+  fi
+}
+# jq prelude: empty string -> null.
+nn='def nn: if . == "" then null else . end;'
+
+if [[ -n "$plan" ]]; then
+  archive_plan "$plan"
+  exit 0
+fi
+
 slug=$(branch_slug)
 relay_self_a="docs/relay/${slug}.md"
 relay_self_b="docs/handoffs/${slug}.md"
@@ -162,8 +299,10 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     case "$status" in
       R*|C*) change=A ;;
     esac
+    archive_fields "$path"
     obj=$(jq -n -c --arg path "$path" --arg change "$change" --arg execution_status "$est" \
-      '{path:$path,change:$change,execution_status:$execution_status}')
+      --arg aref "$aref" --arg asha "$asha" \
+      "$nn"'{path:$path,change:$change,execution_status:$execution_status,archive_ref:($aref|nn),archive_sha:($asha|nn)}')
     plans_json=$(jq -n -c --argjson arr "$plans_json" --argjson obj "$obj" '$arr + [$obj]')
     sibling="${path%.md}.notes.md"
     if at_head "$sibling"; then
@@ -223,7 +362,9 @@ while IFS= read -r path || [[ -n "$path" ]]; do
     continue
   fi
   sha=$(git log -1 --diff-filter=AM --format=%H "$base..HEAD" -- "$path" || true)
-  obj=$(jq -n -c --arg path "$path" --arg sha "$sha" '{path:$path,sha:$sha}')
+  archive_fields "$path"
+  obj=$(jq -n -c --arg path "$path" --arg sha "$sha" --arg aref "$aref" --arg asha "$asha" \
+    "$nn"'{path:$path,sha:$sha,archive_ref:($aref|nn),archive_sha:($asha|nn)}')
   dropped_json=$(jq -n -c --argjson arr "$dropped_json" --argjson obj "$obj" '$arr + [$obj]')
 done < <(git log --diff-filter=A --name-only --pretty=format: "$base..HEAD" -- docs/plans || true)
 

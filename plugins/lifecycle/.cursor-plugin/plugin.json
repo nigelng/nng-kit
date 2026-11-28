@@ -1,6 +1,6 @@
 {
   "name": "lifecycle",
-  "version": "0.28.0",
+  "version": "0.29.0",
   "author": { "name": "nigelng" },
   "description": "Idea-to-shipped skill chain: conduct, brainstorm, make-plan, critique, execute-plan, commit, retro, gh-create-pr, gh-address-review, gh-draft-release, gh-tag-release"
 }

@@ -6,6 +6,14 @@ for plugin users. This file is public: keep private names and paths out.
 
 ## 2026-11-28
 
+- lifecycle 0.29.0: Distil & Drop plan archive — `gh-create-pr/scripts/pr-artifacts.sh
+  archive` writes a parentless local commit at `refs/plan-archive/<slug>` and
+  records `archive_ref`/`archive_sha` in the artifact inventory; `/gh-create-pr`
+  moves its artifact gate to `artifacts.md` with Distil & Drop (default), Drop
+  and Keep, and a separate archive-push approval (step `4c`); permalinks use the
+  archive SHA so they survive compaction (`compact.md` §6); `/retro` writes an
+  ADR to `docs/decisions/<slug>.md` (`decision.md`); unattended `/conduct` with
+  `plan=drop` is not archived; updated `LIFECYCLE.md` and `README.md`.
 - lifecycle 0.28.0: smaller implementer cycles and optional PR branch
   compaction — `execute-plan/implementer.md` now enforces small one-behavior
   test-and-implement → lint → verify cycles, targeted edits instead of

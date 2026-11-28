@@ -144,13 +144,21 @@ For a visual overview of the lifecycle and how `/conduct` orchestrates it, see t
                                        tracked-eligible `docs/plans/**` with the feature
                                        (`docs/brainstorms/**` never)
 
-/retro [plan]                      optional; run before the plan is dropped.
-  → docs/lessons.md                   One approved entry (stats + 1–3 lessons) via
-                                       lessons.sh. Never commits; never edits the plan.
+/retro [plan]                      optional; run before the plan is dropped (the
+  → docs/lessons.md                   Distil & Drop path prints it). One approved lessons
+  → docs/decisions/<slug>.md          entry (stats + 1–3 lessons) via lessons.sh, plus an
+                                       approved decision record (ADR) that names the
+                                       plan's `refs/plan-archive/<slug>` and SHA. Never
+                                       commits; never edits the plan.
 
-/gh-create-pr                      planning-artifacts gate (Keep/Drop per plan and relay
-  → pull request                      file on the branch), ensures a feature branch,
-                                       optionally compacts noisy commits (`compact.md`,
+/gh-create-pr                      planning-artifacts gate (Distil & Drop (default) /
+  → pull request                      Drop / Keep per plan; Keep/Drop per relay file),
+                                       archives dropped plans to a local parentless
+                                       `refs/plan-archive/<slug>` commit and prints
+                                       `/retro`, `git rm`, `/commit`; a separate approval
+                                       pushes the archive refs before the PR is drafted
+                                       (permalinks survive compaction); ensures a feature
+                                       branch, optionally compacts noisy commits (`compact.md`,
                                        separate `--force-with-lease` approval if pushed),
                                        pushes, opens a PR via `gh`, and watches CI
                                        (investigates failures; does not auto-fix without
@@ -227,8 +235,10 @@ or "tag to trigger CI publish."
   **Small plans** in [skills/make-plan/drafting-rules.md](skills/make-plan/drafting-rules.md)
   records `Plan size: small` under Assumptions and skips the per-wave review
   lines plus the mid-tier review passes. Plans may be committed with the feature (`/commit`
-  when tracked-eligible); `/gh-create-pr` asks **Keep/Drop** per plan on the
-  branch so `main` does not accumulate stale plans.
+  when tracked-eligible); `/gh-create-pr` asks **Distil & Drop / Drop / Keep** per plan on the
+  branch so `main` does not accumulate stale plans. Dropped plans survive as a
+  hidden `refs/plan-archive/<slug>` ref (pushed only after approval) and, via
+  `/retro`, a durable `docs/decisions/` record.
 - **Built-in Plan** (Cursor Plan mode / Claude Code `/plan`) — same "ready for
   steps" case, but product-owned artifacts under `~/.cursor/plans` or
   `~/.claude/plans` (not the fleet `docs/plans/**` contract). Claude `/plan`
